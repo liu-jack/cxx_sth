@@ -79,6 +79,7 @@ if(pos != int_vec.end())
 ///An empty class used in STL std::allocator
 ///The Standard C++ language definition says:
 ///A class with an empty sequence of members and base class objects is an empty class. Complete objects and member subobjects of an empty class type shall have nonzero size. 
+// See more http://www.cantrip.org/emptyopt.html
 template <typename T>
 class allocator
 {
@@ -87,5 +88,55 @@ class allocator
 		return (T*) ::operator new(n * sizeof(T));
 	}
 };
+
+template <class T,class Alloc = allocator<T> >
+class list
+{
+	struct Node{ .... };
+
+	struct P : public Alloc {
+		P(Alloc const& a) : Alloc(a),p(0){}
+		Node* p;
+	};
+	P head_;
+public:
+	explicit list(Alloc const &a = Alloc())
+		:head_(a){....}
+	....
+};
+
+unsigned int murMurHash(const void *key, size_t len,const int seed)
+{
+	const unsigned int m = 0x5bd1e995;
+	const int r = 24;
+	unsigned int h = seed ^ len;
+	// Mix 4 bytes at a time into the hash
+	const unsigned char *data = (const unsigned char *)key;
+	while(len >= 4)
+	{
+		unsigned int k = *(unsigned int *)data;
+		k *= m; 
+		k ^= k >> r; 
+		k *= m; 
+		h *= m; 
+		h ^= k;
+		data += 4;
+		len -= 4;
+	}
+	// Handle the last few bytes of the input array
+	switch(len)
+	{
+	case 3: h ^= data[2] << 16;
+	case 2: h ^= data[1] << 8;
+	case 1: h ^= data[0];
+		h *= m;
+	};
+	// Do a few final mixes of the hash to ensure the last few
+	// bytes are well-incorporated.
+	h ^= h >> 13;
+	h *= m;
+	h ^= h >> 15;
+	return h;
+}
 
 #endif
