@@ -58,6 +58,13 @@ size_t converHex(char buf[],uintptr_t value)
 	return p - buf;
 }
 
+///缩减vector
+template <class T>
+void shrinkCapcacity(std::vector<T> v)
+{
+	std::vector<T> tmp(v);//copy elements into a new vector
+	v.swap(tmp);		//swap internal vector data
+}
 ///This can remove all = val 
 std::vector<int> int_vec;
 int_vec.erase(remove(int_vec.begin(),int_vec.end(),val),int_vec.end());
