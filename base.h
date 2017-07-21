@@ -58,5 +58,17 @@ size_t converHex(char buf[],uintptr_t value)
 	return p - buf;
 }
 
+///This can remove all = val 
+std::vector<int> int_vec;
+int_vec.erase(remove(int_vec.begin(),int_vec.end(),val),int_vec.end());
+
+std::vector<int>::iterator pos;
+pos = std::find(int_vec.begin(),int_vec.end(),val);
+if(pos != int_vec.end())
+{
+	int_vec.erase(pos);
+}
+
+
 
 #endif
