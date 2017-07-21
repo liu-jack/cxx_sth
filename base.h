@@ -76,6 +76,16 @@ if(pos != int_vec.end())
 	int_vec.erase(pos);
 }
 
-
+///An empty class used in STL std::allocator
+///The Standard C++ language definition says:
+///A class with an empty sequence of members and base class objects is an empty class. Complete objects and member subobjects of an empty class type shall have nonzero size. 
+template <typename T>
+class allocator
+{
+	static T* allocate(size_t n)
+	{
+		return (T*) ::operator new(n * sizeof(T));
+	}
+};
 
 #endif
