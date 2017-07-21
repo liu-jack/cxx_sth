@@ -1,0 +1,5 @@
+不要在析构函数中调用纯虚函数.
+
+void container::reserve(size_type num)
+1)在内部保留若干内存，至少能够容纳num个元素。
+2）如果num小于实际容量，对vectors无效，对strings则是一个非绑定的缩减请求（nonbinding shrink request）
