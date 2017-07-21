@@ -1,6 +1,10 @@
 #ifndef __BASE_HH
 #define __BASE_HH
 
+#include <static_assert>
+#include <vector>
+/* Some usefull function and ideas.
+*/
 // Clears internal memory of an STL object.
 // STL clear()/reserve(0) does not always free internal memory allocated
 // This function uses swap/destructor to ensure the internal memory is freed.
@@ -15,10 +19,10 @@ void STLClearObject(T* obj)
 }
 const char digits[] = "9876543210123456789";
 const char* zero = digits + 9;
-BOOST_STATIC_ASSERT(sizeof(digits) == 20);
+static_assert(sizeof(digits) == 20);
 
 const char digitsHex[] = "0123456789ABCDEF";
-BOOST_STATIC_ASSERT(sizeof(digitsHex) == 17);
+static_assert(sizeof(digitsHex) == 17);
 template<typename T>
 size_t convert(char buf[],T value)
 {
