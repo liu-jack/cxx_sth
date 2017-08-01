@@ -143,4 +143,25 @@ unsigned int murMurHash(const void *key, size_t len,const int seed)
 	return h;
 }
 
+erase(iter++);
+or
+iter = erase(iter);
+
+std::map的operator[]的作用与下面的模板函数相等
+template <typename KeyType,typename ValueType>  
+void InsertOrUpdateItem( std::map<KeyType, ValueType>& mapList, KeyType key, ValueType tValue )  
+{  
+	typename std::map<KeyType, ValueType>::iterator iter = mapList.find( key );  
+	if ( iter != mapList.end() )  
+	{  
+		iter->second = tValue;   
+		return;  
+	}  
+	else  
+	{  
+		mapList.insert( iter, std::make_pair( key, tValue ) );  
+	}  
+} 
+
+
 #endif
