@@ -161,7 +161,101 @@ void InsertOrUpdateItem( std::map<KeyType, ValueType>& mapList, KeyType key, Val
 	{  
 		mapList.insert( iter, std::make_pair( key, tValue ) );  
 	}  
-} 
+}
 
+enum {__ALIGN = 8};//小区块的上调边界
+enum {__MAX_BYTES = 128};//max num of CHUNK
+enum {__NFREELISTS = __MAX_BYTES / __ALIGN};//fres list number
+template <bool threads,int inst>
+class __default_alloc_template
+{
+private:
+	static size_t ROUND_UP(size_t bytes)
+	{
+		return ((bytes) + __ALIGN - 1) & ~(__ALIGN - 1);
+	}
+private:
+	union obj{
+		union obj * free_list_link;
+		char client_data[1];//the client sees that.
+	};
+
+private:
+	static obj * volatile free_list[__NFREELISTS];
+	static obj * FREELIST_INDEX(size_t bytes)
+	{
+		return (((bytes) + __ALIGN -1)/__ALIGN -1);
+	}
+	static void *refill(size_t n);
+	static char* chunk_alloc(size_t size,int &nobjs);
+
+	static char* start_free;//just change in chunk_alloc()
+	static char* end_free;//just change itself in chunk_alloc()
+	static size_t heap_size;
+public:
+	static void *allocate(size_t n);
+	static void deallocate(void* p,size_t n);
+	static void *reallocate(void *p,size_t old_size,size_t new_size);
+};
+
+template <bool threads,int inst>
+void * __default_alloc_template<threads, inst>::refill(size_t n)
+{
+	void *chunk = chunk_alloc(n,objs);
+	void *volatile * my_free_list;
+	
+}
+
+template <bool threads,int inst>
+void __default_alloc_template<threads, inst>::deallocate(void* p,size_t n)
+{
+	obj* q = (obj*)p;
+	obj* volatile * my_free_list;
+
+	if(n > (size_t)__MAX_BYTES)
+	{
+		malloc_alloc::deallocate(p,n);
+		return;
+	}
+	my_free_list = free_list + FREELIST_INDEX(n);
+	q->free_list_link = *my_free_list;
+	*my_free_list = q;
+}
+
+template <bool threads,int inst>
+char * __default_alloc_template<threads,inst>::start_free = 0;
+
+template <bool threads,int inst>
+char * __default_alloc_template<threads,inst>::end_free = 0;
+
+template<bool threads,int inst>
+size_t __default_alloc_template<threads,inst>::heap_size = 0;
+
+template <bool threads,int inst>
+__default_alloc_template<threads,inst>::obj* volatile 
+__default_alloc_template<threads,inst>::free_list[__NFREELISTS] = {
+	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+};
+
+template<bool threads,int inst>
+static void *__default_alloc_template<threads,inst>::allocate(size_t n)
+{
+	obj* volatile * my_free_list;
+	obj * result;
+	if(n > (size_t)__MAX_BYTES){
+		return (malloc_alloc::allocate(n));
+	}
+
+	my_free_list = free_list + FREELIST_INDEX(n);
+	result = *my_free_list;
+	if(result == 0)
+	{
+		void *r = refill(ROUND_UP(n));
+		return r;
+	}
+
+	*my_free_list = result->free_list_link;
+	return (result);
+}
 
 #endif
