@@ -157,7 +157,39 @@ char* __default_alloc_template<threads,inst>::chunk_alloc(size_t size,int& nobjs
 		return (result);
 	}else if(bytes >= size){
 		nobjs = bytes_left/size;
-		
+		total_bytes = size * nobjs;
+		result = start_free;
+		start_free += total_bytes;
+		return (result);
+	}else{
+		size_t bytes_to_get = 2 * total_bytes + ROUND_UP(heap_size >> 4);
+		if(bytes_left > 0){
+			obj* volatile * my_free_list = 
+			free_list + FREELIST_INDEX(bytes_left);
+			((obj*)start_free)->free_list_link = *my_free_list;
+			*my_free_list = (obj*)start_free;
+		}
+
+		start_free = (char*)malloc(bytes_to_get);
+		if(0 == start_free){
+			int i;
+			obj* volatile* my_free_list,*p;
+			for(i = size;i <__MAX_BYTES;i+=__ALIGN){
+				my_free_list = free_list +FREELIST_INDEX(i);
+				p = *my_free_list;
+				if(0 != p){
+					*my_free_list = p->free_list_link;
+					start_free = (char*)p;
+					end_free = start_free + i;
+					return chunk_alloc(size,nobjs);
+				}
+			}
+			end_free = 0;
+			start_free = (char*)malloc_alloc::allocate(bytes_to_get);
+		}
+		heap_size += bytes_to_get;
+		end_free = start_free + bytes_to_get;
+		return (chunk_alloc(size,nobjs));
 	}
 }
 //////////////////////////////////////////////////////////////////////
