@@ -1,0 +1,326 @@
+package pb;
+import "CommomDef.proto";
+
+enum ACTIVITY_TYPE
+{
+	////目前就只有这两个活动由后天控制
+	ACTIVITY_STAR_BOX = 1;//异星宝箱
+	ACTIVITY_XILIAN = 2;//洗练活动
+	ACTIVITY_IRON_COLLECT = 3;//铁矿征收
+	ACTIVITY_MAKE_FRIENDS = 4;//结交名仕
+	ACTIVITY_LIMTED_TIME_SHOP = 5;//限时商店
+	ACTIVITY_HERO_REWARD = 6; ///武将犒赏
+	ACTIVITY_MONEY_TO_GOLD = 7;//充值送金
+	ACTIVITY_ADD_SOLIDER_RANK = 8;//个人增兵排行
+	ACTIVITY_OCCUPATION_RANK = 9;//个人攻城排行
+	ACTIVITY_COUNTRY_RANK= 10;//国家比拼
+	NR_ACTIVITY = 11;
+}
+
+
+message GS2C_ActivityStarBoxInfo
+{
+	required uint32 table_id = 1;//数据库中id
+	optional uint32 next_level_need_wait_time = 3;//等待时间
+	optional uint32 npc_is_opened = 4;//鼎是否开启
+	optional uint32 left_times = 5;//npc 领取奖励剩余次数
+	optional uint64 last_take_reward_time = 6;
+	optional uint32 is_all_take_reward = 7;//表示当前等级是否领过奖
+	optional uint64 activity_start_time = 8;
+}
+
+message GS2C_Activity_Start
+{
+	required uint32 activity_type = 1;
+	required uint32 open_way = 2;
+	required uint64 activity_start_time = 3;
+	required uint64 activity_last_time = 4;
+	required uint64 activity_show_time = 5;
+	optional uint64 server_open_time = 6;
+}
+message GS2C_Activity_All_Active_Info
+{
+	repeated GS2C_Activity_Start info = 1;
+}
+
+message GS2C_ActivityStarBoxReward
+{
+	repeated StReward reward = 1;//奖励
+	optional uint32 times = 2;//倍数
+	optional uint32 star_level = 3;//宝箱等级
+	optional uint32 ret = 4;// 1 成功，2 已经领过 3,npc剩余次数不是0  4 分数不足
+}
+enum ACTIIVTY_STAR_BOX_NPC_REWARD
+{
+	REWRAD_SUCCESS = 1;
+	REWARD_CANT_TAKE = 2;
+	REWARD_OTHER_REASON= 3;
+}
+message GS2C_ActivityStarNpcReward
+{
+	repeated StReward reward = 1;//奖励
+	optional uint32 left_times = 2;//剩多少次
+	optional uint64 take_reward_time = 3;
+	required uint32 ret = 4;
+}
+
+enum ACTIVITY_STAR_BOX_LEVEL_UP_RESULT
+{
+	LEVEL_UP_SUCCESS 		= 1;//升级成功
+	LEVEL_UP_NOT_ENOUGH_GOLD = 2;//金币不够
+	LEVEL_UP_MAX = 3;//等级已到最大
+	LEVEL_UP_CANT_PASS=4;//不能跳过npc升级
+	LEVEL_UP_SCORE_FULL = 5;
+}
+
+message GS2C_ActivityStarBoxLevelUp
+{
+	required ACTIVITY_STAR_BOX_LEVEL_UP_RESULT result = 1;
+}
+enum ACTIVITY_STAR_BOX_FINISH_COUNT_DOWN_RESULT
+{
+	COUNT_DOWN_SUCCESS 		= 1;//成功
+	COUNT_DOWN_NOT_ENOUGH_GOLD = 2;//金币不够
+}
+
+
+message GS2C_ActivityStarBoxFinishCountDown
+{
+	required ACTIVITY_STAR_BOX_FINISH_COUNT_DOWN_RESULT result = 1;
+}
+
+message GxDB_ActivityStarBoxInfo
+{
+	required uint32 is_take_reward = 1;
+	required uint32 table_id = 2;
+	optional uint32 npc_is_opened = 3;//鼎是否开启
+	optional uint32 left_times = 4;//npc 领取奖励剩余次数
+	optional uint64 last_take_reward_time = 5;
+	optional uint32 operate_type = 6;
+}
+
+message GxDB_ActivityStarDelete
+{
+	optional uint32 operate_type = 1;
+}
+message GxDB_ActivityStarBox
+{
+	repeated GxDB_ActivityStarBoxInfo info = 1;
+}
+
+///////////洗练活动
+enum XILIAN_REWARD_TYPE
+{
+	UP_XILIAN = 1;
+	MIJI_XILIAN = 2;
+	SHENJI_XILIAN = 3;
+}
+
+enum XILIAN_RESULT
+{	
+	XILIAN_SUCCESS = 1;
+	XILIAN_HAS_TAKE = 2; //已经领过
+	XILIAN_NOT_ENOUGH_TIME = 3;//洗练次数不够
+}
+message C2GS_XILIAN_TAKE_REWARD
+{
+	required XILIAN_REWARD_TYPE reward_type = 1;
+}
+
+message GS2C_XILIAN_TAKE_REWARD_RSP
+{
+	optional XILIAN_REWARD_TYPE reward_type = 1;
+	repeated StReward reward = 2;//奖励
+	required XILIAN_RESULT ret = 3;
+}
+
+//没十次洗炼奖励一个至尊洗炼
+message GS2C_XILIAN_TAKE_TEN_REWARD
+{
+	required uint32 count = 1;//奖励的次数
+}
+
+//////道具洗练
+message C2GS_Purify_Item
+{
+	required uint32 type = 1;//1 是升级洗练 2，是秘技洗练，3 是神级洗练
+	required uint32 solt_id = 2;//背包索引
+	optional uint32 attr_id = 3;//选择的秘技
+}
+
+message GS2C_Purify_Item_Rsp
+{
+	required uint32 err_code = 1;
+}
+//政务
+message ZhengWuReward
+{
+	optional uint32 reward_type = 1;//奖励类型
+	optional uint32 reward_count = 2;//奖励数量
+	optional uint32 cost_diamond = 3;
+}
+
+
+message GS2C_Show_Dialog
+{
+	optional uint32 left_id = 1;//army_gov_text 中的对话
+	optional uint32 right_id = 2;//
+	optional uint32 title_id = 3;//
+	optional ZhengWuReward left_reward = 4;
+	optional ZhengWuReward right_reward = 5;
+	optional string image_name = 6;
+}
+
+
+message C2GS_Take_Reward
+{
+	optional ZhengWuReward reward = 1;
+}
+
+message GS2C_Take_Reward_Rsp
+{
+	optional uint32 ret = 1;//0 钻石足够  1 钻石不够  2 政务次数不够
+}
+
+message GS2C_Take_MinZhong_Reward_Rsp
+{
+	repeated StReward reward = 1;//奖励
+}
+
+message GxDB_GovAffairsInfo
+{
+	optional uint32 left_id = 1;
+	optional uint32 right_id = 2;
+	optional uint32 title_id = 3;
+	optional uint32 left_reward_type = 4;
+	optional uint32 left_reward_count = 5;
+	optional uint32 right_reward_type = 6;
+	optional uint32 right_reward_count = 7;
+	optional uint32 cost_diamond = 8;
+	optional string image_name = 9;
+}
+////////////////结交名仕
+message CelebrityEvent
+{
+	optional uint32 event_id = 1;
+	optional string event_display = 2;
+	optional StReward perferTo = 3;//爱好
+	optional uint32 city_id = 4;
+	optional uint64 next_fresh_time = 5;
+	optional uint32 daily_times = 6;
+}
+message GS2C_Celebrity_All_Info
+{
+	optional uint32 city_id = 1;
+	optional uint64 next_fresh_time = 2;
+	optional uint32 item_id = 3;
+	optional CelebrityEvent event_info = 4;
+}
+message C2GS_UseCurrencyToTakeReward
+{
+	optional uint32 event_id = 1;
+	optional uint32 city_id = 2;
+	optional uint32 award_idx = 3;
+}
+message GS2C_UseCurrencyToTakeRewardRsp
+{
+	required uint32 result = 1;///
+}
+message C2GS_Celebrity_Take_Reward
+{
+	required uint32 Id = 1;//table id
+}
+
+message GS2C_Celebrity_Take_Reward_Rsp
+{
+	required uint32 id = 1;
+	required uint32 ret = 2;///0 成功 1失败
+	repeated StReward reward = 3;
+}
+////限时商店
+message C2GS_ActivityBuyItem
+{
+	required uint64 id = 1;
+}
+
+message GS2C_ActivityBuyItemRsp
+{
+	required uint32 result = 1;///0 成功 1 金币不足 2背包已满 3 购买条件不满足 4 已经购买过 5 other reason
+}
+
+message LimitedTimeShopInfo
+{
+	optional uint32 cost_price = 1;
+	optional uint32 cost_discount = 2;
+	optional uint32 condition = 3;
+	optional StReward reward = 4;
+	optional uint32 is_has_discount = 5;
+	optional uint64 table_id = 6;
+}
+
+message GS2C_LimitedTimeShopInfo
+{
+	repeated LimitedTimeShopInfo info = 1;
+}
+
+//////////////////HERO REWARD
+message C2GS_Open_Hero_Reward_Box
+{
+	required uint32 cirital = 1;///那种暴击
+}
+
+message GS2C_Open_Hero_Reward_Box_Rsp
+{
+	repeated StReward rewrad = 1;
+	optional uint32 ret = 2;//没有宝箱1，钻石不足2，成功 0
+}
+message C2GS_Reward_Hero//犒赏英雄
+{
+	required uint32 troops_id = 1;/////proto ID
+	optional uint32 char_id = 2;////
+}
+message GS2C_Reward_Hero_Info
+{
+	optional uint32 charId = 1;
+	optional bool is_first_reward = 2;
+}
+
+message GS2C_Reward_Hero_Rsp
+{
+	required uint32 ret = 1;  ///0 成功，  1 找不到ID， 2 武将未解锁，3 武将不是第一次， 4 钻石不足
+	optional uint32 critical = 2;//暴击
+	optional uint32 char_exp = 3;//武将当前经验
+	optional uint32 char_level = 4;//
+	optional uint32 char_cur_xp_max = 5;//武将当前等级最高经验
+	optional GS2C_Reward_Hero_Info next_char_info = 6;//下一次武将
+	optional uint32 char_id = 7;//武将Id
+}
+
+message GxDB_Hero_Reward_info
+{
+	optional uint32 charId = 1;
+	optional bool has_first_reward = 2;
+	optional uint32 operate_type = 3;
+}
+
+message GxDB_Hero_Reward
+{
+	repeated GxDB_Hero_Reward_info info = 1;
+}
+
+message GxDB_Hero_Reward_delete
+{
+	optional uint32 operate_type = 1;
+}
+
+////activity recharge to gold
+message C2GS_Recharge_rebate
+{
+	required uint32 id = 1;
+}
+
+message GS2C_Recharge_rebate_Rsp
+{
+	optional StReward reward = 1;
+	required uint32 ret = 2;////0 成功 1 已领取  2 充值不足 3 can't find id 
+}

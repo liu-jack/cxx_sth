@@ -1,0 +1,48 @@
+/************************************************************************/
+/*Add by:zhoulunhao													*/
+/*Email	:zhoulunhao@hotmail.com											*/
+/************************************************************************/
+#include "TrickReward.h"
+TrickReward::TrickReward(uint32 id,uint32 trick_times,uint32 item_id,uint32 item_num)
+:id_(id),trick_times_(trick_times),item_id_(item_id),item_num_(item_num){}
+
+OccupyReward::OccupyReward(uint32 id,uint32 occupy_nums,uint32 item_id,uint32 item_num)
+:id_(id),occupy_nums_(occupy_nums),item_id_(item_id),item_num_(item_num){}
+
+RankSort::RankSort(uint8 country_id,uint32 ranknum,uint32 level,uint32 vip_level,uint64 playerid,uint32 headIconId)
+:country_id_(country_id)
+,ranknum_(ranknum)
+,level_(level)
+,vip_level_(vip_level)
+,headIconId_(headIconId)
+,playerid_(playerid)
+{}
+
+bool operator==(const RankSort& other,const RankSort& another)
+{
+	return other < another && another < other;
+}
+bool operator<(const RankSort& other,const RankSort& another)
+{
+	if(another.ranknum_< other.ranknum_) return true;
+	else if(another.ranknum_ > other.ranknum_) return false;
+	else
+	{
+		if(another.level_ < other.level_ ) return true;
+		else if(another.level_ > other.level_ ) return false;
+		else
+		{
+			if(another.vip_level_ < other.vip_level_) return true;
+			else if(another.vip_level_ > other.vip_level_) return false;
+			else
+			{	
+				if(another.playerid_ > other.playerid_) return true;
+				else if(another.playerid_ < other.playerid_) return false;
+				else
+				{
+					return false;
+				}
+			}
+		}
+	}
+}

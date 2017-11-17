@@ -1,0 +1,42 @@
+#ifndef __GENERAL_REWARD__H
+#define __GENERAL_REWARD__H
+
+#include "structDef.h"
+
+namespace pb
+{
+	class GxDB_Hero_Reward_info;
+}
+#pragma pack(push,1)
+
+struct GeneralRewardTable : public BaseStruct {
+public:
+	
+	INIT_GAMEDATA(GeneralRewardTable);
+
+	static const bool HasIndex(){ return true; }
+	const Key GetKey(void) const{ return id; }
+	uint32 GetLogicalKey(void) const{ return charId; }
+	void SetDbIncreaseId(const IdType& id_){ id = id_; }
+	static const char* GetDbIncreaseIdName(){ return "id"; }
+	static const char* GetLogicalKeyName(void){ return "charId"; }
+	static const char* GetTableName(){ return "general_reward"; }
+	static const char* GetFormat()
+	{
+		return "bb""uu";
+	}
+	void SaveTo(pb::GxDB_Hero_Reward_info& msg);
+	void LoadFrom(const pb::GxDB_Hero_Reward_info& msg);
+public:
+	IdType      id;
+	uint64      player_id;
+	uint32      charId;
+	uint32		IsHasFirstReward;
+};
+
+#pragma pack(pop)
+
+
+
+
+#endif

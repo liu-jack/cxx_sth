@@ -1,0 +1,78 @@
+/************************************************************************/
+/*Add by:zhoulunhao													*/
+/*Email	:zhoulunhao@hotmail.com											*/
+/************************************************************************/
+#include "PalaceAchievementLog.h"
+#include "Table/PalaceTableMgr.h"
+#include "Palace.pb.h"
+#include "utility/Utility.h"
+#include "game_data/datastruct/struct_palace.h"
+#include "../object/Player.h"
+#include "reward/reward.h"
+#include "CrossLogic/PalaceDB.h"
+
+void PalaceAchievementLog::SaveTo(pb::PalaceAchievementInfo& msg,int office_id)
+{
+	msg.set_office_id(office_id);
+	msg.set_office_state(m_achievement[office_id]);
+}
+
+void PalaceAchievementLog::SaveTo(Player* player,pb::GS2C_Palace_Level_Info& msg)
+{
+	for(std::map<int,int>::iterator iter = m_achievement.begin();iter != m_achievement.end();++iter)
+	{
+		pb::PalaceAchievementInfo* info = msg.add_info();
+		info->set_office_id(iter->first);
+		info->set_office_state(iter->second);
+	}
+}
+
+void PalaceAchievementLog::SetPalaceLevel(Player& player,const int office_id,int is_take)
+{
+	if(m_achievement.find(office_id) == m_achievement.end()) return;
+	if(m_achievement[office_id] < is_take){
+		m_achievement[office_id] = is_take;
+		PalaceDB::SendAchievementInfoToDb(player,office_id);
+	}
+}
+
+int PalaceAchievementLog::GetOfficeState(const int office_id)
+{
+	return m_achievement[office_id];
+}
+
+PalaceAchievementLog::PalaceAchievementLog()
+{
+	for (PalaceTableMgr::ProtoMap::iterator it = sPalaceTableMgr.m_ProtoTable.begin();
+		it != sPalaceTableMgr.m_ProtoTable.end(); ++it)
+	{
+		if(it->second->palance_level != 0)
+		{
+			m_achievement[it->first] = NOT_ACHIEVE;//Î´´ï³É
+		}
+	}
+}
+
+void PalaceAchievementLog::LoadFrom(const pb::GxDB_PalaceAchievement& msg)
+{
+	for(int i = 0;i < msg.info_size();++i)
+	{
+		const pb::PalaceAchievementInfo& info = msg.info(i);
+		m_achievement[info.office_id()] = info.office_state();
+	}
+}
+
+
+void PalaceAchievementLog::TakePalaceAchievement(Player& player,int office_id,pb::GS2C_Palace_Take_Reward_Rsp& msg)
+{
+	const DB_Palace_Proto* proto = sPalaceTableMgr.GetProto(office_id);
+	if(proto)
+	{
+		IntPairVec vec;
+		Utility::SplitStr2(proto->achievement_reward,vec);
+		sReward.Change(player,vec);
+	}
+	msg.set_office_id(office_id);
+	msg.set_office_state(HAS_TAKE_REWARD);
+	SetPalaceLevel(player,office_id,HAS_TAKE_REWARD);
+}

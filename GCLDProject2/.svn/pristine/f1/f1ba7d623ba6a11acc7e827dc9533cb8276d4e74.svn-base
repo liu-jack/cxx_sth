@@ -1,0 +1,836 @@
+
+package pb;
+import "Stage.proto";
+import "Fuben.proto";
+import "Item.proto";
+import "Mail.proto";
+import "CommomDef.proto";
+import "City.proto";
+import "Country.proto";
+
+
+// S 服务器内部消息结构
+// S_ 开头，服务器消息号。
+// G : 表游戏服务器
+// C : 表中心服务器
+// GW: 表网关
+// L : 表登录服务器
+// D : 数据库服务器
+// P : 表示后台服务器
+// B : 房间匹配服务器
+// R : 跨服战斗服务器
+// Bc: Broadcast 广播 
+
+
+enum RegisterResult
+{
+	SERVER_REGISTER_OK                  =0;
+	SERVER_REGISTER_FAIL_ID             =1;
+	SERVER_REGISTER_FAIL_ADDRESS        =2;
+	SERVER_REGISTER_FAIL_DIFF_CENTER_ID =3;
+}
+
+
+enum ACCOUNT_LOCK_TYPE
+{
+	ACCOUNT_LOCK_TYPE_NONE                            =0;//不锁定(解除封号或解除禁言)
+	ACCOUNT_LOCK_SPEAK                        		  =1;//禁言
+	ACCOUNT_LOCK_TYPE_LOCKED                    	  =2;//封号
+}
+
+enum ACCOUNT_LOCK_OP_TYPE
+{
+	ACCOUNT_OP_LOCK_SPEAK                        		  =1;//禁言
+	ACCOUNT_OP_UNLOCK_SPEAK                               =2;//解除禁言
+	ACCOUNT_OP_LOCK                      	  			  =3;//封号清内存(封号，没有倒计时则清内存，有不清)
+	ACCOUNT_OP_UNLOCK                      	  			  =4;//解除封号
+	ACCOUNT_OP_KICK_OFF_LINE                              =5;//踢下线并清内存，不封号
+}
+
+message Address
+{
+	required string ip   =1;
+	required string port =2;
+}
+
+
+message GetEventLogServersRet
+{
+	required Address addresses =1;
+}
+
+
+//-------------------------------- ping and pong--------------------------------
+message PingInfo
+{
+	required uint64 time_ms             =1;
+	optional uint64 delay_time_ms       =2;
+}
+
+message PongInfo
+{
+	required uint64 time_ms             =1;
+}
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Game with Center server
+
+
+//register
+message SG2C_RegisterInfo
+{
+	required int32  server_id           =1;
+	required string ip                  =2;
+	required string port                =3;
+	repeated string names               =4;
+}
+
+
+message SG2C_RegisterInfoRet
+{
+	required RegisterResult result           =1;
+	optional int32          region_id        =2;
+	optional string         web_url          =3;
+}
+
+//get login server info
+message SG2C_GetLoinServersRet
+{
+	repeated Address addresses =1;
+}
+
+
+//get cross server info
+message SG2C_GetCrossServersRet
+{
+	repeated Address addresses =1;
+}
+
+
+message SG2C_Exchange_Gift_Code
+{
+	required uint64 player_id           =1;
+	required string gift_code           =2;
+	optional int32  channel             =3;//渠道id
+}
+
+message SG2C_Exchange_Gift_Code_Ret
+{
+	required bool  is_success           =1;
+	required uint64 player_id           =2;
+	optional string giftName            =3;
+	optional string gifts               =4;
+	optional int32  error_code          =5;//1,渠道不对，2,兑换码不存在，3,已过期，4，未生效，5,已失效。
+}
+
+message SG2C_FeedBack
+{
+	required uint64        playerId   =1 ;
+	optional string		   player_name   = 2;
+	optional string		   feedback   = 3;
+}
+
+message SG2C_FeedBack_Ret
+{
+	required bool  is_success           =1;
+	required uint64 player_id           =2;
+	optional int32  error_code          =3;
+}
+
+message SC2G_activity_proto
+{
+	optional uint64 table_id = 1;
+	optional uint32 act_type_id = 2;
+	optional uint32 reward_type = 3;
+}
+message SC2G_activity_plan
+{
+	optional uint64 table_id = 12;
+	optional uint32 activity_id = 1;
+	optional uint32 open_way = 2;
+	optional uint32	start_time = 3;
+	optional uint32 last_time = 4;
+	optional uint32 show_time = 5;
+	optional uint64	start_date = 6;
+	optional uint64 end_date = 7;
+	optional uint64 end_show_date = 8;
+	optional string stage_area = 9;
+	optional uint32 need_greater_than_open = 10;
+	optional uint32 need_less_than_open = 11;
+}
+message SC2G_server_open_time
+{
+	optional uint64 table_id = 3;
+	optional uint32 server_id = 1;
+	optional uint64 open_time = 2;
+}
+
+message SC2G_activity_reward
+{
+	optional uint64 table_id = 1;
+	optional uint32 activity_id = 2;
+	optional uint32 cost_price = 3;
+	optional uint32 is_has_discount = 4;
+	optional uint32 cost_discount = 5;
+	optional uint32 conditon = 6;
+	optional string reward_list = 7;
+}
+message SC2G_activity_package
+{
+	repeated SC2G_activity_proto activity_proto = 1;
+	repeated SC2G_activity_plan activity_plan = 2;
+	repeated SC2G_server_open_time server_open_time = 3;
+	repeated SC2G_activity_reward activity_reward = 4;
+}
+
+message SC2G_activity_package_Update
+{
+	required SC2G_activity_package all_info = 1;
+	required uint32 update = 2;
+}
+
+message SC2G_ReloadPayItem
+{
+	optional int32 region_id        =1;
+}
+
+message MSG_activity_update_info
+{
+	required uint32 activity_id = 1;
+	required uint32 open_way = 2;
+	optional uint32	start_time = 3;
+	optional uint32 last_time = 4;
+	optional uint32 show_time = 5;
+	optional uint64	start_date = 6;
+	optional uint64 end_date = 7;
+	optional uint64 end_show_date = 8;
+	optional string stage_area = 9;
+	optional uint32 need_greater_than_open = 10;
+	optional uint32 need_less_than_open = 11;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Game with Event log server
+
+
+message SG2E_RegisterInfo
+{
+	required int32  region_id           =1;
+	required int32  server_id           =2;
+	required string ip                  =3;
+	required string port                =4;
+}
+
+message SG2E_RegisterInfoRet
+{
+	required RegisterResult result      =1;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Game with Lobby server
+
+//register
+message SG2B_RegisterInfo
+{
+	required int32  server_id           =1;
+	required int32  region_id           =2;
+	required string ip                  =3;
+	required string port                =4;
+	repeated string names               =5;
+}
+
+
+message SG2B_RegisterInfoRet
+{
+	required RegisterResult result           =1;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Game with Cross server
+
+//register
+message SG2R_RegisterInfo
+{
+	required int32  server_id           =1;
+	required int32  region_id           =2;
+	required string ip                  =3;
+	required string port                =4;
+	repeated string names               =5;
+}
+
+
+message SG2R_RegisterInfoRet
+{
+	required RegisterResult result           =1;
+}
+
+message SG2R_RegisterPlayerInfoRet
+{
+	required uint64 player_id     =1;
+	required bool is_success           =2;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Cross with Center server
+//register
+message SR2C_RegisterInfo
+{
+	required int32  server_id           =1;
+	repeated string names               =2;
+	required string ip   =3;
+	required string port =4;
+}
+
+message SR2C_RegisterInfoRet
+{
+	required RegisterResult result           =1;
+	optional int32          region_id        =2;
+}
+
+message SR2C_GetLobbyServersRet
+{
+	required string ip   =1;
+	required string port =2;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Cross with Lobby server
+
+//register
+message SR2B_RegisterInfo
+{
+	required int32  server_id           =1;
+	required int32  region_id           =2;
+	required string ip                  =3;
+	required string port                =4;
+	repeated string names               =5;
+}
+
+
+message SR2B_RegisterInfoRet
+{
+	required RegisterResult result           =1;
+}
+
+message CountryWithAddress
+{
+	optional Address addresses =1;
+	optional uint32 countryid = 2;
+	optional uint64 PrepareEndTime = 3;
+	optional uint32 uniqueid = 4;
+}
+
+//divede cross server
+message SL2G_DevideCrossServers
+{
+	repeated CountryWithAddress Country_Addresses =1;
+	required CROSS_STATE CurState = 2;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Cross with Event log server
+
+message SR2E_RegisterInfo
+{
+	required int32  region_id           =1;
+	required int32  server_id           =2;
+	required string ip   =3;
+	required string port =4;
+}
+
+message SR2E_RegisterInfoRet
+{
+	required RegisterResult result      =1;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Lobby with Center server
+
+//register
+message SB2C_RegisterInfo
+{
+	required string ip                  =1;
+	required string port                =2;
+}
+
+
+message SB2C_RegisterInfoRet
+{
+	required RegisterResult result           =1;
+	optional int32          region_id        =2;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Lobby with Logger server
+//register
+message SB2E_RegisterInfo
+{
+	required string ip                  =1;
+	required string port                =2;
+}
+
+message SB2E_RegisterInfoRet
+{
+	required RegisterResult result      =1;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Login with Center server
+
+//register
+message SL2C_RegisterInfo
+{
+	required string ip                  =1;
+	required string port                =2;
+}
+
+
+message SL2C_RegisterInfoRet
+{
+	required RegisterResult result           =1;
+	optional int32          region_id        =2;
+	optional string         web_url          =3;	
+}
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Login with Event log server
+
+
+message SL2E_RegisterInfo
+{
+	required string ip                  =1;
+	required string port                =2;
+	optional int32 region_id    = 3;
+    optional int32 server_id    = 4;
+}
+
+message SL2E_RegisterInfoRet
+{
+	required RegisterResult result      =1;
+}
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Event log with Center server
+
+//register
+message SE2C_RegisterInfo
+{
+	required string ip                  =1;
+	required string port                =2;
+}
+
+
+message SE2C_RegisterInfoRet
+{
+	required RegisterResult result           =1;
+	optional int32          region_id =2;
+}
+/////////////////////////////////////////////////////////////////////////
+message EventParm
+{
+    enum ParmType
+    {
+        INT32 = 0;
+        UINT32 = 1;
+        INT64 = 2;
+        UINT64 = 3;
+        STRING = 4;
+        FLOAT = 5;
+    }
+    required ParmType parm_type   = 1;
+    
+    optional int32  value_int32   = 2;
+    optional uint32 value_uint32  = 3;
+    optional int64  value_int64   = 4;
+    optional uint64 value_uint64  = 5;
+    optional string value_str     = 6;
+    optional float  value_float    = 7;
+}
+
+
+message Server_Event
+{
+    optional int32 event_id     = 1;
+    optional uint64 account_id  = 2;
+    optional uint64 player_id   = 3;
+    optional int64 time         = 4;
+    repeated EventParm params   = 5;
+}
+
+message Server_Events
+{
+    repeated Server_Event logs   = 1;
+}
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Game with Login server
+
+message Version
+{
+	optional uint32      id                  =1;
+	optional uint32      channel_id          =2;
+	optional uint32      platform_id         =3;
+	optional uint32      min_version_id      =4;
+	optional uint32      max_version_id      =5;
+	optional uint32      is_hot_update	     =6;
+	optional string      max_version_address =7;
+}
+
+message OneVersionInfo
+{
+	optional uint32      id                 =1;
+	optional uint32      channel_id         =2;
+	optional uint32      platform_id        =3;
+	optional uint32      version_id         =4;
+	optional uint32      resource_id        =5;
+	optional string      notice_address     =6;
+	optional string      resource_address   =7;
+}
+
+message SG2L_RegisterInfo
+{
+	required int32          region_id           =1;
+	required int32          server_id           =2;
+	required string         ip                  =3;
+	required string         port                =4;
+	required int32          player_count        =5;
+	required uint64         logical_update_ms   =6;
+}
+
+message SG2L_RegisterInfoRet
+{
+	required RegisterResult result      =1;
+}
+
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Game with Database server
+
+//register
+message SG2D_RegisterInfo
+{
+	required int32  server_id           =1;
+	required int32  region_id           =2;
+	required string ip                  =3;
+	required string port                =4;
+	repeated string names               =5;
+}
+
+message SG2D_RegisterInfoRet
+{
+	required RegisterResult result           =1;
+	optional uint32         pvp_table_size   =2;
+}
+
+//login
+// 玩家登录相关
+message SG2D_GetPlayerList
+{
+	required uint64 account_id =1 ;
+}
+
+message SG2L_UpdatePlayerLockType
+{
+	required uint64 account_id =1;
+	required string account_name      =2 ; 
+	optional uint64 lock_time = 3 ;
+	required ACCOUNT_LOCK_OP_TYPE lockType   =4;
+}
+
+message SG2D_CreatePlayer
+{
+	required uint64 account_id        =1 ;
+	required string name              =2 ; // 角色名字
+	optional uint32 channel_id        =3 ; // 渠道Id  Tips: the channel_id confirm in the create, platform_id confirm in select player. 
+	optional uint32 card_solution_id  =4 ; //
+	optional string sdk_user_id       =5 ;	
+	optional uint32 platform_id    =6 ; // 平台Id
+}
+
+message SG2D_SelectPlayer
+{
+	required uint64 account_id     =1 ;
+	required uint64 player_id      =2 ;
+	optional uint32 platform_id    =3 ; // 平台Id
+	optional bool   is_quick_login =4 [default =false] ;
+	optional uint32 country_id     =5;//国家id
+	optional uint32 headpic_id     =6;//头像id
+	optional uint32 expected_country_id = 7;//推荐国家Id
+}
+
+message SG2D_Player_Id
+{
+	required uint64 player_id =1 ;
+}
+
+message SG2D_UpdataStageLevel
+{
+	required Data_Operate  op_type = 1;
+	optional GS2C_StageLevel info = 2;
+}
+
+message SG2D_Forbiden_Player
+{
+	optional uint64    player_id  =1;
+	optional int32    forbidId    =2;
+	optional int32    time	  	  =3;
+}
+
+message SD2G_Forbiden_Player_Ret
+{
+	required uint64    acountId  =1;
+	optional string    player_name  =2;
+	optional int32    forbidId    =3;
+	optional int32    time	  	  =4;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// 副本
+message SG2D_UpdataFuBenBase
+{
+	required Data_Operate  		op_type = 1;
+	required uint32 			cur_fuben_id = 2;
+	required uint32 			cur_stage_id = 3;
+	required uint32				NR_stars = 4;
+}
+message SG2D_UpdataFuBenResource	//资源关
+{
+	required Data_Operate  		op_type = 1;
+	optional GS2C_Resource_Stage info = 2;
+}
+message SG2D_UpdataFuBenPassStage	//打过的特殊关
+{
+	required Data_Operate  		op_type = 1;
+	optional uint32 			stage_type = 2;
+	optional uint32 			pass_count = 3;
+	optional uint32 			is_take_reward = 4;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// 国家(服务器的)
+message Country_Info_Devide	//用于分组的简单信息
+{
+	optional uint32 countryid = 1;
+	optional uint32 Pros_degree = 2;
+}
+
+message SD2G_Country_AllInfo
+{
+	repeated CountyInfo  	    base_info   =1;
+	repeated Struct_City_Info 	city_lst 	=2;
+}
+
+message SG2B_Country_Info
+{
+	required bool               is_can_cross_war = 1;
+	repeated Country_Info_Devide  	    country_info   = 2;
+	optional uint32		server_id = 3;
+}
+
+message SB2G_Country_War_Info
+{
+	repeated CountryCrossWarInfo  	 war_info   =1;
+}
+
+message SG2R_Country_AllInfo
+{
+	repeated CountyInfo  	    base_info   =1;
+	repeated Struct_City_Info 	city_lst 	=2;
+}
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// 服务器全局参数
+enum ValueType
+{
+	VALUE_TYPE_INT64 =0;
+	VALUE_TYPE_INT = 1;
+	VALUE_TYPE_STR = 2;
+}
+
+enum ValueIndex
+{
+	VALUE_INDEX_ARENA_DAY_REWARD_TIME       =0 ;
+	VALUE_INDEX_ARENA_MONTH_REWARD_TIME     =1 ;
+	VALUE_INDEX_ARENA_QUARTERLY_REWARD_TIME =2 ;
+	VALUE_INDEX_PLAYER_DAILY_RESET_TIME     =3 ;
+	VALUE_INDEX_IS_OPEN_CROSS_WAR = 4 ;	
+}
+
+message GobalValue
+{
+	optional uint32    index     =1 ;
+	optional ValueType type      =2 ;
+	optional int64     i64_value =3 ;
+	optional string    str_value =4 ;
+	optional int32     int_value =5 ;
+}
+
+message ServerGobalValue
+{
+	repeated GobalValue values =1 ;
+}
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Broadcast
+enum BROADCAST_TYPE
+{
+	UPDATE_GAME_SERVER_PERFORMANCE_INFO =1 ;
+	UPDATE_GAME_SERVER_LOCKED_ACCOUNT_INFO =2 ;
+	UPDATE_GAME_SERVER_LIST_INFO =3 ;
+	UPDATE_GAME_SERVER_VERSION_INFO =4 ;
+	UPDATE_GAME_SERVER_TESTER_ACCOUNT_IDS =5 ;
+}
+
+message BroadcastHeader
+{
+	required BROADCAST_TYPE  type                =1;
+}
+
+message SW2C2L_UpdateServerInfo
+{
+	required int32           region_id           =1;
+	repeated int32           server_id           =2;
+}
+
+//update info
+message SG2C2L_UpdatePerformanceInfo
+{
+	required int32           region_id           =1;
+	required int32           server_id           =2;
+	required int32           player_count        =3;
+	required uint64          logical_update_ms   =4;
+}
+
+message SG2D_Broadcast_Info
+{
+	required int32           opcode           =1;
+	required bool            is_include       =2;         
+	repeated uint64          player_ids       =3;// 对象值列表
+	repeated string          player_names     =4;// 对象值列表
+	optional bool            result     	  =5;// true,成功，false,失败
+}
+
+//邮件相关
+//系统邮件
+
+message SG2G_Mail_SendMail {
+	repeated uint64 to_players 				=1;  //接收者名字
+	optional uint64 mail_id 				=2;
+	optional string plat_form 				=3;
+	optional string channel 				=4;
+	optional int32 mail_type 				=5;  //事件类型：1，后台邮件, 2系统固定邮件，3后台固定邮件
+	optional int32 send_type				=6;  //发送类型：1，在线玩家，2全体玩家
+	optional uint64 begin_time				=7;
+	optional uint64 end_time				=8;
+	optional string title		  			=9;  //标题，文本
+	optional string content		  			=10;  //内容，文本
+	optional string items		  			=11;  //
+}
+
+message SG2D_MailInfoData
+{
+  required uint64 player_id   				=1;  //玩家id
+  required uint64 id   						=2;  //ID
+  required int32 mail_type 					=3;  //事件类型：1，后台邮件, 2系统固定邮件，3后台固定邮件
+  optional uint64 mail_id 					=4;  //事件Id：当为事件邮件时有效
+  required int32 mail_state					=5;  //邮件状态0初始状态，1已收新邮件，2已读
+  optional uint64 send_time 				=6;  //发送时间
+  optional bool  is_take					=7;  //
+  optional string items                    =8;
+}
+
+message SG2D_MailsOperate
+{
+	required int32 operate_type = 1; //1添加，2删除,3,更新
+	repeated SG2D_MailInfoData  mail_info_data = 2;
+}
+
+message SG2D_Check_Mail_Recivers_Exist
+{
+	optional SG2G_Mail_SendMail mail = 1;
+	optional int32   alv    	  =2;
+	optional int32   blv   		  =3;
+	optional int32   avip   	  =4;
+	optional int32   bvip   	  =5;
+	optional bool    is_server_mail =6;
+}
+
+message SD2G_Check_Mail_Recivers_Exist_Rspone
+{
+	optional SG2G_Mail_SendMail mail = 1;
+	optional bool is_can_send = 2;
+	optional int32   alv    	  =3;
+	optional int32   blv   		  =4;
+	optional int32   avip   	  =5;
+	optional int32   bvip   	  =6;
+	optional bool    is_server_mail =7;
+}
+////end 邮件相关
+
+///好友相关
+message SG2D_Friend_Operate
+{
+	required uint64 playerid = 1;
+	required uint64 friendid = 2;
+	required int32  listtype = 3;//0 friend,1ignores,2invites,3recommends 4,all
+	required int32  operate_type = 4; //1:add,2:del,3:update.
+	optional bool   is_send_ap = 5; //true send ap , false recieve ap;
+	optional bool   ap_value = 6;//to update value for send ap or recieve ap;
+}
+
+message SD2G_Friend_Operate_Res
+{
+	required SG2D_Friend_Operate  operate = 1; 
+	required int32  result = 2;//0失败，1成功，2,删除sendapinfo
+}
+
+//远征
+message SG2D_Crusade_Stage
+{
+	required	uint32	restReset		=1;	//剩余重置次数
+	required	uint64	currFuben		=2;	//当前哪一远征副本
+	required	uint64	currStage		=3;	//当前哪一关
+	required	uint32	isDead			=4;	//当前副本是否完结
+	required	uint32	addCharTimes	=5;	//增兵次数
+}
+
+
+////推荐国家
+message GS2C_Select_Country_Rsp
+{
+	optional uint32 country_id = 1;//国家ID
+}
+
+
+message SD2G_All_player_has_sync
+{
+	optional bool result = 1;
+}
+
+message Activity_Occupy_City_Num
+{
+	optional uint32 country_id = 1;
+	optional uint32 city_num = 2;
+	optional uint32 server_id = 3;
+	optional uint32 region_id = 4;
+}
+
+message SD2G_Activity_Occupy_City_Num
+{
+	repeated Activity_Occupy_City_Num info = 1;
+}
+
+message SR2G_AwardTakePlayer
+{
+	optional uint64 playerid = 1;
+	repeated PairValue rewards = 2;
+}

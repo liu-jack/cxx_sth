@@ -1,0 +1,945 @@
+#include "GmManager.h"
+
+#include "memory_buffer/NetPack.h"
+#include "def/ObjectDefines.h"
+#include "def/TypeDef.h"
+#include "def/MmoAssert.h"
+#include "utility/StringParser.h"  
+#include "mysqldata.h"
+#include "DbTool.h"
+#include "Logger.h"
+#include "object/PlayerDataManager.h"
+#include "object/Player.h"
+#include "character/CharacterStorage.h"
+#include "character/CharacterManager.h"
+#include "quest/QuestLogger.h"
+#include "item/LogicItemProto.h"
+#include "item/ItemManager.h"
+#include "item/ItemArray.h"
+#include "item/Item.h"
+#include "item/ItemEquip.h"
+#include "CrossLogic/PlayerCharacterLogic.h"
+#ifdef  _MMO_SERVER_
+#include "stage/StageLogger.h"
+#include "CrossLogic/PlayerStageLogic.h"
+#include "SysEvent/SysEventMgr.h"
+#include "fuben/FubenDataMgr.h"
+#include "fuben/FubenLog.h"
+#include "CrossLogic/PlayerFuBenDB.h"
+#include "../session/PlayerPool.h"
+#include "Web.pb.h"
+#include "utility/Utility.h"
+#include "../server_client/DbProxyServerClient.h"
+#include "../server_client/CenterServerClient.h"
+#include "ServerOpcode.pb.h"
+#endif
+
+#include "Map/WorldMap.h"
+#include "game_data/DbStringMgr.h"
+#include "chat/ChatSpeaker.h"
+#include "Social.pb.h"
+#include "Opcode.pb.h"
+#include "Enum.pb.h"
+#include "Technology/PlayerTechnology.h"
+#include "Technology/Table/TechnologyTableMgr.h"
+#include "BaseDefineMgr.h"
+#include "DailyQuest/DailyQuest.h"
+#include "DailyQuest/Table/DailyQuestTableMgr.h"
+#include "GrowUpQuest/GrowUpQuest.h"
+#include "GrowUpQuest/Table/GrowUpQuestTableMgr.h"
+#include "SignUp/SignUp.h"
+#include "SignUp/Table/SignUpTableMgr.h"
+#include "PassStageActivity/ActivtyStage.h"
+#include "PassStageActivity/Table/ActivtyStageRewardTableMgr.h"
+#include "Activity.pb.h"
+#include "../session/PlayerPool.h"
+#include "seige_force/SeigeForceLog.h"
+#include "BaoQi/PlayerBaoQiLog.h"
+//#include "Map/WorldMap.h"
+//#include "Map/country/country.h"
+using namespace pb;
+
+
+
+
+typedef int (*GmCmdHandler)(Player* player, StringParser& parser);
+typedef std::map<std::string, GmCmdHandler>	CmdMap;
+namespace{ // 匿名命名空间
+    static CmdMap s_cmds;
+}
+
+static bool _RegisterGmCommand(std::string const &cmd, GmCmdHandler handler)
+{   
+    s_cmds[cmd] = handler;
+    return true;
+}
+
+#define GM_CMD_FUNC(cmd) \
+    static int GmHandle_##cmd(Player*, StringParser& parser); \
+    static bool s_noUse##cmd = _RegisterGmCommand("."#cmd, &GmHandle_##cmd); \
+    static int GmHandle_##cmd(Player* player, StringParser& parser)
+
+
+#define ANOTHER_NAME(cmd, other) \
+    static bool s_noUse##other = _RegisterGmCommand("."#other, &GmHandle_##cmd); \
+  
+
+void PlayerSend_SMSG_GM_MESSAGE( pb::CxGS_ERROR_CODE errcode, Player* player );
+
+GmManager::GmManager(void)
+{
+}
+
+
+
+GmManager::~GmManager(void)
+{
+    s_cmds.clear();
+}
+
+
+bool GmManager::HandleCommand(Player* player, const std::string& text)
+{
+	MMO_ASSERT(player);
+
+	if (text.empty() || text[0] != '.')
+	{
+		return false;
+	}
+
+    std::string tmp = text;
+    if (tmp == ".testbird")
+    {
+        tmp = ".gm#.cl 43#.clv 40#.c -1#.c 51801 1000";
+    }
+
+    NLOG("GmManager::HandleCommand:accountId==========%d",player->AccountId());
+    StringParser line_parser(tmp, "#");
+    while( line_parser.HasNext())
+    {
+        string line;
+        line_parser.NextString(line);
+
+        StringParser string_parser(line, " "); 
+                                        
+        std::string gmCmd;
+        string_parser.NextString( gmCmd);
+
+        if ( gmCmd != ".gm" && !player->IsGM())
+        {
+            NLOG( "!!! NO GM permission");
+            continue;    
+        }
+
+        CmdMap::iterator cmdIt = s_cmds.find(gmCmd);
+        if (cmdIt == s_cmds.end())
+        {
+            PlayerSend_SMSG_GM_MESSAGE( ErrGMInvalidCommand, player);
+            continue;
+        }
+
+        pb::CxGS_ERROR_CODE errcode = (pb::CxGS_ERROR_CODE)((cmdIt->second)(player, string_parser));
+        PlayerSend_SMSG_GM_MESSAGE(errcode, player);   
+    }
+
+   
+
+    return true;
+}
+
+void PlayerSend_SMSG_GM_MESSAGE( pb::CxGS_ERROR_CODE errcode, Player* player )
+{
+    NetPack pack(SMSG_GM_MESSAGE);
+    pack << static_cast<uint32>( errcode ) ;
+    player->Send(pack);
+}
+
+
+
+GM_CMD_FUNC( gm )
+{
+    if(NULL == player)
+    {
+        return ErrCommonFail;
+    }
+    player->SetGMLevel(GM_LEVEL_0);
+    return ErrCommonSuccess; 
+}
+ANOTHER_NAME( gm, 8675309 )
+
+
+GM_CMD_FUNC( gm1 )
+{
+    if(NULL == player)
+    {
+        return ErrCommonFail;
+    }
+    player->SetGMLevel(GM_LEVEL_1); 
+    return ErrCommonSuccess;
+}
+ANOTHER_NAME( gm1, 32167 )
+
+
+GM_CMD_FUNC( create )
+{
+    int itemId = 0;
+    int count = 0;
+	int ret = 0;
+    parser.NextInt( itemId);
+    parser.NextInt( count, 1);
+
+    if (count <=0 )
+    {
+        count = 1;
+    }
+
+    if (itemId == -1 )
+    {
+        FOREACH_DB_ITEM( proto, DB_ItemProtoType)
+        {
+            const LogicItemProto* logicProto = sItemMgr.Find( proto->id);
+            if ( logicProto)
+            {
+                if (logicProto->CanStack())
+                {
+                    if ( !logicProto->IsBoxImm())
+                    {
+                        ret = player->CreateItem( pb::IR_GM_GET, proto->id,  count);
+                    }                    
+                }
+                else
+                {
+                    if ( logicProto->IsCard())
+                    {
+                        if ( player->m_characterStorage->HasCharacterProto( logicProto->ObjectValue()))
+                            continue;
+                    }else
+                    {
+                        if ( player->m_bag->EnoughItem( proto->id, 3))
+                            continue;
+                    }
+                    ret = player->CreateItem( pb::IR_GM_GET, proto->id, 1);                   
+                }
+            }
+        }        
+    }
+    else{
+       ret = player->CreateItem( pb::IR_GM_GET, itemId, count);
+    }
+    
+    return ret;
+}
+ANOTHER_NAME( create, c )
+
+
+GM_CMD_FUNC( createchar )
+{
+    int charid = 0;
+    parser.NextInt( charid);
+
+    if (charid <=0)
+    {
+        return ErrGMInvalidParam;
+    } 
+
+    if( PlayerCharacterLogic::CreateCharacterForPlayer( player, charid) != NULL)
+        return ErrCommonSuccess;
+    else
+        return ErrCommonFail;
+}
+ANOTHER_NAME( createchar, cc )
+
+
+GM_CMD_FUNC( characterlevel )
+{
+    int level = 0;
+
+    parser.NextInt( level);
+
+    if ( level <= 0)
+    {
+        level = 1;
+    }
+	if(level > MAX_CHARACTER_LEVEL)
+		level = MAX_CHARACTER_LEVEL;
+
+    //float percent = float(level) / MAX_CHARACTER_LEVEL;
+
+    const CharacterIds& char_ids = player->m_characterStorage->GetBattleArray();
+    for ( CharacterIds::const_iterator itr_id = char_ids.begin(); 
+        itr_id != char_ids.end(); ++itr_id)
+    {
+        uint32 char_id = *itr_id;
+        Character* charact = player->m_characterStorage->MutableCharacter( char_id);
+        if (charact == NULL)
+            continue;
+		charact->GM_SetLevel(level);
+		charact->CalculateAttr();
+    }           
+    return ErrCommonSuccess;
+
+}
+ANOTHER_NAME( characterlevel, clv )
+
+
+
+GM_CMD_FUNC( level )
+{
+    int level = 0;
+
+    parser.NextInt( level);
+
+    if ( level <= 0)
+    {
+        level = 1;
+    }
+
+    if ( level > (int)sPlayerDataMgr.GetMaxLevel())
+    {
+        level = sPlayerDataMgr.GetMaxLevel();
+    }
+
+    player->GM_SetLevel(level);   
+    return ErrCommonSuccess;
+    
+}
+ANOTHER_NAME( level, lv )
+
+
+
+GM_CMD_FUNC( payoder )
+{
+	std::string proid = "1";
+	int count = 1;
+
+	parser.NextString(proid,"1");
+	parser.NextInt(count,1);
+
+	for (int i=0; i<count; i++)
+	{
+		player->GMPayOrder(proid);
+	}
+	return ErrCommonSuccess;
+
+}
+ANOTHER_NAME( payoder, pay )
+
+GM_CMD_FUNC( payweboder )
+{
+#ifdef  _MMO_SERVER_
+	pb::WebPay info;
+	std::string proid = "1";
+	int platform = player->GetPlatformId();
+	int channle = player->GetChannelId();
+    float money = 0.1f;
+	float present = 1.f;
+	string account = "gm_pay_web";
+	string ordId ="gm_web_orderid";
+	int serId = 1001;
+	string roleId;
+	Utility::FormatString(roleId, "%llu", player->GetGuid());
+	parser.NextString(proid,proid);
+	parser.NextFloat(money,money);
+	parser.NextFloat(present,present);
+	parser.NextInt(channle,channle);
+	parser.NextInt(platform,platform);
+	info.set_order_id(ordId);
+	info.set_channel((pb::SdkChannelType)channle);
+	info.set_platform((pb::PlatformType)platform);
+	info.set_currency(pb::WEB_PAY_RMB);
+	info.set_money(money);
+	info.set_sdk_account(account);
+	info.set_role_id(roleId);
+	info.set_server_id(serId);
+	info.set_present(present);
+	info.set_product_id(proid);
+	sCenterClient.DoWebPay(info,0);
+#endif
+	return ErrCommonSuccess;
+
+}
+ANOTHER_NAME( payweboder, payweb )
+GM_CMD_FUNC( lockaccount )
+{
+#ifdef  _MMO_SERVER_
+
+	/*int locktype = 0;
+	parser.NextInt( locktype);
+
+	uint64 account = 0;
+	parser.NextUint64( account,0);
+
+	string accountName;
+	parser.NextString(accountName,"");
+
+	int locktime = 0;
+	parser.NextInt( locktime,0);
+	if (account > 0)
+	{
+		PlayerPtr pPlayer = sPlayerPool.GetByAccountId(account);
+		if (pPlayer.get())
+		{
+			pPlayer->SetLockState(locktype);
+			pPlayer->SetLockTime(sOS.GetRealTime() + (uint64)locktime);
+			sCenterClient.SendLockedAccount(account,accountName,locktype,locktime);
+		}
+	}*/
+#endif
+	return ErrCommonSuccess;
+}
+ANOTHER_NAME( lockaccount, lock )
+
+
+GM_CMD_FUNC( viplevel )
+{
+    int level = 0;
+
+    parser.NextInt( level);
+
+    if ( level <= 0)
+    {
+        level = 0;
+    }
+
+    if ( level > (int)sPlayerDataMgr.GetMaxVipLevel())
+    {
+        level = sPlayerDataMgr.GetMaxVipLevel();
+    }     
+
+    player->GM_SetVipLevel(level);    
+
+    return ErrCommonSuccess;
+
+}
+ANOTHER_NAME( viplevel, vlv )
+
+GM_CMD_FUNC( vipexp )
+{
+	int exp = 0;
+
+	parser.NextInt( exp);
+
+	if ( exp <= 0)
+	{
+		exp = 0;
+	}
+	player->AddVipXp(exp);    
+
+	return ErrCommonSuccess;
+
+}
+ANOTHER_NAME( vipexp, vxp )
+
+namespace{
+    void ModifyPlayerCurr( Player* player, int currType, int currCount)
+    {
+        if( IsValidCurrencyType( currType))
+        {
+            if ( currCount > 0)
+            {
+                player->AddCurrency( pb::IR_GM_GET, currType, currCount);
+            }
+            else
+            {
+                player->TryDeductCurrency( pb::IR_GM_COST, currType, -currCount);
+            }
+        }
+    }
+}
+
+GM_CMD_FUNC( money )
+{
+    int currency_type = 0;
+    int currency_count = 0;
+
+    parser.NextInt( currency_type);
+    parser.NextInt( currency_count);
+
+    const int allCurrType = -1 ;
+    if( currency_type == allCurrType )
+    {
+        for( int i =eCoin; i < eCurrencyNum; ++i )
+        {
+            ModifyPlayerCurr(player, i, currency_count);
+        }
+    }
+    else 
+    {
+        ModifyPlayerCurr(player, currency_type, currency_count);
+    }
+    return ErrCommonSuccess;
+}
+ANOTHER_NAME( money, m )
+
+
+GM_CMD_FUNC( accept )
+{
+    int questId = 0;
+    parser.NextInt( questId);
+    player->m_questLogger->HandleGM(player, QUEST_GM_ACCEPT, questId);
+    return ErrCommonSuccess;
+}
+ANOTHER_NAME( accept, a )
+
+
+GM_CMD_FUNC( finish )
+{
+    int questId = 0;
+    parser.NextInt( questId);
+    player->m_questLogger->HandleGM( player,QUEST_GM_FINISH, questId);
+    return ErrCommonSuccess;
+}
+ANOTHER_NAME( finish, f )
+
+GM_CMD_FUNC( sendmail )
+{
+#ifdef  _MMO_SERVER_
+	int mailId=11;
+	int val1 =0,val2 = 0;
+	string items;
+	std::set<uint64> players;
+	parser.NextInt( mailId);
+	if(mailId != EVENT_TYPE_CONTIN_OCCUPY_CITY)
+	{
+		parser.NextString(items);
+	}
+	parser.NextInt( val1);
+	parser.NextInt( val2);
+
+	players.insert(player->GetGuid());
+	if(!items.empty())
+	{
+		sSysEventMgr.SendJustTipsMail(player->GetGuid(),mailId,items,val1,val2);
+	}
+	else
+	{
+		if(mailId == EVENT_TYPE_CONTIN_OCCUPY_CITY)
+		{
+			sSysEventMgr.SendJustTipsMail(player->GetGuid(),mailId,items,val1,val2);
+		}
+		else 
+			sSysEventMgr.SendSysEventMail(players,mailId);
+	}
+#endif
+	return ErrCommonSuccess;
+}
+ANOTHER_NAME( sendmail, mail )
+
+GM_CMD_FUNC( sendsysmail0 )
+{
+#ifdef  _MMO_SERVER_
+	player->SetFlag( pb::PLAYER_FLAG_HAD_FIRST_PAY);
+#endif
+	return ErrCommonSuccess;
+}
+ANOTHER_NAME( sendsysmail0, mail0 )
+
+GM_CMD_FUNC( sendsysmail1 )
+{
+#ifdef  _MMO_SERVER_
+
+#endif
+	return ErrCommonSuccess;
+}
+ANOTHER_NAME( sendsysmail1, mail1 )
+
+
+GM_CMD_FUNC( addxp )
+{
+	int Count = 0;
+	parser.NextInt( Count);
+	player->AddXP(Count);
+	return ErrCommonSuccess;
+}
+ANOTHER_NAME( addxp, xp )
+
+
+// 无尽模式，可重置当前关卡次数还原
+GM_CMD_FUNC( endlesscount )
+{
+	return ErrCommonSuccess;
+}
+ANOTHER_NAME( endlesscount, elc )
+
+GM_CMD_FUNC( time )
+{
+    int hour = 0;
+    parser.NextInt( hour);
+
+    if ( hour <= 0 )
+    {
+        return ErrCommonFail;
+    }
+    sOS.AddCheatTime( hour * 60 * 60);
+
+    static int32 offset = (int32)get_gmt_offset();
+    NetPack pack( pb::SMSG_GET_SERVER_TIME, 4 * sizeof(time_t) + 2 ) ;
+    pack << static_cast<uint64>( sOS.GetRealTime() * 1000 )
+        << static_cast<int64>( sPeriodSystem.GetBeginTime() )
+        << static_cast<int64>( sPeriodEvent.GetBeginTime() )
+        << static_cast<int64>( sPeriodSettle.GetBeginTime() )
+        << static_cast<int32>( offset );
+    player->Send( pack ) ;
+    return ErrCommonSuccess;
+}
+ANOTHER_NAME( time, t )
+
+GM_CMD_FUNC( allstagepass )
+{
+#ifdef  _MMO_SERVER_
+	int levelId = 0;
+	parser.NextInt( levelId);
+	if((uint32)levelId > player->m_fubenLog->m_curStageID)
+	{
+		std::set<uint32> unlockChar;
+		while(player->m_fubenLog->_GoToNextStage())
+		{
+			player->m_fubenLog->GetUnlockCharacter(unlockChar);
+			player->m_PassStageReward->UpdateStagePassByStageLevel(player,player->m_fubenLog->m_curStageID);
+			if((uint32)levelId <= player->m_fubenLog->m_curStageID)
+				break;
+			player->m_BaoQiLog->UpdateGemAttr(*player);
+		}
+		GS2C_Fuben_All_Info msg;
+		player->m_fubenLog->SaveTo(player,msg);
+		player->Send(SMSG_ALL_FUBEN_INFO, msg);
+		PlayerFuBenDB::SendFuBenBaseToDb(*player, *player->m_fubenLog);
+		player->UnlockCharacter(unlockChar);
+	}
+#endif
+	return ErrCommonSuccess;
+}
+ANOTHER_NAME( allstagepass, as )
+
+
+GM_CMD_FUNC( exploitvalue )
+{
+	int exploitvalue = 0;
+	parser.NextInt( exploitvalue);
+	player->AddExploitValue(exploitvalue);
+	
+	return ErrCommonSuccess;
+}
+ANOTHER_NAME( exploitvalue, ev )
+
+GM_CMD_FUNC( openfog )
+{
+	int openfog = 0;
+	parser.NextInt( openfog);
+	player->AddValue(pb::PLAYER_FIELD_OPEN_FOG_COUNT,openfog);
+
+	return ErrCommonSuccess;
+}
+ANOTHER_NAME( openfog, of )
+
+GM_CMD_FUNC( xilian )
+{
+	int xilian_value = 0;
+	parser.NextInt( xilian_value);
+	player->AddActivityXiLianValue(xilian_value);
+	player->AddXiLianValue(xilian_value);
+
+	return ErrCommonSuccess;
+}
+ANOTHER_NAME( xilian, xl )
+
+GM_CMD_FUNC( trickvalue )
+{
+	int trickvalue = 0;
+	parser.NextInt( trickvalue);
+	player->AddTrickValue(trickvalue);
+
+	return ErrCommonSuccess;
+}
+ANOTHER_NAME( trickvalue, tv )
+
+
+GM_CMD_FUNC( occupyvalue )
+{
+	int occupyvalue = 0;
+	parser.NextInt( occupyvalue);
+	player->AddOccupyValue(occupyvalue);
+	return ErrCommonSuccess;
+}
+ANOTHER_NAME( occupyvalue, ov )
+
+
+GM_CMD_FUNC( tecId )
+{
+	int tecId = 0;
+	parser.NextInt( tecId );
+	if(tecId == -1)
+	{
+		const TechnologyMap& tec_map = sTechnologyTableMgr.GetTechnologyMap();
+		for(TechnologyMap::const_iterator iter = tec_map.begin();iter != tec_map.end();++iter)
+		{
+			player->m_Technology->GM_Finish(player,iter->first);
+		}
+	}
+	else
+	{
+		player->m_Technology->GM_Finish(player,tecId);
+	}
+	
+
+	return ErrCommonSuccess;
+}
+ANOTHER_NAME( tecId, tid )
+
+GM_CMD_FUNC( countryExp)
+{
+#ifdef  _MMO_SERVER_
+	int countryExp = 0;
+	parser.NextInt( countryExp );
+	sWorldMap.addCountryExp(player->GetCountryId(), countryExp);
+#endif
+	return ErrCommonSuccess;
+}
+ANOTHER_NAME( countryExp, gb)
+
+GM_CMD_FUNC( dinnernum )
+{
+	int dinnernum = 0;
+	parser.NextInt( dinnernum);
+	player->AddDinnerNum(dinnernum);
+
+	return ErrCommonSuccess;
+}
+ANOTHER_NAME( dinnernum, dn )
+
+GM_CMD_FUNC( xilianItem )
+{
+	int itemId = 0;
+	int attrA = 0;
+	int attrB = 0;
+	int attrC = 0;
+
+	parser.NextInt( itemId);
+	parser.NextInt( attrA);
+	parser.NextInt( attrB);
+	parser.NextInt( attrC);
+	std::vector<int> attr;
+	
+	attr.clear();
+	if(attrA != 0)
+		attr.push_back(attrA);
+
+	if(attrB != 0)
+		attr.push_back(attrB);
+
+	if(attrC != 0)
+		attr.push_back(attrC);
+
+	player->CreateGMItemWithAttr( pb::IR_GM_GET, itemId, attr);  
+
+	return ErrCommonSuccess;
+}
+ANOTHER_NAME( xilianItem, axb )
+
+GM_CMD_FUNC( addCExp )
+{
+#ifdef  _MMO_SERVER_
+	int countryid = 0;
+	int exp = 0;
+
+	parser.NextInt( countryid);
+	parser.NextInt( exp);
+	
+	sWorldMap.addCountryExp(countryid, exp);
+#endif
+
+	return ErrCommonSuccess;
+}
+ANOTHER_NAME( addCExp, gjjy )
+
+GM_CMD_FUNC( addCNExp )
+{
+#ifdef  _MMO_SERVER_
+	int countryid = 0;
+	int exp = 0;
+
+	parser.NextInt( countryid);
+	parser.NextInt( exp);
+
+	sWorldMap.addCountryNpcExp(countryid, exp);
+#endif
+	return ErrCommonSuccess;
+}
+ANOTHER_NAME( addCNExp, gjsw )
+
+
+GM_CMD_FUNC( saveChacheNow )
+{
+#ifdef  _MMO_SERVER_
+	pb::SG2D_Player_Id pMsg;
+	pMsg.set_player_id(player->GetGuid());
+	sDbProxyClient.Send(pb::SG2D_SAVE_PLAYER_CACHE,pMsg);
+#endif
+	return ErrCommonSuccess;
+}
+ANOTHER_NAME( saveChacheNow, savenow )
+
+GM_CMD_FUNC( DailyQuestFinish )
+{
+	int quest_id = 0;
+	parser.NextInt( quest_id );
+	if(quest_id == -1)
+	{
+		const DailyQuestMap& daily_quest_map = sDailyQuestTableMgr.GetDailyQuestMap();
+		for(DailyQuestMap::const_iterator Iter = daily_quest_map.begin();Iter != daily_quest_map.end();++Iter)
+		{
+			//if(player->IsTakeDailyQuestReward(Iter->first)) continue;
+			player->m_DailyQuest->GM_finish(*player,Iter->first);
+		}
+	}
+	else 
+	{
+		//if(player->IsTakeDailyQuestReward(quest_id)) return ErrCommonFail;
+		player->m_DailyQuest->GM_finish(*player,quest_id);
+	}
+	return ErrCommonSuccess;
+}
+ANOTHER_NAME( DailyQuestFinish, dqf )
+
+GM_CMD_FUNC( GrowUpQuestFinish )
+{
+	int quest_id = 0;
+	parser.NextInt( quest_id );
+	if(quest_id == -1)
+	{
+		const GrowUpQuestProtoMap& grow_up_quest = sGrowUpQuestTableMgr.GetGrowUpQuestProtoMap();
+		for(GrowUpQuestProtoMap::const_iterator Iter = grow_up_quest.begin();Iter != grow_up_quest.end();++Iter)
+		{
+			player->m_GrowUpQuest->GM_Finish(*player,Iter->first);
+		}
+	}
+	else 
+	{
+		player->m_GrowUpQuest->GM_Finish(*player,quest_id);
+	}
+
+	return ErrCommonSuccess;
+}
+ANOTHER_NAME( GrowUpQuestFinish, gqf )
+
+GM_CMD_FUNC( GrowUpQuestGroupFinish )
+{
+	int group_id = 0;
+	parser.NextInt( group_id );
+	if(group_id == -1)
+	{
+		const GrowUpQuestGroupMap& grow_up_quest_group = sGrowUpQuestTableMgr.GetGrowUpQuestGroupMap();
+		for(GrowUpQuestGroupMap::const_iterator Iter = grow_up_quest_group.begin();Iter != grow_up_quest_group.end();++Iter)
+		{
+			player->m_GrowUpQuest->GM_FinishGroup(*player,Iter->first);
+		}
+	}
+	else 
+	{
+		player->m_GrowUpQuest->GM_FinishGroup(*player,group_id);
+	}
+
+	return ErrCommonSuccess;
+}
+ANOTHER_NAME( GrowUpQuestGroupFinish, gqgf )
+
+
+GM_CMD_FUNC( PassStageReward )
+{
+	int id = 0;
+	parser.NextInt( id );
+	if(id == -1)
+	{
+		const ActivityStageRewardMap& asrm =  sActivityStageRewardTableMgr.GetActivityStageRewardMap();
+		for(ActivityStageRewardMap::const_iterator Iter = asrm.begin();Iter != asrm.end();++Iter)
+		{
+			player->m_PassStageReward->GM_Finish(player,Iter->first);
+		}
+	}
+	else 
+	{
+		player->m_PassStageReward->GM_Finish(player,id);
+	}
+
+	return ErrCommonSuccess;
+}
+ANOTHER_NAME( PassStageReward, psr )
+
+GM_CMD_FUNC( addActivityGold )
+{
+	int value = 0;
+	parser.NextInt( value );
+#ifdef _MMO_SERVER_
+	player->AddValue(pb::PLAYER_FIELD_ACTIVITY_GOLD_NUM,value);
+#endif
+	return ErrCommonSuccess;
+}
+ANOTHER_NAME( addActivityGold, ag )
+
+GM_CMD_FUNC( SeigeArmyLvUp )
+{
+	int armyId = 0;
+	int level = 0;
+	parser.NextInt( armyId );
+	parser.NextInt( level );
+
+	player->m_SeigeForceLog->GM_LevelUp(player,armyId,level);
+
+	return ErrCommonSuccess;
+}
+ANOTHER_NAME( SeigeArmyLvUp, slv )
+
+GM_CMD_FUNC( AddLoginDays )
+{
+	int login_days = 0;
+	parser.NextInt( login_days );
+#ifdef _MMO_SERVER_
+	player->SetLoginDaysNumber(login_days);
+#endif
+	return ErrCommonSuccess;
+}
+ANOTHER_NAME( AddLoginDays, ald )
+
+GM_CMD_FUNC( SaveAllCache )
+{
+#ifdef _MMO_SERVER_
+	NetPack pack(pb::SG2D_SAVE_ALL_PLAYER_CACHE);
+	sDbProxyClient.Send(pack);
+#endif
+	return ErrCommonSuccess;
+}
+ANOTHER_NAME( SaveAllCache, sac )
+
+////just for test chat in channel system.
+GM_CMD_FUNC( chat_system )
+{
+	pb::C2GS_Chat msg;
+	char temp[1024] = {0},buf[1024] = {0};
+	CDbStringMgr<String_Ui>::GetUtf8String(37303,temp,LANG_CN);
+	SPRINTF(buf,temp,player->CharName().c_str(),50);
+	msg.set_type(pb::CHAT_SYSTEM);
+	msg.set_chat_info(buf);
+	player->m_chatSpeaker->Say(player,msg);
+	return ErrCommonSuccess;
+}
+ANOTHER_NAME( chat_system, cs )
+GM_CMD_FUNC( ShenQiLevel )
+{
+	int id = 0;
+	int level = 0;
+	parser.NextInt( id );
+	parser.NextInt( level );
+	if(id == -1)
+	{
+		for(int i = 0; i < BaoQi_MaxCnt;++i)
+		{
+			player->m_BaoQiLog->GM_SetShenQiLevel(*player,i,level);
+		}
+	}
+	else
+	{
+		player->m_BaoQiLog->GM_SetShenQiLevel(*player,id,level);
+	}
+	return ErrCommonSuccess;
+}
+ANOTHER_NAME( ShenQiLevel, shenqi )

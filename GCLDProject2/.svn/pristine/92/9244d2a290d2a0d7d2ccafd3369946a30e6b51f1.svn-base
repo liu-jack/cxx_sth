@@ -1,0 +1,25 @@
+/************************************************************************/
+/*Add by:zhoulunhao													*/
+/*Email	:zhoulunhao@hotmail.com											*/
+/************************************************************************/
+
+
+#include "PlayerCongratulateDB.h"
+#include "Rank.pb.h"
+#include "../server_client/DbProxyServerClient.h"
+#include "ServerOpcode.pb.h"
+#include "../object/Player.h"
+#include "../Congratulate/CongratulateRewardLog.h"
+
+void CongratulateLogDB::SendInfoToSelfCongratulateDb(Player& player, CongratulateLog& log,const uint32 table_id,const uint32 operate_type)
+{
+	pb::GxDB_CongratulateInfo msg;
+	msg.set_operate_type(operate_type);
+	log.SaveTo(table_id,msg);
+	sDbProxyClient.SendPlayerPack(player, pb::SG2D_CONGRATULATE_UPDATE, msg);
+}
+
+void CongratulateLogDB::SendInfoToCongratulateBeenDb(Player& player, const pb::C2GS_Congratulate_Accept& msg)
+{
+	sDbProxyClient.SendPlayerPack(player, pb::SG2D_CONGRATULATE_BEEN_CON_UPTATE, msg);
+}

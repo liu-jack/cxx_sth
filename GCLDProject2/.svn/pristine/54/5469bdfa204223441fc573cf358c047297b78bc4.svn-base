@@ -1,0 +1,47 @@
+#ifndef __FubenStage_h__
+#define __FubenStage_h__
+
+#include "def/TypeDef.h"
+struct DB_FubenStage;
+
+namespace pb
+{
+    class C2S_Stage_KillSoldier;
+    class C2S_Pass_Stage;
+    class C2S_UnlockHero;
+}
+enum EType {
+	Common,     //ÆÕÍ¨ 0
+	Resource,   //×ÊÔ´ 1
+	Group,      //¾üÍÅ 2
+	Fog,        //ÃÔÎí 3
+	Crusade,	//Ô¶Õ÷ 4
+	CruGifts,	//Ô¶Õ÷½±Àø 5
+};
+class FubenStage {
+    const DB_FubenStage& m_dbFubenStage;
+public:
+    IntPairVec  m_npcLst;
+
+    
+    FubenStage(const DB_FubenStage& db);
+	uint32 Id() const;
+    int32 LandForm() const;
+    uint32 ReqLv() const;
+    uint32 FubenId() const;
+    uint32 UnlockeHeroId() const;
+	void GetUnlockeHeroId(std::set< uint32>& heroIdSet) const;
+	uint32 PreStage() const;
+    void GetCost(IntPair& cost, uint32 times) const;
+    void GetReward(IntPairVec& reward) const;
+	uint32 GetStageType() const;
+	bool IsCommonStage() const;
+    bool IsResourceStage() const;
+    bool IsGroupStage() const;
+    bool IsFogStage() const;
+	bool IsCrusadeStage() const;
+	bool IsCruGiftsStage() const;
+	string GetAwardList() const;
+};
+
+#endif //__FubenStage_h__

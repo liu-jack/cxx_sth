@@ -1,0 +1,1236 @@
+
+#include<sstream>
+#include <algorithm>
+#include <boost/bind.hpp>
+#include <boost/function.hpp>
+#include <boost/typeof/typeof.hpp>
+#include <boost/smart_ptr.hpp>
+#include <boost/dynamic_bitset.hpp>
+#include "GlobalData.h"
+#include "../PlayerData.h"
+//#include "Logger.h"
+//#include "OS.h"
+#include "def/MmoAssert.h"
+//#include "utility/STLUtility.h"
+#include "memory_buffer/NetPack.h"
+#include "DbProxyDataMgr.h"
+#include "Enum.pb.h"
+#include "InterServer.pb.h"
+#include "Social.pb.h"
+//#include "FriendInfo.h"
+#include <boost/regex.hpp>
+#include "PlayerTable.h"
+#include "../session/GameServerSession.h"
+#include "utility/MsgTool.h"
+#include "utility/STLUtility.h"
+#include "ServerOpcode.pb.h"
+#include "Palace.pb.h"
+#include "Base.h"
+const time_t MAX_OFFLINETIME_FOR_RCOMMMEND = 604800;   //离线时间小于一周玩家才被推荐加好友
+const size_t FRIEND_COUNT_LIMIT            = 40;
+
+
+GlobalData::GlobalData(int serverId,int regionId)
+:m_reconnectInit(false)
+,m_curSession(NULL)
+{
+	Init( serverId,regionId ) ;
+}
+
+GlobalData::~GlobalData()
+{
+	sDataMgr.UnLoadGlobalData( this ) ;
+}
+
+
+
+void GlobalData::Init( int serverId,int regionId )
+{
+
+	SetIsLoadedDatabaseTable( false );
+	SetServerId(  serverId ) ;
+	SetRegionId( regionId );
+
+	//SetIsReconnectInit( false ) ;
+	//SetIsOffline( false ) ;
+	SetLastSaveTime( 0 );  
+
+}
+
+
+PlatfromMailTable* GlobalData::AddNewPlatfromMailToTable( PlatfromMailTable &newMail )
+{
+	if (newMail.id > 0)
+	{
+		bool isExist = PlatfromMailTableCacheType::QueryIsTure("SELECT 1 FROM %s WHERE id =%llu LIMIT 1;", PlatfromMailTable::GetTableName(), newMail.id);
+		if (isExist)
+		{
+			return NULL;
+		}
+	}
+
+	CachePtrMap< uint64, PlatfromMailTable>::Iter iterMail = m_PlatfromMailTable.Begin();
+	for (; iterMail != m_PlatfromMailTable.End(); ++iterMail)
+	{
+		PlatfromMailTable* curPMail = iterMail->second;
+		if (curPMail->create_time + MAIL_NOLOGIN_CANT_RECEIVE_TIME < ::time( NULL ))
+		{
+			m_PlatfromMailTable.DeleteEntry(curPMail);
+		}
+	}
+
+
+	if ( sDataMgr.GetTable<PlatfromMailTable>()->GetMaxId() <= 20000 )
+	{
+		sDataMgr.GetTable<PlatfromMailTable>()->SetMaxId(20000);
+	}
+	newMail.region_id = m_regionId;
+	newMail.server_id = m_serverId;
+	return m_PlatfromMailTable.AddAndAddToCache(&newMail);
+}
+
+bool GlobalData::RemoveFriendApSendInfo(uint64 playerId,uint64 friendId,PlayerDataMap& playerMap)
+{
+	/*PlayerDataMapItr pItr = playerMap.find( playerId ) ;
+	if( pItr != playerMap.end() )
+	{
+		PlayerDataPtr dataPtr  =pItr->second ;
+		string curSendApString = dataPtr->GetPlayerString(pb::PLAYER_FIELD_AP_SEND_IDS);
+		std::set<uint64> tempSet;
+		ParserApSendIds(curSendApString,tempSet);
+		if (tempSet.find(friendId) != tempSet.end())
+		{
+			tempSet.erase(friendId);
+			string curSendApIds = "";
+			SaveApReceivedIds(curSendApIds,tempSet);
+			pb::GS2C_PlayerString  modifyString;
+			modifyString.set_str(curSendApIds);
+			modifyString.set_str_type(pb::PLAYER_FIELD_AP_SEND_IDS);
+			dataPtr->UpdatePlayerString(modifyString);
+		}
+		return true;
+	}
+	else
+	{
+		std::string sql ;
+		Utility::FormatString( sql, "SELECT * FROM %s WHERE player_id =%llu, str_type=%d ", PlayerStringTable::GetTableName(), playerId,(int)pb::PLAYER_FIELD_AP_SEND_IDS);
+		std::vector<PlayerStringTable*> vecPlayerStringTable ;
+		PlayerStringTableCache tmpTable;
+		if( tmpTable.SqlLoadAndAddData( sql.c_str(), &vecPlayerStringTable, FlagReload ) )
+		{
+			std::vector<PlayerStringTable*>::iterator iterPlayerStr = vecPlayerStringTable.begin();
+			if(iterPlayerStr != vecPlayerStringTable.end())
+			{
+				PlayerStringTable* curPlayerString = (*iterPlayerStr);
+				if (curPlayerString)
+				{
+					std::set<uint64> tempSet;
+					ParserApSendIds(curPlayerString->str,tempSet);
+					if (tempSet.find(friendId) != tempSet.end())
+					{
+						tempSet.erase(friendId);
+						SaveApReceivedIds(curPlayerString->str,tempSet);
+						tmpTable.WriteEntry(curPlayerString);
+					}
+					return true;
+				}
+			}
+		}
+	}*/
+	return false;
+}
+
+void GlobalData::SaveApReceivedIds(string& strApIds,const std::set<uint64>& setPlayerId)
+{
+	strApIds.clear();
+	std::set<uint64>::const_iterator iterId  = setPlayerId.begin();
+	for (;iterId != setPlayerId.end();++iterId)
+	{
+		uint64 playerId = (*iterId);
+		char temp[64];
+		memset(temp,0,64);
+		SPRINTF(temp,"%llu,",playerId);
+		strApIds.append(temp);
+	}
+}
+
+void GlobalData::ParserApSendIds(const ::std::string& strIds,std::set<uint64> & setPlayerId)
+{
+	std::vector<std::string> attachment_info_vec;
+	char* p = strtok(const_cast<char*>(strIds.c_str()),",");
+	while(p != NULL)
+	{
+		attachment_info_vec.push_back(p);
+		p = strtok(NULL,",");
+	}
+
+	for (size_t i = 0;i < attachment_info_vec.size();i++)
+	{
+		std::string apinfo = attachment_info_vec[i];
+		std::stringstream time_value;
+		time_value << apinfo;
+		uint64 cureventtime;
+		time_value >> cureventtime;
+		setPlayerId.insert(cureventtime);
+	}
+	attachment_info_vec.clear();
+}
+void GlobalData::OnPlayerOnline(uint64 playerId,bool isOnline)
+{
+
+}
+void GlobalData::OnGameServerRegist()
+{
+    //SyncGuildInfo();
+
+    SyncCountryInfo();  //发送国家数据
+    SyncPalaceInfo();   //发送皇城官职
+    SyncCountryLevelUpTaskRankInfo(); //发送国家升级任务 排行榜
+	SyncActivityInfo();//send activity info
+	SyncActivityCountryOccupyCityInfo();
+}
+
+bool   GlobalData::SearchStringForKey(const string& dstStr, const string& strKey)
+{
+	boost::regex expression(strKey);
+	boost::smatch what;
+	if( boost::regex_search(dstStr,what,expression) )
+	{
+		string temp = what[0];
+		return true;
+	}
+	return false;
+}
+
+int GlobalData::Search_Player_FromCache(string searchKey,int maxCount,std::set<uint64>& playerSet,pb::GS2C_Friend_Search_Respone& respon,PlayerDataMap& playerMap)
+{
+	if (searchKey.length() <= 0)
+	{
+		return 0;
+	}
+	int nCount = playerSet.size();
+	PlayerDataMapItr iter = playerMap.begin();
+	while(iter != playerMap.end())
+	{
+		if (nCount < maxCount)
+		{
+			PlayerDataPtr	player_info_ptr = iter->second;
+			if (player_info_ptr && player_info_ptr.get() && player_info_ptr->HasLearder())
+			{
+				if (!SearchStringForKey(player_info_ptr->GetPlayerName(),searchKey))
+				{
+					++iter;
+					continue;
+				}
+				pb::Friend_list_Record* friendRecord = respon.add_search_players();
+				if (friendRecord)
+				{
+					player_info_ptr->WriteFriendInfo(*friendRecord);
+					playerSet.insert(friendRecord->friend_guid());
+				}
+				nCount++;
+			}
+		}
+		else
+		{
+			break;
+		}
+		++iter;
+	}
+
+	return nCount;
+}
+
+int GlobalData::Search_Player_FromDB(string searchKey,int maxCount,std::set<uint64>& playerSet,pb::GS2C_Friend_Search_Respone& respon,PlayerDataMap& playerMap)
+{
+	if (searchKey.length() <= 0)
+	{
+		return 0;
+	}
+	int nCount = playerSet.size();
+	std::string sql ;
+	Utility::FormatString( sql, "SELECT * FROM %s WHERE name LIKE '%%%s%'; ", PlayerTable::GetTableName(), searchKey.c_str() ) ;
+	std::vector<PlayerTable*> vecPlayerTable ;
+	PlayerTableCacheType tmpTable;
+	if( tmpTable.SqlLoadAndAddData( sql.c_str(), &vecPlayerTable, FlagReload ) )
+	{
+		std::vector<PlayerTable*>::iterator iterPlayer = vecPlayerTable.begin();
+		for (; iterPlayer != vecPlayerTable.end();++iterPlayer)
+		{
+			if (nCount < maxCount)
+			{
+				PlayerTable* curPlayer = (*iterPlayer);
+				if (playerSet.find(curPlayer->playerId) == playerSet.end())
+				{
+					if (m_curSession)
+					{
+						pb::Friend_list_Record data;
+						if (m_curSession->WriteFriendInfo(curPlayer->playerId,data))
+						{
+							pb::Friend_list_Record* friendRecord = respon.add_search_players();
+							if (friendRecord)
+							{
+								friendRecord->CopyFrom(data);
+								nCount++;
+							}
+						}
+					}
+				}
+			}
+			else
+			{
+				break;
+			}
+		}
+	}
+
+	return nCount;
+}
+
+bool GlobalData::IsPlayerFriendsRechLimits(uint64 playerId)
+{
+	if (m_allPlayerFriendTable.find(playerId) != m_allPlayerFriendTable.end())
+	{
+		PlayerFriendInfo &curPlayerFriendInfo =m_allPlayerFriendTable[playerId] ;
+		PlayerFriendInfo::FriendIdMap &curFriendList =curPlayerFriendInfo.m_myFriends[LIST_FRIEND];
+		if (!curFriendList.Empty())
+		{
+			size_t nFriend =  curFriendList.Size();
+			if (nFriend >= FRIEND_COUNT_LIMIT)
+			{
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+bool GlobalData::Search_Friend_FromCache( uint64 youGuid,int& curCount, int maxCount, pb::GS2C_Friend_Search_Respone& respon, PlayerDataMap& playerMap, MKPlayerOfflineTable &offLineInfos )
+{
+	if (maxCount <= 0 )
+	{
+		return true;
+	}
+
+	PlayerFriendInfo &playerFriendInfo     =m_allPlayerFriendTable[ youGuid ] ;
+	/*if( playerFriendInfo.m_myFriends[ LIST_FRIEND ].Size() >= FRIEND_COUNT_LIMIT )
+	{
+	respon.set_search_result( 3 ) ;
+	return false ;
+	}*/
+
+	//maxCount =static_cast<size_t>( maxCount ) >= FRIEND_COUNT_LIMIT ? FRIEND_COUNT_LIMIT : maxCount ;
+
+	PlayerFriendInfo::FriendIdMap &friendList =playerFriendInfo.m_myFriends[ LIST_FRIEND ] ;
+	PlayerFriendInfo::FriendIdMap &ignoreList =playerFriendInfo.m_myFriends[ LIST_IGNORES ] ;
+	PlayerFriendInfo::FriendIdMap &inviteList =playerFriendInfo.m_myFriends[ LIST_INVITES ] ;
+
+	// 当人数不够时
+	if( playerMap.size() <= static_cast<size_t>( maxCount ) )
+	{
+		for( PlayerDataMapItr itr = playerMap.begin(); itr != playerMap.end(); ++itr )
+		{
+			PlayerDataPtr &pPlayer = itr->second;
+			uint64 curPlayerId = pPlayer->m_PlayerTable->playerId;
+
+			if( ignoreList.GetElement( curPlayerId ) != NULL )
+			{
+				continue ;
+			}
+
+			if( friendList.GetElement(curPlayerId ) != NULL )
+			{
+				continue ;
+			}
+
+			if( inviteList.GetElement(curPlayerId ) != NULL )
+			{
+				continue ;
+			}
+
+			if( youGuid == curPlayerId || pPlayer->GetPlayerAccountId() == 0)
+			{
+				continue ;
+			}
+			if (m_allPlayerFriendTable.find(curPlayerId) != m_allPlayerFriendTable.end())
+			{
+				PlayerFriendInfo &curPlayerFriendInfo =m_allPlayerFriendTable[curPlayerId] ;
+				PlayerFriendInfo::FriendIdMap &curFriendList =curPlayerFriendInfo.m_myFriends[LIST_FRIEND];
+				PlayerFriendInfo::FriendIdMap &curIgnoreList =curPlayerFriendInfo.m_myFriends[LIST_IGNORES];
+				PlayerFriendInfo::FriendIdMap &curInviteList =curPlayerFriendInfo.m_myFriends[LIST_INVITES];
+				if (!curFriendList.Empty())
+				{
+					size_t nFriend =  curFriendList.Size();
+					if (nFriend >= FRIEND_COUNT_LIMIT)
+					{
+						continue;
+					}
+				}
+				if( curIgnoreList.GetElement( youGuid ) != NULL )
+				{
+					continue ;
+				}
+				if( curInviteList.GetElement(youGuid ) != NULL )
+				{
+					continue ;
+				}
+			}
+			
+			pb::Friend_list_Record* friendRecord = respon.add_search_players();
+			if (friendRecord)
+			{
+				pPlayer->WriteFriendInfo(*friendRecord);
+				friendRecord->set_friend_type(LIST_RECOMMENDS);
+				curCount++;
+			}
+		}
+	}
+	else
+	{
+		bool isLimitLoginTime =true;
+		const size_t maxLoopCount   =playerMap.size() ;
+
+		PlayerDataMapItr begItr =playerMap.begin() ;
+		PlayerDataMapItr endItr =playerMap.end() ;
+		std::advance( begItr, sOS.Rand( 0, playerMap.size() - 1 ) ) ;
+
+		typedef std::multimap< time_t, PlayerDataPtr > TmpIgnorePlayerTable ;
+		TmpIgnorePlayerTable tmpIgnorePlayers ;
+
+		for( size_t i =0; i < maxLoopCount; ++i )
+		{
+			if( begItr == endItr )
+			{
+				begItr =playerMap.begin() ;
+			}
+
+			PlayerDataPtr &pPlayer = begItr->second;
+			uint64 curPlayerId = pPlayer->m_PlayerTable->playerId;
+			if( youGuid == curPlayerId || pPlayer->GetPlayerAccountId() == 0 )
+			{
+				++begItr ;
+				continue ;
+			}
+
+			if( ignoreList.GetElement( curPlayerId ) != NULL )
+			{
+				++begItr ;
+				continue ;
+			}
+
+			if( friendList.GetElement( curPlayerId ) != NULL )
+			{
+				++begItr ;
+				continue ;
+			}
+
+			if( inviteList.GetElement(curPlayerId ) != NULL )
+			{
+				++begItr ;
+				continue ;
+			}
+
+			if( isLimitLoginTime )
+			{
+				time_t loginTimeSapce = time(NULL) - pPlayer->GetLastLoginTime();
+				if( pPlayer->GetIsOffline() && ( loginTimeSapce > MAX_OFFLINETIME_FOR_RCOMMMEND ) )
+				{
+					tmpIgnorePlayers.insert( std::make_pair( loginTimeSapce, pPlayer ) ) ;
+					++begItr ;
+					continue ;
+				}
+			}
+
+			if (m_allPlayerFriendTable.find(curPlayerId) != m_allPlayerFriendTable.end())
+			{
+				PlayerFriendInfo &curPlayerFriendInfo =m_allPlayerFriendTable[curPlayerId] ;
+				PlayerFriendInfo::FriendIdMap &curFriendList =curPlayerFriendInfo.m_myFriends[LIST_FRIEND];
+				PlayerFriendInfo::FriendIdMap &curIgnoreList =curPlayerFriendInfo.m_myFriends[LIST_IGNORES];
+				PlayerFriendInfo::FriendIdMap &curInviteList =curPlayerFriendInfo.m_myFriends[LIST_INVITES];
+				if (!curFriendList.Empty())
+				{
+					size_t nFriend =  curFriendList.Size();
+					if (nFriend >= FRIEND_COUNT_LIMIT)
+					{
+						++begItr ;
+						continue;
+					}
+				}
+				if( curIgnoreList.GetElement( youGuid ) != NULL )
+				{
+					++begItr ;
+					continue ;
+				}
+				if( curInviteList.GetElement(youGuid ) != NULL )
+				{
+					++begItr ;
+					continue ;
+				}
+			}
+
+			pb::Friend_list_Record *friendRecord = respon.add_search_players();
+			if( friendRecord )
+			{
+				pPlayer->WriteFriendInfo(*friendRecord);
+				friendRecord->set_friend_type(LIST_RECOMMENDS);
+				curCount++;
+			}
+
+			++begItr ;
+
+			if( curCount >= maxCount )
+			{
+				return true ;
+			}
+		}
+
+		if( curCount < maxCount && isLimitLoginTime )
+		{
+			// 不满人
+			for( TmpIgnorePlayerTable::iterator itr =tmpIgnorePlayers.begin(); itr != tmpIgnorePlayers.end(); ++itr )
+			{
+				PlayerDataPtr &pPlayer = itr->second;
+
+				pb::Friend_list_Record *friendRecord = respon.add_search_players();
+				if( friendRecord )
+				{
+					pPlayer->WriteFriendInfo(*friendRecord);
+					friendRecord->set_friend_type(LIST_RECOMMENDS);
+				}
+
+				curCount++;
+				if( curCount >= maxCount )
+				{
+					break ;
+				}
+			}
+		}
+	}
+
+	return curCount >= maxCount ;
+}
+
+void GlobalData::Search_friend_info( pb::C2GS_Friend_Search& searchInfo,pb::GS2C_Friend_Search_Respone& respon,PlayerDataMap& playerMap, MKPlayerOfflineTable &offLineInfos )
+{
+	//0搜索好友1搜索玩家2搜索推荐玩家(过滤掉好友)
+
+	respon.set_your_guid(searchInfo.your_guid());
+
+	int  nCount = 0;
+	switch( searchInfo.search_type() )
+	{
+	case pb::FRIEND_SEARCH_PLAYER:
+		{
+			return ; // not use template
+
+			if (searchInfo.search_name().length() <= 0)
+			{
+				return;
+			}
+			std::set<uint64> playerSet;
+			nCount = Search_Player_FromCache(searchInfo.search_name(),searchInfo.max_count(),playerSet,respon,playerMap);
+			if (nCount < (int)searchInfo.max_count())
+			{
+				Search_Player_FromDB(searchInfo.search_name(),searchInfo.max_count(),playerSet,respon,playerMap);
+			}
+		} break ;
+
+	case pb::FRIEND_SEARCH_RECOMMENDATION:
+		{
+			Search_Friend_FromCache( searchInfo.your_guid(), nCount, searchInfo.max_count(), respon, playerMap, offLineInfos ) ;
+		} break ;
+
+	default:
+		ASSERT( false ) ;
+	}
+
+	respon.set_search_result( nCount > 0 ? pb::FRIEND_SEARCH_RESULT_SUCCESS : pb::FRIEND_SEARCH_RESULT_FAIL );
+}
+
+void GlobalData::UpdateGuildInfo(const pb::GxDB_GuildInfo& info,int update_type )
+{
+	GuildInfoMap::iterator begin = m_guildInfoMap.find(info.guild_id());
+	if(begin != m_guildInfoMap.end())
+	{
+		if (update_type == pb::DATA_UPDATE)
+		{
+			GuildInfo& my_guild = begin->second;
+			my_guild.pInfo->LoadFrom(info);
+			my_guild.pInfo->SetModify();
+		}
+		else if (update_type == pb::DATA_DEL)
+		{
+			GuildInfo& my_guild = begin->second;
+			sDataMgr.m_GuildInfoTable->RemoveAndDeleteEntry(my_guild.pInfo);
+			GuildMemberInfoTableMap::iterator iterMember =my_guild.memberMap.begin();
+			for (;iterMember != my_guild.memberMap.end(); ++iterMember)
+			{
+				GuildMemberInfoTable* curMember = iterMember->second;
+				sDataMgr.m_GuildMemberInfoTable->RemoveAndDeleteEntry(curMember);
+				curMember = NULL;
+			}
+			my_guild.pInfo = NULL;
+			m_guildInfoMap.erase(begin);
+		}
+	}
+}
+
+void GlobalData::UpdateGuildMemberInfo(const pb::GxDB_GMember_Info& info,int update_type )
+{
+	GuildInfoMap::iterator begin = m_guildInfoMap.find(info.guild_id());
+	if(begin != m_guildInfoMap.end())
+	{
+		GuildInfo& my_guild = begin->second;
+		GuildMemberInfoTableMap::iterator iterMember =my_guild.memberMap.find(info.playerid());
+		if (iterMember != my_guild.memberMap.end())
+		{
+			GuildMemberInfoTable* curMember = iterMember->second;
+			if (update_type == pb::DATA_UPDATE || update_type == pb::DATA_INSERT)
+			{
+				curMember->LoadFrom(info);
+				curMember->SetModify();
+			}
+			else if (update_type == pb::DATA_DEL)
+			{
+				sDataMgr.m_GuildMemberInfoTable->RemoveAndDeleteEntry(curMember);
+				curMember = NULL;
+				my_guild.memberMap.erase(iterMember);
+			}
+		}
+		else if (update_type == pb::DATA_INSERT)
+		{
+			GuildMemberInfoTable curMembTable;
+			curMembTable.LoadFrom(info);
+			curMembTable.id = sDataMgr.m_GuildMemberInfoTable->IncreaseMaxId();
+			GuildMemberInfoTable* newInfo = sDataMgr.m_GuildMemberInfoTable->SaveAndAddEntry(&curMembTable);
+			if (newInfo)
+			{
+				my_guild.memberMap.insert(std::make_pair(newInfo->player_id,newInfo));
+			}
+		}
+	}
+}
+
+bool GlobalData::CreateGuildInfo(pb::GxDB_Guild& newGuild, uint64 guildId)
+{
+	if (newGuild.guild_id() != 0)
+	{
+		GuildInfoMap::iterator begin = m_guildInfoMap.find(newGuild.guild_id());
+		if(begin != m_guildInfoMap.end())
+		{
+			return true;
+		}
+	}
+	else if( guildId > 0 )
+	{
+		pb::GxDB_GuildInfo* guildInfo = newGuild.mutable_guild_info();
+		if (guildInfo)
+		{
+			guildInfo->set_guild_id(guildId);
+			newGuild.set_guild_id(guildId);
+		}
+		else
+		{
+			return false;
+		}
+		GuildInfoTable curGuildInfo;
+		curGuildInfo.LoadFrom(*guildInfo);
+		curGuildInfo.id = sDataMgr.m_GuildInfoTable->IncreaseMaxId();
+		curGuildInfo.region_id = m_regionId;
+		curGuildInfo.server_id = m_serverId;
+		GuildInfoTable* newInfo = sDataMgr.m_GuildInfoTable->SaveAndAddEntry(&curGuildInfo);
+		if (newInfo)
+		{
+			GuildInfo tempGuildInfo;
+			tempGuildInfo.pInfo = newInfo;
+			pb::GxDB_Guild_Member* membList = newGuild.mutable_members_info();
+			int nMember = membList->memberinfo_size();
+			for (int i=0; i< nMember; i++)
+			{
+				pb::GxDB_GMember_Info* curMember = membList->mutable_memberinfo(i);
+				curMember->set_guild_id(newInfo->guild_id);
+				curMember->set_guild_name(newInfo->name);
+				GuildMemberInfoTable tempMembTable;
+				tempMembTable.LoadFrom(*curMember);
+				tempMembTable.id = sDataMgr.m_GuildMemberInfoTable->IncreaseMaxId();
+				GuildMemberInfoTable* newMemberInfo = sDataMgr.m_GuildMemberInfoTable->SaveAndAddEntry(&tempMembTable);
+				if (newMemberInfo)
+				{
+					tempGuildInfo.memberMap.insert(std::make_pair(newMemberInfo->player_id,newMemberInfo));
+				}
+			}
+			m_guildInfoMap.insert(std::make_pair(newInfo->guild_id,tempGuildInfo));
+			return true;
+		}
+	}
+	return false;
+}
+
+bool  GlobalData::AddOfflineMail(uint64 playerId,const pb::SG2G_Mail_SendMail& sendMail)
+{
+	PlayerMailTable newPlayerMail;
+	newPlayerMail.player_id = playerId;
+	newPlayerMail.mail_id = sendMail.mail_id();
+	newPlayerMail.mail_type = sendMail.mail_type();
+	newPlayerMail.mail_state =0;//邮件状态0初始状态，1已收新邮件，2已读，3已读并已领附件
+	newPlayerMail.send_time = ::time( NULL);
+	newPlayerMail.items = sendMail.items();
+	newPlayerMail.id = sDataMgr.GetTable< PlayerMailTable>()->IncreaseMaxId();
+	sDataMgr.GetTable< PlayerMailTable>()->WriteEntry( &newPlayerMail);
+	return true;
+}
+
+void GlobalData::SearchGuildMember(const pb::C2GS_Guild_Player_Search sMsg, pb::GS2C_Guild_Player_Search_Respone resMsg,PlayerDataMap& playerMap)
+{
+	uint64 guildId = sMsg.guild_id();
+	uint32 nCount =0;
+	uint32 nMaxCount = sMsg.max_count();
+	if (guildId > 0)
+	{
+		GuildInfoMap::iterator iterGuildInfo = m_guildInfoMap.find(guildId);
+		if (iterGuildInfo != m_guildInfoMap.end())
+		{
+			GuildInfo& curGuildInfo = iterGuildInfo->second;
+			PlayerDataMapItr iter = playerMap.begin();
+			while(iter != playerMap.end())
+			{
+				if (nCount < nMaxCount)
+				{
+					PlayerDataPtr	player_info_ptr = iter->second;
+					if (player_info_ptr && player_info_ptr.get())
+					{
+						if(!curGuildInfo.IsContainMember(player_info_ptr->GetPlayerId()))
+						{
+							// Not use comment template;
+							//pb::GxDB_GMember_Info* curMember = resMsg.add_memberinfos();
+
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+
+void GlobalData::SyncGuildInfo()
+{
+    pb::GxDB_Guilds guilds;
+
+	GuildInfoMap::iterator itermGuildIfo =  m_guildInfoMap.begin();
+	for (;itermGuildIfo != m_guildInfoMap.end(); ++itermGuildIfo)
+	{
+		GuildInfo& curGuildInfo = itermGuildIfo->second;
+		pb::GxDB_Guild* guildInfoMsg = guilds.add_guildinfos();
+		if (guildInfoMsg)
+		{
+			curGuildInfo.WriteGuild(*guildInfoMsg);
+		}
+	}
+    m_curSession->Send(pb::SD2G_LOADINGGUILDINFO, guilds);
+}
+
+void GlobalData::GuildInfo::WriteGuild( pb::GxDB_Guild &guild )
+{
+	if (pInfo)
+	{
+		guild.set_guild_id(pInfo->guild_id);
+		pInfo->SaveTo(*guild.mutable_guild_info());
+		GuildMemberInfoTableMap::iterator iterMember =  memberMap.begin();
+		for (;iterMember != memberMap.end(); ++iterMember)
+		{
+			GuildMemberInfoTable* curMembInfo = iterMember->second;
+			if (curMembInfo)
+			{
+				if (curMembInfo->is_requester)
+				{
+					pb::GxDB_GMember_Info* pMembersInfo = guild.mutable_request_list()->add_memberinfo();
+					curMembInfo->SaveTo(*pMembersInfo);
+				}
+				else
+				{
+					pb::GxDB_GMember_Info* pMembersInfo = guild.mutable_members_info()->add_memberinfo();
+					curMembInfo->SaveTo(*pMembersInfo);
+				}
+			}
+		}
+	}
+}
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// friend info
+void PlayerFriendInfo::UnloadData( void )
+{
+	m_firendIdToType.clear() ;
+	std::for_each( m_myFriends.begin(), m_myFriends.end(), SelectSecond( boost::bind( &FriendIdMap::RemoveAllEntry, _1 ) ) ) ; ;
+}
+
+bool PlayerFriendInfo::ChangeFriendType( uint64 friendId, uint32 newType )
+{
+	FriendIdToTypeItr itr = m_firendIdToType.find( friendId ) ;
+	if( itr == m_firendIdToType.end() )
+	{
+		return false ;
+	}
+
+	// change list type
+	const uint32 orignType =itr->second ;
+	if( orignType == newType )
+	{
+		return true ;
+	}
+
+	FriendIdMap &orignMap =m_myFriends[ orignType ] ;
+	DB_FriendInfo *pInfo    =orignMap.GetElement( friendId ) ;
+
+	ASSERT( pInfo != NULL ) ;
+	if(  pInfo == NULL )
+	{
+		m_firendIdToType.erase( friendId ) ;
+		return false ;
+	}
+
+	itr->second        =newType ;
+	pInfo->friend_type =newType ;
+
+	FriendIdMap &newMap =m_myFriends[ newType ] ;
+	newMap.AddToPtrMap( pInfo ) ;
+	newMap.SaveOneMod( pInfo ) ;
+
+	orignMap.JustRemoveFromContianer( pInfo ) ;
+
+	return true ;
+}
+
+
+void PlayerFriendInfo::GetAndClearFriends( FriendIdMap &allFriendMap )
+{
+	m_firendIdToType.clear() ;
+
+	for( FriendTypeTableItr itr =m_myFriends.begin(); itr != m_myFriends.end(); ++itr )
+	{
+		FriendIdMap &tmpMap =itr->second ;
+		std::for_each( tmpMap.Begin(), tmpMap.End(), SelectSecond( boost::bind( &FriendIdMap::AddToPtrMap, &allFriendMap, _1 ) ) ) ;
+		tmpMap.JustRemoveAllFromContianer() ;
+	}
+}
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+void GlobalData::AddFriendInfo( DB_FriendInfo *pInfo )
+{
+	ASSERT( pInfo != NULL ) ;
+	if( pInfo == NULL ) {   return ;   }
+
+	PlayerFriendInfo &playerFriendInfo =m_allPlayerFriendTable[ pInfo->player_id ] ;
+	AddFriendInfo( playerFriendInfo, pInfo ) ;
+}
+
+
+void GlobalData::AddFriendInfo( PlayerFriendInfo &playerFriendInfo, DB_FriendInfo *pInfo )
+{
+	ASSERT( pInfo != NULL ) ;
+	if( pInfo == NULL ) {   return ;   }
+	playerFriendInfo.m_myFriends[ pInfo->friend_type ].AddToPtrMap( pInfo ) ;
+
+	// record
+	playerFriendInfo.m_firendIdToType[ pInfo->friend_id ] =pInfo->friend_type ;
+}
+
+
+bool GlobalData::HadFriend( uint64 playerId, uint64 friendId )
+{
+	return GetFriendInfo( playerId, friendId ) != NULL ;
+}
+
+DB_FriendInfo*  GlobalData::GetFriendInfo( uint64 playerId, uint64 friendId )
+{
+	PlayerFriendInfo::FriendIdMap *pMap =GetFriendInfoMap( playerId, friendId ) ;
+
+	if( pMap == NULL )
+	{
+		return NULL ;
+	}
+
+	return pMap->GetElement( friendId ) ;
+}
+
+PlayerFriendInfo::FriendIdMap* GlobalData::GetFriendInfoMap(  uint64 playerId, uint64 friendId )
+{
+	PlayerFriendInfo &playerFriendInfo   =m_allPlayerFriendTable[ playerId ] ;
+	PlayerFriendInfo::FriendIdToType &ft =playerFriendInfo.m_firendIdToType ;
+
+	PlayerFriendInfo::FriendIdToTypeItr iTotItr =ft.find( friendId ) ;
+	if( iTotItr == ft.end() )
+	{
+		return NULL ;
+	}
+
+	return &playerFriendInfo.m_myFriends[ iTotItr->second ] ;
+}
+
+
+
+int GlobalData::DelFriendInfo( uint64 playerId,uint64 friendId,uint32 listType,PlayerDataMap& playerMap)
+{
+	//0失败，1成功，2,删除sendapinfo
+	int result = 1;
+	PlayerFriendInfo::FriendIdMap *pMap =GetFriendInfoMap( playerId, friendId ) ;
+	if( pMap == NULL )
+	{
+		return 0;
+	}
+
+	DB_FriendInfo* pfriendInfo = pMap->GetElement( friendId ) ;
+	if (pfriendInfo)
+	{
+		bool shouldDel = false;
+		if(pfriendInfo->friend_type == listType || listType == LIST_ALL)
+		{
+			shouldDel = true;
+		}
+		else if ((listType == LIST_ALL_BUT_IGNORES) &&(pfriendInfo->friend_type != LIST_IGNORES))
+		{
+			shouldDel = true;
+		}
+		else if ((listType == LIST_ALL_BUT_RECOMMENDS) &&(pfriendInfo->friend_type != LIST_RECOMMENDS))
+		{
+			shouldDel = true;
+		}
+
+		if(shouldDel)
+		{
+			if (pfriendInfo->is_receive_ap)
+			{
+				if(RemoveFriendApSendInfo(friendId,playerId,playerMap))
+				{
+					result = 2;
+				}
+			}
+			m_allPlayerFriendTable[ playerId ].m_firendIdToType.erase( friendId ) ;
+			pMap->DeleteEntry( pfriendInfo ) ;
+		}
+		else
+		{
+			result = 0;
+		}
+	}
+	else
+	{
+		result = 0;
+	}
+
+	return result;
+}
+
+void GlobalData::NewFriendInfo( uint64 playerId,uint64 friendId,uint32 listType)
+{
+	DB_FriendInfo info;
+	info.InitData( playerId, friendId, listType ) ;
+
+	PlayerFriendInfo &playerFriendInfo =m_allPlayerFriendTable[ playerId ] ;
+
+	playerFriendInfo.m_myFriends[ listType ].AddAndAddToCache( &info ) ;
+
+	// record
+	playerFriendInfo.m_firendIdToType[ friendId ] =listType ;
+
+}
+
+
+bool GlobalData::GetMyFriendListInfoById(uint64 player_id, pb::GS2C_FriendListInfo& info)
+{
+	AllPlayerFriendTableItr aItr =m_allPlayerFriendTable.find( player_id ) ;
+	if( aItr == m_allPlayerFriendTable.end() )
+	{
+		return true ;
+	}
+
+	PlayerFriendInfo &playerFriendInfo  =aItr->second ;
+
+	PlayerFriendInfo::FriendTypeTableItr itr =playerFriendInfo.m_myFriends.begin() ;
+	for( /**/; itr != playerFriendInfo.m_myFriends.end(); ++itr )
+	{
+		if( itr->first != LIST_RECOMMENDS )
+		{
+			PlayerFriendInfo::FriendIdMap& temfIdMap = itr->second;
+			if( !temfIdMap.Empty() )
+			{
+				PlayerFriendInfo::FriendIdMap::Iter tempIter = temfIdMap.Begin();
+				for (;tempIter != temfIdMap.End(); ++tempIter)
+				{
+					DB_FriendInfo* curTable = tempIter->second;
+					curTable->SaveTo(*info.add_friends(), m_curSession);
+				}
+			}
+		}
+	}
+	return true;
+}
+
+
+void GlobalData::UpdateFriendInfo( uint64 playerId,uint64 friendId,uint32 listType,bool isSendAp /*= false*/, bool apValue/* = false*/)
+{
+	PlayerFriendInfo::FriendIdMap *pMap =GetFriendInfoMap( playerId, friendId ) ;
+	if( pMap == NULL )
+	{
+		return ;
+	}
+
+	DB_FriendInfo* pfriendInfo = pMap->GetElement( friendId ) ;
+	if ( pfriendInfo != NULL )
+	{
+		bool shouldUpdate = false;
+		if(pfriendInfo->friend_type == listType || listType == LIST_ALL)
+		{
+			shouldUpdate = true;
+		}
+
+		if(shouldUpdate)
+		{
+			if (isSendAp)
+			{
+				if (pfriendInfo->is_send_ap != (uint32)apValue)
+				{
+					pfriendInfo->is_send_ap = (uint32)apValue;
+					pMap->SaveOneMod( pfriendInfo ) ;
+				}
+			}
+			else
+			{
+				if (pfriendInfo->is_receive_ap != (uint32)apValue)
+				{
+					pfriendInfo->is_receive_ap = (uint32)apValue;
+					pMap->SaveOneMod( pfriendInfo ) ;
+				}
+			}
+		}
+	}
+}
+
+
+void GlobalData::UpdatePlayerFriend( pb::GxDB_FriendInfo updateMsg )
+{
+	const pb::Friend_list_Record& myInfo   = updateMsg.my_info();
+
+	PlayerFriendInfo &playerFriendInfo     =m_allPlayerFriendTable[ myInfo.friend_guid() ] ;
+
+	if( !playerFriendInfo.m_myFriends.empty() )
+	{
+		const pb::GS2C_FriendListInfo& friendList = updateMsg.friend_list();
+
+		// 先把所有好友拿出来
+		PlayerFriendInfo::FriendIdMap allFriendTmpMap ;
+
+		playerFriendInfo.GetAndClearFriends( allFriendTmpMap ) ;
+
+		// 更新
+		for( int i =0; i< friendList.friends_size(); i++ )
+		{
+			const pb::Friend_list_Record& curFrind = friendList.friends( i ) ;
+
+			DB_FriendInfo* pFrined = allFriendTmpMap.GetElement( curFrind.friend_guid() ) ;
+			if ( pFrined != NULL )
+			{
+				pFrined->UpdateFrom(curFrind);
+				allFriendTmpMap.SaveOneMod( pFrined ) ;
+			}
+		}
+
+		// 全部放回去
+		std::for_each( allFriendTmpMap.Begin(), allFriendTmpMap.End(), SelectSecond( boost::bind( &GlobalData::AddFriendInfo, this, boost::ref( playerFriendInfo ), _1 ) ) ) ;
+	}
+}
+
+void GlobalData::SyncCountryInfo()
+{
+    pb::SD2G_Country_AllInfo msg;
+
+    CachePtrMap<uint32, CountryBaseTable>::Iter it = m_CountryBaseTable.Begin();
+    for (; it != m_CountryBaseTable.End(); ++it)
+    {
+        CountryBaseTable* table = it->second;
+		if(table)
+			table->SaveTo(*msg.add_base_info());
+    }
+    for (int i = 0; i < ARRAY_SIZE(m_CountryCityTable); ++i)
+    {
+        CachePtrMap<uint32, CountryCityTable>::Iter it = m_CountryCityTable[i].Begin();
+        for (; it != m_CountryCityTable[i].End(); ++it)
+        {
+            CountryCityTable* table = it->second;
+			if(table)
+				table->SaveTo(*msg.add_city_lst());
+        }
+    }
+    m_curSession->Send(pb::SD2G_COUNTRY_ALL_INFO, msg);
+}
+void GlobalData::SyncCountryLevelUpTaskRankInfo()
+{
+    pb::Country_Levle_Up_Task_Rank msg;
+
+    for (int i = 0; i < ARRAY_SIZE(m_CountryLevelUpTaskPlayerTable); ++i)
+    {
+        CachePtrMap<uint64, CountryLevelUpTaskPlayerTable>::Iter it = m_CountryLevelUpTaskPlayerTable[i].Begin();
+        for (; it != m_CountryLevelUpTaskPlayerTable[i].End(); ++it)
+        {
+            CountryLevelUpTaskPlayerTable* table = it->second;
+			if(table)
+				table->SaveTo(*msg.add_player_lst());
+        }
+        msg.set_country(i + 1);
+    }
+    m_curSession->Send(pb::SD2G_COUNTRY_LEVLE_UP_TASK_RANK, msg);
+}
+void GlobalData::SyncPalaceInfo()
+{
+    pb::GS2C_Palace_All_Info msg;
+    for (int i = 0; i < ARRAY_SIZE(m_PalaceOfficeTable); ++i)
+    {
+        CachePtrMap<int, PalaceOfficeTable>::Iter it = m_PalaceOfficeTable[i].Begin();
+        for (; it != m_PalaceOfficeTable[i].End(); ++it)
+        {
+            PalaceOfficeTable* table = it->second;
+			if(table)
+				table->SaveTo(*msg.add_office_lst());
+        }
+    }
+    m_curSession->Send(pb::SD2G_PALACE_ALL_INFO, msg);
+}
+
+void GlobalData::UpdateActivityAllInfo( const pb::SC2G_activity_package& info )
+{
+	for(int i = 0;i < info.activity_proto_size();++i)
+	{
+		const pb::SC2G_activity_proto& ac_proto_info = info.activity_proto(i);
+		ActivityProtoTable* ac_proto = m_ActivityProtoTable.GetElement(ac_proto_info.table_id());
+		if(ac_proto)
+		{
+			if(ac_proto->IsModified(ac_proto_info))
+			{
+				ac_proto->LoadFrom(ac_proto_info);
+				vec_modify[MODIFY_TYPE_PROTO][ac_proto_info.table_id()] = true;
+				m_ActivityProtoTable.SaveOneMod(ac_proto);
+			}
+		}
+		else
+		{
+			ActivityProtoTable cell;
+			cell.LoadFrom(ac_proto_info);
+			vec_modify[MODIFY_TYPE_PROTO][ac_proto_info.table_id()] = true;
+			m_ActivityProtoTable.AddAndAddToCache(&cell);
+		}
+	}
+	for(int i = 0;i < info.activity_plan_size();++i)
+	{
+		const pb::SC2G_activity_plan& ac_plan_info = info.activity_plan(i);
+		ActivityPlanTable* ac_plan = m_ActivityPlanTable.GetElement(ac_plan_info.table_id());
+		if(ac_plan)
+		{
+			if(ac_plan->IsModified(ac_plan_info))
+			{
+				ac_plan->LoadFrom(ac_plan_info);
+				vec_modify[MODIFY_TYPE_PLAN][ac_plan_info.table_id()] = true;
+				m_ActivityPlanTable.SaveOneMod(ac_plan);
+			}
+		}
+		else
+		{
+			ActivityPlanTable cell;
+			cell.LoadFrom(ac_plan_info);
+			vec_modify[MODIFY_TYPE_PLAN][ac_plan_info.table_id()] = true;
+			m_ActivityPlanTable.AddAndAddToCache(&cell);
+		}
+	}
+	for(int i = 0;i < info.server_open_time_size();++i)
+	{
+		const pb::SC2G_server_open_time& server_open_time = info.server_open_time(i);
+		ServerOpenTimeTable* ser_op_time = m_ServerOpenTimeTable.GetElement(server_open_time.table_id());
+		if(ser_op_time)
+		{
+			if(ser_op_time->IsModified(server_open_time))
+			{
+				ser_op_time->LoadFrom(server_open_time);
+				vec_modify[MODIFY_TYPE_OPEN_TIME][server_open_time.table_id()] = true;
+				m_ServerOpenTimeTable.SaveOneMod(ser_op_time);
+			}
+		}
+		else
+		{
+			ServerOpenTimeTable cell;
+			cell.LoadFrom(server_open_time);
+			vec_modify[MODIFY_TYPE_OPEN_TIME][server_open_time.table_id()] = true;
+			m_ServerOpenTimeTable.AddAndAddToCache(&cell);
+		}
+	}
+	for(int i = 0;i < info.activity_reward_size();++i)
+	{
+		const pb::SC2G_activity_reward& ac_reward_info = info.activity_reward(i);
+		ActivityRewardTable* ac_reward = m_ActivityRewardTable.GetElement(ac_reward_info.table_id());
+		if(ac_reward)
+		{
+			if(ac_reward->IsModified(ac_reward_info))
+			{
+				ac_reward->LoadFrom(ac_reward_info);
+				vec_modify[MODIFY_TYPE_REWARD][ac_reward_info.table_id()] = true;
+				m_ActivityRewardTable.SaveOneMod(ac_reward);
+			}
+		}
+		else
+		{
+			ActivityRewardTable cell;
+			cell.LoadFrom(ac_reward_info);
+			vec_modify[MODIFY_TYPE_REWARD][ac_reward_info.table_id()] = true;
+			m_ActivityRewardTable.AddAndAddToCache(&cell);
+		}
+	}
+}
+
+void GlobalData::SyncActivityInfo()
+{
+	pb::SC2G_activity_package msg;
+	CachePtrMap<uint64, ActivityProtoTable>::Iter it1 = m_ActivityProtoTable.Begin();
+	for (; it1 != m_ActivityProtoTable.End(); ++it1)
+	{
+		ActivityProtoTable* table = it1->second;
+		if(table)
+			table->SaveTo(*msg.add_activity_proto());
+	}
+	CachePtrMap<uint64, ActivityPlanTable>::Iter it2 = m_ActivityPlanTable.Begin();
+	for (; it2 != m_ActivityPlanTable.End(); ++it2)
+	{
+		ActivityPlanTable* table = it2->second;
+		if(table)
+			table->SaveTo(*msg.add_activity_plan());
+	}
+	CachePtrMap<uint64, ActivityRewardTable>::Iter it4 = m_ActivityRewardTable.Begin();
+	for (; it4 != m_ActivityRewardTable.End(); ++it4)
+	{
+		ActivityRewardTable* table = it4->second;
+		if(table)
+			table->SaveTo(*msg.add_activity_reward());
+	}
+	CachePtrMap<uint64, ServerOpenTimeTable>::Iter it3 = m_ServerOpenTimeTable.Begin();
+	for (; it3 != m_ServerOpenTimeTable.End(); ++it3)
+	{
+		ServerOpenTimeTable* table = it3->second;
+		if(table)
+			table->SaveTo(*msg.add_server_open_time());
+	}
+	m_curSession->Send(pb::SD2G_LOAD_ACTIIVTY_INFO,msg);
+}
+
+void GlobalData::SyncActivityCountryOccupyCityInfo()
+{
+	pb::SD2G_Activity_Occupy_City_Num msg;
+	CachePtrMap<uint64, ActivityCountryOccupyCityTable>::Iter it1 = m_ActivityCountryOccupyCityTable.Begin();
+	for (; it1 != m_ActivityCountryOccupyCityTable.End(); ++it1)
+	{
+		ActivityCountryOccupyCityTable* table = it1->second;
+		if(table)
+			table->SaveTo(*msg.add_info());
+	}
+	m_curSession->Send(pb::SD2G_ACTIVITY_COUNTRY_OCCUPY_CITY,msg);
+}

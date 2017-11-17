@@ -1,0 +1,10 @@
+#pragma once
+
+#include "def/TypeDef.h"
+
+class Player;
+class GeneralRewardDB {
+public:
+	static void SendUpdateInfoToDb(Player& player,const uint32 charId,bool has_first_reward,uint32 operate_type);
+	static void SendDeleteInfoToDb(uint32 operate_type);
+};

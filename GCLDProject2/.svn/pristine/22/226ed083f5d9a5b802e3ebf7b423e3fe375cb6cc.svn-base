@@ -1,0 +1,562 @@
+#ifndef PLAYER_H__
+#define PLAYER_H__
+
+#include <boost/smart_ptr.hpp>
+#include "memory_buffer/MemoryPool.h"
+#include "def/TypeDef.h"
+#include "PlayerValueOwner.h"
+#include "IRecordProvider.h"
+#include "def/GErrorCode.h"
+
+#include "google/protobuf/message.h"
+#include "Enum.pb.h"
+#include "../buff/Buff.h"
+#include "Rank.pb.h"
+#include "Exploit/ExploitBoxProto.h"
+#include "game_data/datastruct/struct_exploit.h"
+#include "Exploit/ExploitMgr.h"
+#include "Exploit/TrickReward.h"
+#include "DailyQuest/daily_quest_def.h"
+#include "Quest.pb.h"
+#include "Activity.pb.h"
+#include "StopWatch.h"
+#include "lock_free/LockFreeQueue.h"
+#include "net_framework/Session.h"
+
+
+
+extern  const int Palace_Trigger_Iron_Add;// 铁矿加成
+static  const size_t cycle_times = 10;
+
+#define OpHandler(opCode) void Player::Handle_##opCode(NetPack& pack)
+struct RankSort;
+
+class NetPack;
+class Session;
+class Item;
+class QuestLogger;
+class PlayerBehaviorCounter;
+class CharacterStorage;
+class ItemArray;
+class ChatSpeaker;
+class PlayerStringGroup;
+class BuildingLogMgr;
+class TimerEventGroup;
+class PlayerMapLogic;
+class PlayerDungeonLog;
+class PlayerBaoQiLog;
+class PlayerTechnology;
+class DailyQuestLog;
+class GrowUpQuestLog;
+class SignUpLog;
+class PassStageReward;
+class ActivityStarBoxLog;
+class Country;
+class TimingWheel;
+class Character;
+class PlayerAutoCountryWarLogic;
+class SeigeForceLog;
+class CongratulateLog;
+class WannaBeStrongerLog;
+#ifdef _MMO_SERVER_
+class StageLogger;
+class FubenLog;
+class MailBox;
+class SellLog;
+class ILootRecordProvider;
+class LotteryLogger;
+class IAPRewardRecords;
+class PlayerMarketLog;
+class PlayerAltarLog;
+class PlayerIronsmithLog;
+class PlayerStoryLog;
+class GovAffairsLog;
+class PalaceAchievementLog;
+class ActivityHeroRewardLog;
+class WorldFightAchievementLog;
+class ContinueOccupyCityLog;
+#endif
+
+
+namespace pb
+{
+	class PlayerAllData;
+	class WebPayToDatabaseRet;
+	class GxDB_Buildings_Info;
+	class GxDB_Modules_Info;
+	class PlayerAppendData;
+	class ServersMail;
+	class PlayerMail;
+	class GXDB_PayOrder;
+	class C2GS_Congratulate_Accept;
+}
+
+class Player
+    : public PlayerValueOwner
+    , public IRecordProvider
+	//,boost::noncopyable
+{
+private:
+    DECLARE_OBJ_POOL( Player )
+
+public:
+	typedef void (Player::*NetPackHandler)(NetPack&);
+	typedef std::vector<NetPackHandler> HandlerArray;
+
+public:
+	Player( void ) ;
+	virtual ~Player( void ) ;
+
+    void Update( uint64 nowTimeMS, int64 diffMS );
+	void UpHandlePacket();
+	void InitNewPlayerData();
+
+	
+	uint32 GetDbBaseDefineValueUint(pb::BASE_DEFINE defineType);
+	int GetDbBaseDefineValueInt(pb::BASE_DEFINE defineType);
+	float GetDbBaseDefineValueFloat(pb::BASE_DEFINE defineType);
+	//////////////////////////////////////////////////////////////////////////
+public:
+	void PostInputPacket( NetPack *pPacket ) {   m_packetTable.Enqueue( pPacket ) ;   }
+    bool IsOpenChatChannel(uint32 chatType);
+    void OnPlayerLogin();
+    // Save Load
+    void WritePlayerData(pb::PlayerAllData &data);
+	void WritePlayerCrossWarData(pb::PlayerAllData& data);
+	void LoadPlayerData(const pb::PlayerAllData& data);
+	void LoadPlayerDynamicData(pb::PlayerAllData& data);
+	void LoadCrossPlayerData(const pb::PlayerAllData& data);
+	void UpdateCrossPlayerData(const pb::PlayerAllData& data);
+    void SaveTo(pb::PlayerShowData &data);
+    static void SaveTo(uint64 playerId, pb::PlayerShowData &data);
+
+	// Item
+    int CreateItem( pb::ITEM_REASON reason, int itemId,  int count = 1, std::list< Item *>* outList = NULL,bool is_auto_give_reward = false);
+	void GMPayOrder(ProductId proId);
+	int CreateSysMailItem(pb::ITEM_REASON source , const ItemID2Count& itemMap);
+	int CreateMailItem(pb::ITEM_REASON source , const IntV3Vec& v3Vec);
+	int CreateItem( pb::ITEM_REASON reason, const ItemID2Count& itemid2count );
+	int CreateGMItemWithAttr(pb::ITEM_REASON reason, int itemId, std::vector<int> attr);
+
+    bool    DestroyItem( pb::ITEM_REASON reason, int entry, int count );
+    bool    DestroyItem( pb::ITEM_REASON reason, const ItemID2Count& itemid2count);
+    bool    DestroySlotItem( pb::ITEM_REASON reason, int slot);
+	bool	SellSlotItem(pb::ITEM_REASON reason, int slot,bool forceSell = false);
+	uint32	BuyBackSlotItem(pb::ITEM_REASON reason, int slot);
+	bool    TakeOutSlotItem( pb::ITEM_REASON reason, int slot, int count);
+
+	bool TakeOutItem( pb::ITEM_REASON reason, int entry, int count );
+	bool CheckHasName(const std::string& strName);
+	bool CheckHasCombatChar();
+	// currency 
+    virtual void AddCurrency( pb::ITEM_REASON reason, uint32 type, uint32 number );
+	void AddCurrency(uint32 type, uint32 number );
+	virtual bool TryDeductCurrency( pb::ITEM_REASON reason, uint32 type, uint32 number ) ;
+    virtual bool TryDeductCurrency( pb::ITEM_REASON reason, const CurrType2Count& curr2count);
+
+    // country
+	bool _SetCountryId(uint32 id);
+	//virtual void _SetIconID(int headid);
+    uint32 GetCountryId() const;
+    void ReEnterCurCityOnRestart(); //服务器重启，武将调进入城池，重建战斗内存数据
+
+	void SetPlayerPrivilege(uint32 pri, uint32 value = 0);
+	//cross war
+	void SetCrossUniqueID();
+	uint32 GetCrossUniqueId();
+
+    int  GetPlaceOfficeId() const; //自己的官员ID
+    int  GetPlaceAideOfficeId() const;   //自己是哪个官员的侍从
+
+    bool HaveTechnology(uint32 id) const;
+
+    // 任务系统，取数据接口
+	uint32 count_equip(uint32 quality);
+	uint32 wear_equip(uint32 quality);
+    uint32 CountEquip(uint32 quality, uint32 star = 0);
+    uint32 WearEquip(uint32 quality, uint32 star = 0);
+	//占领城池
+	uint32 OccupyCityCount() const;
+	uint32 KillEnemy() const;//杀敌数
+	uint32 TrickNum() const;//诱敌数
+	uint32 AddSolider() const;//借兵
+//特定品质的装备
+	uint32 CountEquipClass(uint type);
+	uint32 WearEquipClass(uint type);
+	uint32 HaveEquipClass(uint type);
+	uint32 GetMainQuestExploitValue();
+	uint32 getBranchQuestExploitValue();
+//------------------------zhoulunhao
+	void AddValue(uint32 index,int value);
+	void AddDinnerNum(int value);
+	void DescreaseDinnerNum(int value);
+	void AddValue64(uint32 index,uint64 value);
+	//增加没有上限的属性如： 功勋值
+	void AddExploitValue(uint32 value);
+	void AddTrickValue(uint32 value);
+	void AddOccupyValue(uint32 value,const uint32 city_id = 0);
+	//void AddAttackCityValue(int32 value,const uint32 city_id);
+	//洗练次数
+	void AddXiLianValue(int value);
+	void AddActivityXiLianValue(int value);
+	uint32 GetActivityXiLianValue();
+	void SetRegistTime(time_t registTime);
+
+    // Buff相关
+    void RefreshBuff();
+    void AddBuff(uint32 buffId, uint32 lastMsec = 0);
+    void DelBuff(uint32 buffId);
+    bool HaveBuff(uint32 buffId) const;
+    bool HaveBuff(CBuff::Type typ) const;
+    void DelOneTypeBuff(CBuff::Type typ);
+
+	void UpdateEquipShop(pb::GS2C_LootShopEquipResult& msg);
+	// Pay
+	void TakePayOrderResult( const pb::GXDB_PayOrder &info ) ;
+
+	//整点奖励
+	/* void IntergalPointAward(uint32 TypeAward,uint32 num);*/  ///useless
+	 void UpdateCurDateTo(pb::PlayerAllData& allData );
+
+	 uint32 GetMaxGemLevel();
+	 //伤害转化成功勋值
+	 uint32 HurtToExploit(uint32 type,uint32 hurt);
+	 //每日任务
+	 bool IsTakeDailyQuestReward(uint32 id);
+	 bool TakeDailyQuestReward(uint32 id);
+	 void resetDailyQuest();//清空每日任务的数据库
+
+	void UpdateAllDailyQuestInfo(DailyQuestType type,uint32 value,const uint32 city_id);
+
+	//成长任务
+	void UpdateGrowUpQuestGroupInfo(const uint32 group_id);//内部使用
+	void UpdateAllGrowUpQuestInfo(pb::GrowUpQuestType type,uint32 value);
+	///Wanna be Stronger
+	void UpdateWannaBeStrongerInfo();
+	//每日签到
+
+	bool IsTakeDailySignExtraReward(uint32 day);
+	void TakeDailySignExtraReward(uint32 day);
+	uint32 GetDaysFromRegist();//从现在到注册的天数  对齐注册当天的00:00:00
+	time_t GetSecondFromRegist();//从现在到注册的小时数
+	uint32 GetDailySignDay();//签到天数
+	uint32 GetDailyRetroactiveDay();//补签
+	void AddDailySignDay(uint32 value);
+	void AddDailyRetroactiveDay(uint32 value);
+	void UpdateDateTime();
+
+	void GiveExploitBox();
+	void UpdateRankSortToMap(ranksortMap &map_,uint32 lv,uint32 vip_lv,uint64 player_id,uint8 country_id,uint32 rank_sort_value,const string& name,uint32 old_value,uint32 head_icon_id);
+	void UpdatePlayerNameToMap(ranksortMap &map_,uint32 lv,uint32 vip_lv,uint64 player_id,uint8 country_id,uint32 rank_sort_value,const string& new_name,uint32 head_icon_id);
+	void UpdatePlayerLvToMap(ranksortMap& map_,uint32 lv,uint32 vip_lv,uint64 player_id,uint8 country_id,uint32 rank_sort_value,uint32 old_level,const string& name,uint32 head_icon_id);
+	void UpdatePlayerVipLvToMap(ranksortMap& map_,uint32 lv,uint32 new_vip_level,uint64 player_id,uint8 country_id,uint32 rank_sort_value,uint32 old_vip_level,const string& name,uint32 head_icon_id);
+	void UpdatePlayerHeadIconIdToMap(ranksortMap& map_,uint32 lv,uint32 vip_level,uint64 player_id,uint8 country_id,uint32 rank_sort_value,uint32 new_head_icon_id,uint32 old_head_icon_id,const string& name);
+	void ZhaoMuOneMoreChar(const uint32 tid);//多招募一个武将
+	void ChangeCharAttrByTecnology(const uint32 tid);
+	void CheckTecById(Character* charat,const uint32 tid);
+	void SendUpdatePerformanceInfo();
+
+	void SetCurSolderRowNum(uint32 num);					//设置当前士兵排数
+	uint32 GetCurSolderRowNum();							//获得当前士兵排数
+	///在每日签到和通关送金,成长任务  活动结束之后，将没有领取的奖励自动发给别人
+	void AutoGiveDailySignUpReward();
+	void AutoGivePassStageReward();
+	void AutoGiveGrowUpQuestReward();
+	bool IsPassStageGiveGoldActive();
+	//ACTIVITY 
+	uint32 GetActivityStarBoxExp();   /////PLAYER_FIELD_HORNOR 做了玩家活动期间的经验值
+	void AddActivityStarBoxExp(const uint32 exp);
+	bool IsActivityStillActive(const uint32  type);
+	void TryDeductStarBoxExp(const int32 exp);
+	bool IsStarBoxStillActive();
+	//////////////////////////
+
+	bool IsTakeOpenFogReward(uint32 num);
+	void TakeOpenFogReward(uint32 num);
+	void AutoGiveOpenFogReward();
+	bool IsOpenFogIsActive();
+	bool IsTakeXilianReward(uint32 id);
+	void TakeXilianReward(uint32 id);
+	bool IsXilianActive();
+	void AutoGiveXilianReward();
+	void AutoActivityStarBoxReward();
+	//铁矿征收
+	bool IsTakeIronCollectReward(uint32 id);
+	void TakeIronCollectReward(uint32 id);
+	void AddIronCollectTimesAndTen(uint32 value);
+	void IronCollectTimesTenMinusValue(int value);
+	void ResetIronCollectTimes();
+	uint32 GetIronCollectTimes() const;
+	uint32 GetIronCollectTimesTen() const;
+	void AutoGiveIronCollectReward();
+
+
+	//政务
+	void bzero_min_zhong();
+	/////结交名仕
+	bool IsTakeVisitFamousReward(uint32 id);
+	void TakeVisitFamousReward(uint32 id);
+	void SendUpdateCelebrityEvent();
+	void AutoGiveCelebrityReward();
+	void ResetCelebrityCurrency();
+	//限时商店
+	bool IsBuyItemInLimitedShop(uint64 id);//return ture 没有买过
+	void BuyItemInLimitedShop(uint64 id);
+	void ResetBuyLog();
+	////犒赏武将
+	uint32 getHeroRewardBoxNum();
+	void resetGeneralRewardData();
+	///充值送金
+	uint32 getCurrentActivityGold();
+	void AutoGiveRechargeRebateAward();
+	//////////////////////////////////////////////////////////////////////////////////////////
+	float GetHeroSpeedPercent();
+	bool IsTakeReward(const uint32 index,uint32 id);
+	void TakeReward(const uint32 index,uint32 id);
+	//国战成就
+	bool IsTakeWorldFightReward(const uint32 index,uint32 id ,const uint32 type);
+	void TakeWorldFightReward(const uint32 index,uint32 id ,const uint32 type);
+	//lian cheng 
+	void AddContinueOccupyCityNum(int value);
+	void ResetContinueOccupyCityNum();
+	//战场活动
+	void AddCountryOccupyCityNum(uint32 value);
+	void AutoGiveCountryOccupyCityAward(std::vector<int>& vec);
+	//战力
+	uint32 getMilitaryPower();
+	void	setMilitaryPower();
+	///恭贺 the function below just for 
+	void When24HoursPasted(const uint64 act_time);
+	void When24HoursToPlayerPasted(const uint64 act_time);
+	void SendCongratulateBeenConMsg(const pb::C2GS_Congratulate_Accept& msg);
+	void Set24HoursPastedFunc(const uint64 timeNow);
+	void Set24HoursToPlayerPastedFunc(const uint64 timeNow);
+public:
+    void AddEventLog(pb::EVENT_ID eventID, int paramCount, ...);
+    
+   //uint64         'l'
+   //int64          'b'
+   //uint32         'u'
+   //int32          'i'
+   //const char*    's'
+    void AddEventLogFMT(pb::EVENT_ID eventID, int paramCount, ...);
+
+	void OnDestoryItemLog( pb::ITEM_REASON reason, int entry, int count);
+
+private:
+    // PlayerValue
+    virtual void _SetLevel( int level);
+    virtual void _SetVipLv( int vipLv);
+    virtual void _SetCombatPower( int power);
+	bool GetOnePacket( NetPack *&pPacket ) {   return m_packetTable.Dequeue( pPacket ) ;   }
+
+
+private:
+    void UpdatePlayerValue(); 
+    void RegistRecordProvideFunction();
+    void OnDestoryItem( pb::ITEM_REASON reason, int entry, int count);
+	void InitPlayerBaseData();
+
+//////////////////////////////////////////////////////////////////////////
+// net pack handlers
+public:
+	static HandlerArray& PackHandlers();
+	static void RegisteAllHandlers();
+	bool IsCanCrossWarState();
+	bool HandlePack( NetPack& pack);
+
+public:
+	void	OnModifyInt(int valIdx, int new_val,int old_value, bool isNew = true);
+	void	OnModifyfloat(int valIdx, float val);
+	void	OnModifyString(int valIdx, const string& new_val);
+	void	OnModifyUint64(int valIdx, uint64 val);
+	uint64 GetGuid() const;
+	uint64 AccountId() const;
+	uint32 GetChannelId() const;
+	uint32 GetPlatformId() const;
+
+	
+
+private:
+    #undef HandleOpcode
+    #define HandleOpcode(opCode) void Handle_##opCode(NetPack& pack);
+    #include "PlayerNetPackOpcodes.h"
+
+
+//////////////////////////////////////////////////////////////////////////
+public:
+	#ifdef _MMO_SERVER_
+	boost::scoped_ptr< FubenLog >               m_fubenLog;
+	boost::scoped_ptr< PlayerMarketLog >		m_marketLog;
+	boost::scoped_ptr< PlayerAltarLog >		    m_AltarLog;
+	boost::scoped_ptr< PlayerIronsmithLog >		m_SmithyLog;
+	boost::scoped_ptr< PlayerDungeonLog >		m_DungeonLog;
+	boost::scoped_ptr< ItemArray >              m_equipShop;
+	boost::scoped_ptr< MailBox >		        m_mailBox;
+	//boost::scoped_ptr< SellLog >                m_sellLog;
+	//boost::scoped_ptr< ILootRecordProvider>     m_lootRecord;
+	//boost::scoped_ptr< LotteryLogger>           m_lotteryLogger;
+	boost::scoped_ptr< PlayerStoryLog >		    m_StoryLog;
+	boost::scoped_ptr< GovAffairsLog>            m_GovAffairsLog;
+	boost::scoped_ptr<PalaceAchievementLog>    m_PalaceAchievementLog;
+	boost::scoped_ptr<ActivityStarBoxLog>		m_ActivityStarBoxLog;
+	boost::scoped_ptr<ActivityHeroRewardLog>    m_ActivityHeroRewardLog;
+	boost::scoped_ptr<WorldFightAchievementLog> m_WorldFightAchievementLog;
+	boost::scoped_ptr<ContinueOccupyCityLog>	m_ContinueOccupyCityLog;
+	#endif
+	boost::scoped_ptr<SeigeForceLog>			m_SeigeForceLog;
+	boost::scoped_ptr< ChatSpeaker >			m_chatSpeaker;
+    boost::scoped_ptr< CharacterStorage>        m_characterStorage;
+    boost::scoped_ptr< PlayerBaoQiLog >		    m_BaoQiLog;
+    boost::scoped_ptr< BuildingLogMgr >         m_buildingLogMgr;
+    boost::scoped_ptr< ItemArray >              m_bag;
+    boost::scoped_ptr< PlayerBehaviorCounter >  m_behaviorCounter;
+    boost::scoped_ptr< QuestLogger >           m_questLogger;
+    boost::scoped_ptr< PlayerStringGroup>       m_playStringGroup;
+	boost::scoped_ptr< TimerEventGroup >		m_timerEventGroup;
+    boost::scoped_ptr< PlayerMapLogic >		    m_worldMapLogic;		//玩家世界地图信息  解锁的迷雾关卡
+    boost::scoped_ptr< PlayerTechnology >		m_Technology;
+    boost::scoped_ptr< CBuff >		            m_Buff;
+	boost::scoped_ptr< DailyQuestLog >			m_DailyQuest;
+	boost::scoped_ptr< GrowUpQuestLog >			m_GrowUpQuest;
+	boost::scoped_ptr<SignUpLog>				m_SignUpLog;
+	boost::scoped_ptr<PassStageReward>			m_PassStageReward;
+	boost::scoped_ptr<PlayerAutoCountryWarLogic> m_AutoCountryWarLog;
+	boost::scoped_ptr<CongratulateLog>			m_CongratulateLog;
+	boost::scoped_ptr<WannaBeStrongerLog>       m_WannaBeStrongerLog;
+
+
+	
+	//////////////////////////////////////////////////////////////////////////
+	// database data is lost or not
+public:
+	bool GetDataIsLost( void ) {     return m_dataIsLost ;    }
+	void SetDataIsLost( bool isLost ) {    m_dataIsLost =isLost ;    }
+	//uint32 GetCurCharacterCount();
+	uint32 GetLeaderProtoId();
+	int   GetAllCharMaxHp();
+
+	void UpDatePlayerData();
+	void SyncPlayerData(pb::PlayerAllData& allData);
+private:
+	bool m_dataIsLost ;
+	ServerQueue< NetPack* > m_packetTable;
+
+
+	//////////////////////////////////////////////////////////////////////////
+	// Session
+public:
+	void SetSession( Session *pSession ) ;
+	const SessionAddress& GetAddress( void )  const {   return m_address ;   }
+	void SetAddress( const SessionAddress &address ) {   m_address =address ;   }
+
+	bool IsOnline() const;
+	void CloseSession() ;
+	void Send( NetPack &pack ) const ;
+	void SendToServer( NetPack &pack, char clientType) const ;
+	void Send( int opCode, const ::google::protobuf::Message &msg ) ;
+	void Send(int opCode);
+	void SendToServer( int opCode, const ::google::protobuf::Message &msg, char clientType ) const ;
+	void SendItemError( ItemOperateError errorType, int32 addVal =0 ) ;
+	uint64  SessionId();
+	void SendGError(GErrorCode errCode);
+	void SendErrorCode(pb::CxGS_ERROR_CODE errCode);
+	bool SendCrossServerNetPack( NetPack& pack );
+	bool SendCrossServerMsg(const int opCode, const ::google::protobuf::Message &msg,char clientType,uint64 sessionId = 0);
+	bool IsRechBagCapcity();
+	bool CanAddItemToBag(int entry);
+	time_t AddTimer(uint32 type, uint32 id,boost::function<void()> f, U32 start, int repeat = 1, U32 interval = 0);
+	void AddCallBackTimer(uint32 type, boost::function<void()> f, U32 start, int repeat = 1, U32 interval = 0);
+	bool HasTypeTimer(uint32 type);
+	void RemoveTimer(uint32 type,uint32 id);
+	void LoadPlayerAppendData(const pb::PlayerAppendData &data);
+	void BuildingLevelUp(uint32 moduleId, uint32 buildingId,bool isauto);
+	bool StartAutoIncreaseSolders();
+	void OnBuildingIncome(uint32 moduleId);
+	//在得到收入上限的时候，用这个函数，不要用m_buildingLogMgr->GetModuleIncomeLimit(moduleId);
+	//此函数已经包含
+	uint32 GetBuildingIncomeLimit(uint32 moduleId);
+	void OnImperialRebuildFinish(uint32 moduleId);
+	void OnBuildRebuildFinish(uint32 buildId);
+	time_t AddImperialRebuildTimer(uint32 interval);
+	time_t AddBuildingRebuildTimer(uint32 buildId,uint32 interval);
+	bool AddModuleGainTimer(uint32 moduleId);
+
+	void DoUpdatePer_Second_Zero(uint64 timeNowMS);
+	void DoUpdatePer_Hour_Zero();
+	void DoUpdatePer_Day_Zero();
+	void DoUpdatePer_FourHour_Zero();
+	void DoUpdatePer_Minute_Zero();
+	
+	void SendZhengWuInfo();
+	void TryDailyResetTime();
+	void Attach(TimingWheel* pTimingWheel);
+	void RegistQuestLogger();
+	void CalculatePlayerData();
+	void FullCharHp();
+	void SetCreateShadowNum(uint32 num);
+	uint32  GetCreateShadowNum() const;
+	uint32	GetKillFromLevel() const;
+	void   UnlockCharacter(std::set< uint32>& idSet);
+	bool IsAllCharInCapital();		//是否所有武将都在主城
+	bool MoveAllCharToCapital();	//移动所有武将至主城，返回移动结果
+
+public:
+	int GetBuildingIncome(const uint32 moduleId,bool no_build_buff = false);
+private:
+	void SendLevelUp(uint32 moduleId, uint32 buildingId);
+	void DoAutoBuildingLvUp(uint32 moduleId);
+	void DoManualBuildingLvUp(uint32 moduleId,uint32 buildingid);
+	uint32 GetFirstAutoUnlockCharacterId();
+	uint32 GetSecondAutoUnlockCharacterId();
+	
+
+private:
+	Session *m_pSession ;
+	SessionAddress m_address ;
+	Country* m_pCountry;
+	
+	StopWatch m_watchSecond;
+	StopWatch m_BuyTimeUpdate;
+	StopWatch m_GovAffairUpdate;
+	StopWatch m_ActivityUpdate;
+
+	uint64 m_maxUpdatet;
+	uint64 m_maxMinuupdatet;
+
+//////////////////////////////////////////////////////////////////////////
+public:
+	uint8 GetCamp(){return m_camp;}
+
+	std::deque< DB_ExploitBoxProto> box_queue_;
+	std::deque< OccupyReward > occupy_queue_;//占城榜
+	std::deque< TrickReward > trick_queue_;//单挑榜
+	size_t occupy_queue_size_;
+	size_t trick_queue_size_;
+
+//跨服数据
+public:
+	int GetCrossHammerNum() { return cross_hammer_num; }
+	void AddCrossHammer() { cross_hammer_num++; }
+	void UseCrossHammer();
+
+	int GetCrossDoubleKill();
+	void AddCrossDoubleKill();
+	uint64 GetCrossKillEndTime();
+	int cross_hammer_num;	//攻城锤数量
+	bool cross_kill_troops;	//是否有杀敌令
+	uint64 cross_kill_troops_endtime;	//杀敌令失效时间
+	uint64 rush_cd_endtime;	//突进cd结束时间
+
+private:	
+	char m_camp;
+	DISALLOW_COPY_AND_ASSIGN(Player);
+
+} ;
+
+typedef boost::shared_ptr<Player> PlayerPtr ;
+typedef boost::weak_ptr<Player> PlayerWeakPtr ;
+
+
+#endif
+

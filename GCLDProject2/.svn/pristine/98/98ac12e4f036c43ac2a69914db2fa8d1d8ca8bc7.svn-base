@@ -1,0 +1,445 @@
+#include "PlayerTechnology.h"
+#include "OS.h"
+#include "Table/TechnologyTableMgr.h"
+#include "../reward/reward.h"
+#ifdef _MMO_SERVER_
+#include "../AutomaticUpdate/AutoUpdateGame.h"
+#endif
+#include "Technology.pb.h"
+#include "../object/Player.h"
+#include "Opcode.pb.h"
+#include "../CrossLogic/PlayerTechnologyDB.h"
+#include "../Trigger/trigger.h"
+#include "BaseDefine.pb.h"
+#include "Technology.pb.h"
+#include "character/CharacterStorage.h"
+#include "Map/PlayerMapLogic.h"
+#include "Map/Table/MapCity.h"
+#include "Map/country/country.h"
+#include "Market/PlayerMarketLog.h"
+#include "BaseDefine.pb.h"
+#include "BaseDefineMgr.h"
+#include "Exploit/ExploitMgr.h"
+#include "Character.pb.h"
+#include "../Building/BuildingLogMgr.h"
+
+#define TECHNOLOGY_SPEED_UP (GET_BASE_DEF_UINT(pb::BD_ACCELERATE_REBUILD_TIME_COST) * 60)
+
+bool PlayerTechnology::TechIdIsInvalid(const uint32 tech_id)
+{
+	return m_StudyInfo.find(tech_id) == m_StudyInfo.end();
+}
+
+PlayerTechnology::PlayerTechnology()
+{ 
+	m_StudyInfo.clear();
+	const TechnologyMap& tec_map = sTechnologyTableMgr.GetTechnologyMap();
+	for(TechnologyMap::const_iterator iter = tec_map.begin();iter != tec_map.end();++iter)
+	{
+		TechnologyStudyStruct& ref = m_StudyInfo[iter->first];
+		::memset(&ref,0,sizeof(TechnologyStudyStruct));
+	}
+}
+
+//将m_StudyInfo中的数据保存进msg
+void PlayerTechnology::SaveTo(pb::GxDB_Technology_All_Info& msg)
+{
+    for (StudyMap::iterator it = m_StudyInfo.begin(); it != m_StudyInfo.end(); ++it)
+    {
+        pb::TechnologyStudy* pInfo = msg.add_study_info();
+        pInfo->set_tec_id(it->first);
+        pInfo->set_star_cnt(it->second.starNum);
+        pInfo->set_end_time(it->second.endTime);
+		pInfo->set_is_finish_study(it->second.is_finished);
+    }
+}
+
+void PlayerTechnology::SaveTo(Player& player, pb::GS2C_Technology_All_Info& msg)
+{
+	for (StudyMap::iterator it = m_StudyInfo.begin(); it != m_StudyInfo.end(); ++it)
+	{
+		const TecTable* table = sTechnologyTableMgr.GetTable(it->first);
+		if(table)
+		{
+			if(sTrigger.Check(&player, table->m_Trigger))
+			{
+				pb::TechnologyStudy* pInfo = msg.add_study_info();
+				pInfo->set_tec_id(table->TypeId());//type_id
+				pInfo->set_star_cnt(it->second.starNum);
+				pInfo->set_end_time(it->second.endTime);
+				pInfo->set_is_finish_study(it->second.is_finished);
+				pInfo->set_table_id(table->Id());
+				//NLOG("tec Id = %u,star_cnt = %u,end_time = %u,is_finish_study = %u,type_id = %u",table->Id(),it->second.starNum,(uint32)it->second.endTime,it->second.is_finished,table->TypeId());
+			}
+		}
+	}
+}
+
+void PlayerTechnology::SaveTo(pb::GS2C_Technology_Finish& msg)
+{
+	msg.set_result(pb::FinishComplete);
+}
+
+//将msg中的数据保存到本地m_StudyInfo
+void PlayerTechnology::LoadFrom(const pb::GxDB_Technology_All_Info& msg)
+{
+    for (int i = 0; i < msg.study_info_size(); ++i)
+    {
+        const pb::TechnologyStudy& info = msg.study_info(i);
+        TechnologyStudyStruct& ref = m_StudyInfo[info.tec_id()];
+        ref.starNum = info.star_cnt();
+        ref.endTime = info.end_time();
+		ref.is_finished = info.is_finish_study();
+    }
+}
+
+//完成队列中是否有指定的研究
+bool PlayerTechnology::Have(uint32 id)
+{
+	if(TechIdIsInvalid(id)) return false;
+	TechnologyStudyStruct& ref = m_StudyInfo[id];
+	return ref.is_finished == 1;
+}
+//完成研究，将研究加入完成研究数据库中，清除掉研究列表该研究项
+bool PlayerTechnology::Finish(Player* player, uint32 id) 
+{
+	if(TechIdIsInvalid(id)) return false;
+	TechnologyStudyStruct& ref = m_StudyInfo[id];
+	if(ref.is_finished == 1)
+	{
+		return false;
+	}
+	ref.is_finished = 1;
+	PlayerTechnologyDB::UpdateStudyInfoToDb(*player,id,ref);
+	OnAward(*player,id);
+	pb::GS2C_Technology_Finish msg;
+	SaveTo(msg);
+	msg.set_id(id);
+	player->Send(pb::SMSG_TECHNOLOGY_FINISH_RSP, msg);
+	pb::GS2C_Technology_All_Info all_info_msg;
+	SaveTo(*player, all_info_msg);
+	player->Send(pb::SMSG_TECHNOLOGY_ALL_INFO, all_info_msg);
+	return true;
+
+}
+
+//升星
+void PlayerTechnology::UpStar(Player& player, uint32 id, pb::GS2C_Technology_UpStar& msg) 
+{
+	if(TechIdIsInvalid(id))
+	{
+		msg.set_result(pb::UpStarIdInvalid); return;
+	}
+	if(Have(id))
+	{
+		msg.set_result(pb::UpStarAlreadyDown); return;
+	}
+	else
+	{
+		const TecTable* table = sTechnologyTableMgr.GetTable(id);
+		if (LIKELY(table))		//根据id获得excel表中的一项
+		{
+			if (LIKELY(sTrigger.Check(&player, table->m_Trigger)))	//满足触发条件
+			{
+				TechnologyStudyStruct& ref = m_StudyInfo[id];	
+				if(LIKELY(ref.starNum < table->NeedStarCnt()))		//已经升星个数小于需要升星个数
+				{
+					if (LIKELY(sReward.Change(player,table->m_StarCost)))		//扣除升星开销
+					{
+						++ref.starNum;	//星数增加
+						PlayerTechnologyDB::UpdateStudyInfoToDb(player, id, ref);		//向study表中更新
+						msg.set_result(pb::UpStarComplete);
+						msg.set_id(id);
+						msg.set_starnum(ref.starNum);
+					}
+					else
+					{
+						msg.set_result(pb::UpStarResourceEmpty);		//开销不够
+					}
+				}
+				else		
+				{
+					msg.set_result(pb::UpStarResultElse);
+				}
+			}
+			else
+			{
+				msg.set_result(pb::UpStarTriggerDecline);
+			}
+		}
+		else
+		{
+			msg.set_result(pb::UpStarResultElse);
+		}
+	}
+
+    return ;
+}
+
+//研究
+bool PlayerTechnology::Study(Player* player, uint32 id,pb::GS2C_Technology_Study& msg) 
+{
+    if (!Have(id))		//如果该研究已经完成，则返回
+	{
+		if (const TecTable* table = sTechnologyTableMgr.GetTable(id))	//根据id获得excel表中的一项
+		{
+			TechnologyStudyStruct& ref = m_StudyInfo[id];
+			if (LIKELY(ref.endTime == 0 && ref.starNum == table->NeedStarCnt()))	//研究没有开始并且星数到达条件，则开始研究
+			{		
+				ref.endTime = sOS.TimeSeconds() + table->NeedTimeSec();
+
+				msg.set_id(id);
+				msg.set_isstudystart(1);
+				msg.set_end_time(ref.endTime);
+#ifdef _MMO_SERVER_
+				sAutoUpdateGame.AddEvent(boost::bind(&PlayerTechnology::Finish, this, player, id),table->NeedTimeSec());	//绑定完成研究回调函数
+#endif
+				PlayerTechnologyDB::UpdateStudyInfoToDb(*player, id, ref);			//更新数据表
+				return true;
+			}
+			else if (LIKELY(ref.endTime != 0 && ref.starNum == table->NeedStarCnt()))	//研究已开始并且星数到达条件，则允许加速
+			{
+				uint64 nowTime = sOS.TimeSeconds();
+				if(LIKELY(ref.endTime > nowTime))		//时间小于0则直接完成研究
+				{
+#ifdef _MMO_SERVER_
+					uint64 restTime = ref.endTime - nowTime;
+					sAutoUpdateGame.AddEvent(boost::bind(&PlayerTechnology::Finish, this, player, id),(uint32)restTime);	//绑定完成研究回调函数
+#endif
+				}
+				else
+				{
+					Finish(player, id);
+				}
+				msg.set_id(id);
+				msg.set_isstudystart(1);
+				msg.set_end_time(ref.endTime);
+				return true;
+			}
+			else 
+			{
+				msg.set_id(id);
+				msg.set_isstudystart(1);
+				msg.set_end_time(ref.endTime);
+				return true;
+			}
+		}
+		return false;
+	}
+	return false;
+}
+
+//加速
+void PlayerTechnology::SpeedUp(Player& player, uint32 id, pb::GS2C_Technology_SpeedUp& msg)
+{
+	if(LIKELY(!Have(id)))
+	{
+		const TecTable* table = sTechnologyTableMgr.GetTable(id);
+		if(LIKELY(table))	//根据id获得excel表中的一项
+		{
+			if (LIKELY(sTrigger.Check(&player, table->m_Trigger)))	//不满足触发条件
+			{
+				TechnologyStudyStruct& ref = m_StudyInfo[id];
+				if (LIKELY(ref.endTime != 0 && ref.starNum == table->NeedStarCnt()))	//研究已开始并且星数到达条件，则允许加速
+				{
+					uint64 nowTime = sOS.TimeSeconds();
+					if(LIKELY(ref.endTime >= nowTime))		//时间小于0则直接完成研究
+					{
+						uint64 restTime = ref.endTime - nowTime;
+						int costs = (((int)restTime/TECHNOLOGY_SPEED_UP)+1)*(GET_BASE_DEF_UINT(pb::BD_SCIENCE_ACCELERATE_COST_GOLD));
+						if(LIKELY(sReward.Change(player, Reward::Coin_Gold,-costs)))			//扣除加速消耗
+						{
+							Finish(&player, id);
+							msg.set_result(pb::SpeedUpComplete);
+						}
+						else
+							msg.set_result(pb::SpeedUpResourceEmpty);
+					}
+					else
+					{
+						Finish(&player, id);
+						msg.set_result(pb::SpeedUpComplete);
+					}
+				}
+				else
+				{
+					msg.set_result(pb::SpeedUpResultElse);
+				}
+			}
+			else
+			{
+				msg.set_result(pb::SpeedUpTriggerDecline);
+			}
+		}
+		else
+		{
+			msg.set_result(pb::SpeedUpResultElse);
+		}
+	}
+	else
+	{
+		msg.set_result(pb::SpeedUpAlreadyDown);
+	}
+	msg.set_id(id);
+	return ;
+}
+
+//完成研究之后实现奖励
+/////zhoulunhao
+void PlayerTechnology::OnAward(Player& player,uint32 id)
+{
+	const TecTable *tec = NULL;
+	uint32 ordernum = 0;
+	uint32 exp = 0;
+	switch(id)
+	{
+	case EXP_UP_1:		//战斗中,武将经验+50%
+		tec = sTechnologyTableMgr.GetTable(id);
+		if(tec)
+		{
+			player.SetHerosExpIpPercent(tec->Value1());
+		}
+		break;
+	case FIGHT_ENFORCE1: //兵种提升为2级,战斗力提升,征兵消耗增加
+	case ARMY_ENFORCE1:///武将可带3排士兵
+	case FIGHT_ENFORCE2:///部队的攻击,防御,兵力均得到提升
+	case FIGHT_ENFORCE4:///兵种提升为3级,战斗力提升,征兵消耗增加
+	case ARMY_ENFORCE3:///部队可带4排士兵
+	case FIGHT_ENFORCE5:///战力强化V:兵种提升为4级，战斗力提升，征兵消耗增加
+		player.ChangeCharAttrByTecnology(id);
+		break;
+	case ARMY_ENFORCE2: ///可多招募一个部队
+	case ARMY_ENFORCE4: ///部队强化IV:可再多招募一个部队
+		player.ZhaoMuOneMoreChar(id);
+		break;
+	case JUNGONGBOX1:///提高军功领奖上限，奖励2级军功宝箱
+	case JUNGONGBOX2:////提高军功领奖上限，奖励3级军功宝箱
+	case JUNGONGBOX3:///功勋宝箱III:提高功勋奖励上限，奖励4级功勋宝箱
+	case JUNGONGBOX4:///提高军功领奖上限，奖励5级军功宝箱
+	case JUNGONGBOX5://奖励军功宝箱6
+	case JUNGONGBOX6:///提高功勋领奖上限，奖励7级功勋宝箱
+	case GONGGAOLIZHONG:///功高礼重I:高级功勋宝箱难度提升，宝箱品质进阶
+	case GONGGAOLIZHONG2://功高礼重II:提高功勋上限，提高功勋奖励
+		tec = sTechnologyTableMgr.GetTable(id);
+		if(tec)
+		{
+			player.SetValueInt(pb::PLAYER_FIELD_EXPLOIT_RANK_BOX_LEVEL,tec->Value1());
+			player.GiveExploitBox();
+		}
+		break;
+	case SHIQI_UP: ///	整点奖励数量提升
+ 		break;
+	case QIANGZHENG:////增加20%征兵速度
+		player.m_buildingLogMgr->UpdateModuleGainValue(&player,MODULE_BINGYING,player.GetBuildingIncome(MODULE_BINGYING));
+		break;
+	case GONGCHENGGONGXUN2:///攻城功勋II:有概率触发连续攻城任务获得大量功勋
+		break;
+	case YUAN_ZHENG:		//远征:开启远征，完成可获得大量经验
+		break;
+	case YUAN_ZHENG2:///远征:远征升级，提高远征奖励，完成可获得额外50%经验
+		break;
+	case GAOJIYUANZHENG:		//高级远征:提高远征奖励，获得经验提高50%
+	case DIYUJUBEN:///地狱剧本:开启地狱远征，完成可获得大量经验
+		break;
+
+	case LIANBINZENGYI:///练兵增益:开放新练兵令，旧练兵令自动转化为经验
+		ordernum = player.GetAttrUint(pb::PLAYER_FIELD_TROOPSODER);
+		exp =  ordernum * GET_BASE_DEF_UINT(pb::BD_NORMAL_TRAINING_ORDER_EXCHANGE_EXP);
+		player.AddValue(pb::PLAYER_FIELD_CUR_XP,exp);
+		break;
+	case ZHANSHENGJUBEN:///进阶远征:提高远征奖励，获得海量经验，经验提高50%
+		break;
+	case BAOSHIHECHENG2:///宝石合成II:开放10级宝石，宝石征收
+		break;
+	case JISUZENGBING:///极速征兵:征兵令上限增加30个
+		tec = sTechnologyTableMgr.GetTable(id);
+		if(tec)
+		{
+			player.AddValue(pb::PLAYER_FIELD_DRAFT_ORDER_LIMIT,tec->Value1());//征兵令上限
+		}
+		break;
+	case ZHANGETONGKUAI:///战个痛快:自动国战初始耗粮取消
+		break;
+	case ZHUCHENGGAIZAO:///主城改造:开放主城改造，大幅提高资源产量和部队实力
+		break;
+	case ZENGBINSHANGXIAN:///增兵上限:免费增兵次数上限提高40个
+		tec = sTechnologyTableMgr.GetTable(id);
+		if(tec)
+		{
+			player.AddValue(pb::PLAYER_FLIELD_TROOPS_ORDER_LIMIT,tec->Value1());//use this
+		}
+		break;
+	case ZHENGDIANJIANGLI:///整点奖励:整点奖励气矿增加50%
+		break;
+	case BOXSHANGXIAN://宝箱上限:宝箱上限增加50个
+		tec = sTechnologyTableMgr.GetTable(id);
+		if(tec)
+		{
+			player.AddValue(pb::PLAYER_FIELD_NORMAL_EXPLOIT_BOX_LIMIT,tec->Value1());
+		}
+		break;
+	case ZHAOMUFUJIANG:///招募副将:可多招募一个部队，作为主将的第五排兵上阵
+		break;
+	case BUDUIJUEXING://部队觉醒:120级以上部队可以觉醒
+		if(player.GetLevel() > 120)
+		{
+			//武将可以觉醒
+		}
+		break;
+	case SHENGSHIJINGHUA://神石进化:开放21级晶石进化为神石
+		break;
+	case ZHANGONGHEHE:///战功赫赫:功勋满8000后将开启高级功勋宝箱
+		player.SetValueInt(pb::PLAYER_FIELD_IS_ADVANCE_BOX,1);
+		player.GiveExploitBox();
+		break;
+	case SHENGSHIJINGHUA2:///神石进化II:开放30级神石（10级技能石）
+		break;
+	case SHENGSHIJINGHUA3:///神石进化III:开放20级技能石
+		break;
+	default:
+		break;
+	}
+}
+
+void PlayerTechnology::GM_Finish( Player* player,uint32 id )
+{
+	if(!Have(id))//防止多次完成科技
+	{
+		TechnologyStudyStruct& ref = m_StudyInfo[id];
+		const TecTable* table = sTechnologyTableMgr.GetTable(id);
+		ref.endTime = sOS.TimeSeconds() + table->NeedTimeSec();
+		ref.is_finished = 1;
+		ref.starNum = table->NeedStarCnt();
+		PlayerTechnologyDB::UpdateStudyInfoToDb(*player,id,ref);
+		OnAward(*player,id);
+		pb::GS2C_Technology_Finish msg;
+		SaveTo(msg);
+		msg.set_id(id);
+		player->Send(pb::SMSG_TECHNOLOGY_FINISH_RSP, msg);
+		pb::GS2C_Technology_All_Info all_info_msg;
+		SaveTo(*player, all_info_msg);
+		player->Send(pb::SMSG_TECHNOLOGY_ALL_INFO, all_info_msg);
+	}
+}
+
+uint32  PlayerTechnology::HasFinishUpStar( uint32 id )
+{
+	if(m_StudyInfo[id].starNum == sTechnologyTableMgr.GetTable(id)->NeedStarCnt())
+		return id;
+	return 0;
+}
+
+uint32 PlayerTechnology::HaveTec(uint32 tec_id )
+{
+	if(Have(tec_id))
+		return tec_id;
+	return 0;
+}
+
+uint32 PlayerTechnology::StudyTec(Player* player, uint32 tec_id )
+{
+	pb::GS2C_Technology_Study msg;
+	if(Study(player,tec_id,msg))
+		return tec_id;
+	return 0;
+}

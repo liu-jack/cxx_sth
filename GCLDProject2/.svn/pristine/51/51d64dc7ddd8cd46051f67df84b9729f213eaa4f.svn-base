@@ -1,0 +1,257 @@
+#include "Reinforce.h"
+#include "OS.h"
+#include "../Map/city/city.h"
+#include "../Map/Table/MapTableMgr.h"
+#include "../Map/country/country.h"
+#include "session/PlayerPool.h"
+#include "object/Player.h"
+
+#include "../Map/base/BaseMap.h"
+#include "utility/Utility.h"
+#include "Combat/SkillDataMgr.h"
+#include "World.pb.h"
+#include "../Map/WorldMap.h"
+#include "Opcode.pb.h"
+#include "Reinforcement/ReinforceTableMgr.h"
+#include "seige_force/SeigeForceLog.h"
+#include "seige_force/seige_force_defines.h"
+
+using namespace pb;
+
+std::vector<Reinforce*> Reinforce::m_deleteReinforce;
+
+Reinforce::Reinforce(const CharSiegeArmy& charProto, Player* player,LogOfSeigeArmy* LogOfArmyStruct)
+: m_reinforceProto(charProto)
+, m_player(player)
+, m_countryId(player ? player->GetCountryId():0)
+, m_curCityId(0)
+, m_damage(0)
+, m_LogOfArmy(LogOfArmyStruct)
+{
+	const SiegeArmyUp* armyup = sSeigeArmyForceMgr.getSiegeArmyUp(m_reinforceProto.armyId(),LogOfArmyStruct->level);
+	if(armyup)
+	{
+		m_damage = armyup->damage();
+	}
+	SetObjType(Combat::Obj_Reinforce);
+}
+
+uint32 Reinforce::GetLevel()
+{
+	return m_LogOfArmy->level;
+}
+
+void Reinforce::OnDead(CombatObj* killer)
+{
+	CombatObj::OnDead(killer);
+
+	if (m_pMap)
+	{
+		if (City* city = m_pMap->GetCity(m_curCityId))
+		{
+			LLOG("[1003] Reinforce Dead City %d",city->id);
+			city->ReinforceExit(*this);
+		}
+	}
+
+	//delete this; //Notice：直接delete，若外界持有Reinforce就很危险了
+	m_deleteReinforce.push_back(this);
+}
+
+// // 并不移动
+// void Reinforce::MoveTo(uint32 cityId)
+// {
+// }
+
+const string& Reinforce::GetPlayerName()
+{
+	if (m_player)
+	{
+		return m_player->CharName();
+	}
+	else
+	{
+		return CombatObj::GetPlayerName();
+	}
+}
+
+uint64 Reinforce::GetPlayerId()
+{
+	if (m_player)
+	{
+		return m_player->GetGuid();
+	}
+	else
+		return 0;
+}
+
+uint32 Reinforce::GetTableId()
+{
+	return m_reinforceProto.armyId();
+}
+
+uint32 Reinforce::GetMaxRow()
+{
+	return m_reinforceProto.linecount();
+}
+
+float Reinforce::SkillRatio()
+{
+	return 0;
+}
+uint8 Reinforce::SkillRange()
+{
+	return sSkillDataMgr.GetObjSkillRange(SkillID());
+}
+
+uint32 Reinforce::SkillID()
+{
+	if(m_LogOfArmy)
+	{
+		return m_LogOfArmy->skill_id;
+	}
+	return 0;
+}
+
+void Reinforce::InitCombatData()
+{
+	Combat::CombatObj::InitCombatData();
+
+	//TODO: 计算属性
+	calcateAttr();
+
+}
+
+void Reinforce::InitCombatDataSecond(uint32 geography)
+{
+	CombatObj::InitCombatDataSecond(geography);
+}
+
+uint32 Reinforce::GetEnableTactics(uint32 geography /* = 0 */)
+{
+	return 0;
+}
+
+bool Reinforce::NewAutoTactic(Combat::CombatType cTyp/* = Combat::Country*/, Combat::TacticEnum tTyp/* = Combat::Attack*/)
+{
+	LLOG("Reinforce::NewAutoTactic cTyp=%d,tTyp=%d",(int)cTyp,(int)tTyp);
+	bool ret = false;
+
+	tactic = Combat::Skill_Tactic;
+	SetIsSelectTactic();
+	ret = true;
+	return ret;
+}
+
+int Reinforce::GetTotalFightPercent()
+{
+	return 0;
+}
+int Reinforce::GetTotalSkillPercent(const Combat::CombatType type,const uint32 obj_type/* = 0*/)
+{
+	if(m_DamageOfType.find(obj_type) == m_DamageOfType.end())
+	{
+		return 0;
+	}
+	uint32 countnum = m_DamageOfType[obj_type];
+	return countnum;
+}
+int Reinforce::GetTotalExpPercent(Combat::CombatType type )
+{
+	return 0;
+}
+int Reinforce::GetTotalReduceCostHP()
+{
+	return 0;
+}
+int Reinforce::GetTotalDoubleKill(Combat::CombatType type)
+{
+	return 0;
+}
+int Reinforce::GetTotalDeSkillPercent()
+{
+	return 0;
+}
+
+void Reinforce::_DeleteReinforce()
+{
+	for (std::vector<Reinforce*>::iterator it = m_deleteReinforce.begin(); it != m_deleteReinforce.end(); ++it)
+	{
+		delete *it;
+	}
+	m_deleteReinforce.clear();
+}
+void Reinforce::DeleteReinforce(Reinforce* p)
+{
+	m_deleteReinforce.push_back(p);
+}
+
+void Reinforce::AddSkillPercentBySeigeArmySpecificId(int add_percent, int enemyType/* = 0*/)
+{
+	uint32& countnum = m_DamageOfType[enemyType];
+	countnum += add_percent;
+}
+
+void Reinforce::RecoverFullSoldier()
+{
+	if (isInCombat) return;
+
+	m_maxHP = 0;
+	soldiers.clear();
+	for (uint32 i = 0; i < GetMaxRow(); ++i) {
+		Combat::SoldierRaw soldierone;
+		soldierone.hp = m_reinforceProto.GetAttr(0) * 3;
+		soldiers.push_back(soldierone);
+		m_maxHP += soldierone.hp;
+	}
+}
+
+void Reinforce::calcateAttr()
+{
+	for(VecUint::const_iterator Iter = m_LogOfArmy->specific_ids.begin();Iter !=m_LogOfArmy->specific_ids.end();++Iter)
+	{
+		const SiegeArmySpecific* siege_specific = sSeigeArmyForceMgr.getSiegeArmySpecific(*Iter);
+		if(siege_specific)
+		{
+			switch (siege_specific->specificType())
+			{
+			case SKILL_HURT_UP:
+				AddSkillPercentBySeigeArmySpecificId(siege_specific->getSpecificParameter()[1],siege_specific->getSpecificParameter()[0]);
+				break;
+// 			case CHANGE_SKILL_ID:
+// 				m_LogOfArmy->skill_id = siege_specific->getSpecificParameter()[0];
+// 				break;
+// 			case CHANGE_TERRAIN:
+// 				m_LogOfArmy->terrains.resize(siege_specific->getSpecificParameter().size(),0);
+// 				std::copy(siege_specific->getSpecificParameter().begin(),siege_specific->getSpecificParameter().end(),m_LogOfArmy->terrains.begin());
+// 				break;
+// 			case CHANGE_DAILY_TIMES:
+// 				m_LogOfArmy->left_times += siege_specific->getSpecificParameter()[0] - m_LogOfArmy->cur_all_times;
+// 				m_LogOfArmy->cur_all_times = siege_specific->getSpecificParameter()[0];
+// 				break;
+			default:
+				break;
+			}
+		}
+	}
+}
+
+uint32 Reinforce::GetTerrDebuffAddtion(uint32 terrType)
+{
+	return 0;
+}
+
+uint32 Reinforce::GetPlayerLevel()
+{
+	return GetLevel();
+}
+
+double Reinforce::GetTerrTalentAddtion(uint32 terrType)
+{
+	return 0;
+}
+
+int Reinforce::GetMaxHp()
+{
+	return m_maxHP;
+}

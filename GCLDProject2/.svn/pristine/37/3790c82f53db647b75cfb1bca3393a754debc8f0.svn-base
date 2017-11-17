@@ -1,0 +1,104 @@
+
+
+#include "../object/Player.h"
+#include "reward/reward.h"
+#include "Activity.pb.h"
+#include "memory_buffer/NetPack.h"
+#include "Opcode.pb.h"
+#include "ActivityControl/ActivityMgr.h"
+
+
+using namespace pb;
+
+#ifdef _MMO_SERVER_
+OpHandler(CMSG_BUY_ACTIVITY_ITEM)
+{
+	sActivityMgr.MarkTakeInActivity(pb::ACTIVITY_LIMTED_TIME_SHOP,GetGuid());
+	C2GS_ActivityBuyItem msg; pack >> msg;
+	GS2C_ActivityBuyItemRsp sendmsg;
+	std::map<uint64,activity_reward>::const_iterator iter = sActivityMgr.GetActivityPack().activity_reward_map_.find(msg.id());
+	if(iter != sActivityMgr.GetActivityPack().activity_reward_map_.end())
+	{
+		if(!IsBuyItemInLimitedShop(iter->first))
+		{
+			sendmsg.set_result(4);//has buy
+			goto SEND;
+		}
+		if(GetLevel() >= static_cast<int32>(iter->second.condition_))
+		{
+			if(iter->second.is_has_discount_)
+			{
+				if(!TryDeductCurrency(pb::IR_LIMITED_TIME_SHOP_BUY_COST,eSysGold,iter->second.cost_discount_))
+				{
+					sendmsg.set_result(1);goto SEND;
+				}
+				else
+				{
+					sendmsg.set_result(0);
+					BuyItemInLimitedShop(iter->first);
+				}
+			}
+			else
+			{
+				if(!TryDeductCurrency(pb::IR_LIMITED_TIME_SHOP_BUY_COST,eSysGold,iter->second.cost_price_))
+				{
+					sendmsg.set_result(1);goto SEND;
+				}
+				else
+				{
+					sendmsg.set_result(0);
+					BuyItemInLimitedShop(iter->first);
+				}
+			}
+			if(!sReward.Change(*this,iter->second.p_.first,iter->second.p_.second))
+			{
+				const LogicItemProto*  item = sItemMgr.Find(iter->second.p_.first);
+				if(item)
+				{
+					if(!item->IsCurrency())
+					{
+						if(item->CanBeCreateToBag())
+						{
+							if(!CanAddItemToBag(item->Id()))
+							{
+								sendmsg.set_result(2);//背包不足
+								goto SEND;
+							}
+						}
+					}
+				}
+			}
+		}
+		else
+		{
+			sendmsg.set_result(3);//等级不足
+		}
+	}
+	else
+	{
+		sendmsg.set_result(5);//common fail
+	}
+SEND:
+	Send(pb::SMSG_BUY_ACTIVITY_ITEM_RSP,sendmsg);
+}
+
+OpHandler(CMSG_BUY_ACTIVITY_INFO)
+{
+	GS2C_LimitedTimeShopInfo msg;
+	const ActivityPack& activity_pack = sActivityMgr.GetActivityPack();
+	for(std::map<uint64,activity_reward>::const_iterator iter= activity_pack.activity_reward_map_.begin();
+		iter != activity_pack.activity_reward_map_.end();++iter)
+	{
+		LimitedTimeShopInfo *info = msg.add_info();
+		info->set_table_id(iter->first);
+		info->set_is_has_discount(iter->second.is_has_discount_);
+		info->set_condition(iter->second.condition_);
+		info->set_cost_discount(iter->second.cost_discount_);
+		info->set_cost_price(iter->second.cost_price_);
+		pb::StReward* reward = info->mutable_reward();
+		reward->set_type(iter->second.p_.first);
+		reward->set_value(iter->second.p_.second);
+	}
+	Send(pb::SMSG_BUY_ACTIVITY_INFO_RSP,msg);
+}
+#endif

@@ -1,0 +1,347 @@
+#include "CrossWarDestServerMgr.h"
+#include "../../../LobbyServer.h"
+#include "ServerOpcode.pb.h"
+#include "System.h"
+//#include "Base.h"
+#include <algorithm>
+//#include "InterServer.pb.h"
+#include "../../../session/CrossServerSession.h"
+#include "../../../session/GameServerSession.h"
+#include "CrossWar.pb.h"
+//#include "BaseDefineMgr.h"
+
+using namespace pb;
+
+ServerCountry::ServerCountry()
+{
+	memset(this, 0, sizeof(*this));
+}
+
+CrossWarDestServerMgr::CrossWarDestServerMgr()
+	:m_serRankCountrys(1000)
+{
+	InitCrossWarInfo();
+}
+
+//初始化跨服战信息
+void CrossWarDestServerMgr::InitCrossWarInfo()
+{
+	m_serRankCountrys.Clear();
+	m_SerCountrys.clear();
+	m_CrossWarState = State_Null;
+	m_NextStateTime = 0;
+	m_CrossWarStartTime = 0;
+
+	m_time_from_start_collect_country = 10000;
+	m_time_from_start_prepare_over = (((12 + 7) * 60 + 50) * 60 * 1000);
+	m_time_from_start_preview_over = (m_time_from_start_prepare_over + (10 * 60 * 1000));
+	m_time_from_start_combat_over = (m_time_from_start_preview_over + (90 * 60 * 1000));
+	m_time_from_start_award_over = (m_time_from_start_combat_over + (30 * 60 * 1000));
+
+	//m_time_from_start_prepare_over = (10 * 60 * 1000);
+	//m_time_from_start_preview_over = (m_time_from_start_prepare_over + (1 * 60 * 1000));
+	//m_time_from_start_combat_over = (m_time_from_start_preview_over + (40 * 60 * 1000));
+	//m_time_from_start_award_over = (m_time_from_start_combat_over + (5 * 60 * 1000));
+}
+
+void CrossWarDestServerMgr::Update( uint64 nowTimeMS, int64 diffMS )
+{
+	switch(m_CrossWarState)
+	{
+	case State_Null:
+		break;
+	case State_Collect_Info:
+		if(nowTimeMS > m_NextStateTime )	//到下一阶段开始时间还没有收到足够的国家信息，则直接开始下一阶段
+		{
+			m_CrossWarState = State_Devide;
+			NoticeWarState();
+			//m_StateBeginTime = nowTimeMS;
+			LLOG("[1002] Enter Stage Devide time=%lld",nowTimeMS);
+		}
+		break;
+	case State_Devide:
+		m_CrossWarState = State_Prepare;
+		m_NextStateTime = m_CrossWarStartTime + m_time_from_start_prepare_over;
+		LLOG("[1002] Enter Stage Prepare time=%lld",nowTimeMS);
+		DevideServers();
+		NoticeWarState();
+		break;
+	case State_Prepare:
+		if(nowTimeMS > m_NextStateTime )	//筹备阶段结束，进入预览阶段
+		{
+			m_CrossWarState = State_Preview;
+			m_NextStateTime = m_CrossWarStartTime + m_time_from_start_preview_over;
+			NoticeWarState();
+			LLOG("[1002] Enter Stage Preveiw time=%lld",nowTimeMS);
+		}
+		break;
+	case State_Preview:
+		if(nowTimeMS > m_NextStateTime )	//预览阶段结束，进入开始阶段
+		{
+			m_CrossWarState = State_Start;
+			m_NextStateTime = m_CrossWarStartTime + m_time_from_start_combat_over;
+			NoticeWarState();
+			LLOG("[1002] Enter Stage Start time=%lld",nowTimeMS);
+		}
+		break;
+	case State_Start:
+		if(nowTimeMS > m_NextStateTime )	//战斗阶段结束，进入奖励阶段
+		{
+			m_CrossWarState = State_Award;
+			m_NextStateTime = m_CrossWarStartTime + m_time_from_start_award_over;
+			NoticeWarState();
+			//m_NextStateTime = m_CrossWarStartTime + TIME_FROM_START_COMBAT_OVER;
+			LLOG("[1002] Enter Stage Award time=%lld",nowTimeMS);
+		}
+		break;
+	case State_Award:
+		if(nowTimeMS > m_NextStateTime )	//奖励阶段结束，关闭跨服战场
+		{
+			m_CrossWarState = State_Null;
+			NoticeWarState();
+			//m_NextStateTime = m_CrossWarStartTime + TIME_FROM_START_COMBAT_OVER;
+			LLOG("[1002] Enter Stage Award time=%lld",nowTimeMS);
+		}
+		break;
+	default:
+		PLOG("!!!!! Cross War State Err");
+		break;
+	}
+}
+
+void CrossWarDestServerMgr::BroadcastToGS(int opCode, google::protobuf::Message& msg)
+{
+	PairIdSessionMap& sessionmap = sLobbySvr.GetGameSessionMap();
+	for(PairIdSessionMap::iterator it = sessionmap.begin();
+		it != sessionmap.end(); it++)
+	{
+		Session* gamesession = it->second;
+		gamesession->Send(opCode,msg);
+	}
+}
+
+//计时器通知跨服战开启
+void CrossWarDestServerMgr::StartCrossWarDest()
+{
+	LLOG("[1002] CrossWarDestServerMgr::StartCrossWarDest");
+	InitCrossWarInfo();		//state为NULL
+	m_CrossWarState = State_Collect_Info;	//state为collect
+	m_CrossWarStartTime = sOS.TimeMS();
+	m_NextStateTime = m_CrossWarStartTime + m_time_from_start_collect_country;
+	LLOG("[1002] cross start time=%llu, next state time=%llu",m_CrossWarStartTime,m_NextStateTime);
+	m_ServerSize = 0;
+	m_ServerSizeCheck = 0;
+	NoticeWarStart();		//通知开启
+	NoticeWarState();		//因为状态改变，通知所有服务器
+	CollectServerInfo();	//向游戏服务器请求可参战国家信息
+}
+
+//通知游戏服务器与跨服服务器跨服战开启
+void CrossWarDestServerMgr::NoticeWarStart()
+{
+	PairIdSessionMap& sessionmap = sLobbySvr.GetGameSessionMap();
+	for(PairIdSessionMap::iterator it = sessionmap.begin();
+		it != sessionmap.end(); it++)
+	{
+		LLOG("[1002] Send msg collect country info");
+		Session* gamesession = it->second;
+		NetPack packet( pb::SL2G_NOTICE_WAR_START, 2 ) ;
+		gamesession->Send(packet);
+	}
+
+	PairIdSessionMap& sessionmap2 = sLobbySvr.GetCrossSessionMap();
+	for(PairIdSessionMap::iterator it = sessionmap2.begin();
+		it != sessionmap2.end(); it++)
+	{
+		LLOG("[1002] Send msg collect country info");
+		Session* crosssession = it->second;
+		NetPack packet( pb::SL2R_NOTICE_WAR_START, 2 ) ;
+		crosssession->Send(packet);
+	}
+}
+
+void CrossWarDestServerMgr::NoticeWarState()
+{
+	pb::GS2C_Notice_CrossWar_State stateMsg;
+	stateMsg.set_curstate(static_cast<pb::CROSS_STATE>(m_CrossWarState));
+	stateMsg.set_stateendtime(m_NextStateTime);
+	PairIdSessionMap& sessionmap = sLobbySvr.GetGameSessionMap();
+	for(PairIdSessionMap::iterator it = sessionmap.begin();
+		it != sessionmap.end(); it++)
+	{
+		LLOG("[1002] Send msg collect country info");
+		Session* gamesession = it->second;
+		gamesession->Send(pb::SL2S_NOTICE_WAR_STATE,stateMsg);
+	}
+
+	PairIdSessionMap& sessionmap2 = sLobbySvr.GetCrossSessionMap();
+	for(PairIdSessionMap::iterator it = sessionmap2.begin();
+		it != sessionmap2.end(); it++)
+	{
+		LLOG("[1002] Send msg collect country info");
+		Session* crosssession = it->second;
+		crosssession->Send(pb::SL2S_NOTICE_WAR_STATE,stateMsg);
+	}
+}
+
+//向游戏服务器请求可参战国家信息
+void CrossWarDestServerMgr::CollectServerInfo()
+{
+	LLOG("[1002] CrossWarDestServerMgr::CollectServerInfo");
+	PairIdSessionMap& sessionmap = sLobbySvr.GetGameSessionMap();
+	for(PairIdSessionMap::iterator it = sessionmap.begin();
+			it != sessionmap.end(); it++)
+	{
+		LLOG("[1002] Send msg collect country info");
+		Session* gamesession = it->second;
+		NetPack packet( pb::SL2G_COLLECT_COUNTRY_INFO, 2 ) ;
+		gamesession->Send(packet);
+		m_ServerSize++;
+	}
+}
+
+void CrossWarDestServerMgr::HandleServerInfo(pb::SG2B_Country_Info& msg, const SessionPairId sessionid)
+{
+	LLOG("[1002] CrossWarDestServerMgr::HandleServerInfo sessionid=%d,can cross war = %d",sessionid.first,msg.is_can_cross_war());
+	if(msg.is_can_cross_war())
+	{
+		LLOG("[1002] can war");
+		int countrynum = msg.country_info_size();
+		for(int i=0; i< countrynum; i++)
+		{
+			pb::Country_Info_Devide* msgone = msg.mutable_country_info(i);
+			if(msgone)
+			{
+				LLOG("[1002] country one");
+				ServerCountry country_info_one;
+				country_info_one.countryid = msgone->countryid();
+				country_info_one.Pros_degree = msgone->pros_degree();
+				country_info_one.SessionPID = sessionid;
+				country_info_one.serverid = msg.server_id();
+				m_serRankCountrys.OnValueChange(country_info_one);
+				m_SerCountrys.push_back(country_info_one);
+			}
+		}
+	}
+	m_ServerSizeCheck++;
+
+	for(std::vector<ServerCountry>::iterator it = m_SerCountrys.begin(); it != m_SerCountrys.end(); it++)
+	{
+		LLOG("[1002] countryid = %d, pronum = %d, sessionid = %d, rank = %d",it->countryid,it->Pros_degree,it->SessionPID.first,it->rank);
+	}
+
+	if(m_ServerSizeCheck == m_ServerSize)		//	连接的服务器都回复了
+	{
+		m_CrossWarState = State_Devide;
+		NoticeWarState();
+	}
+}
+
+bool SortByRank(const ServerCountry& country1, const ServerCountry& country2)
+{
+	return country1.rank < country2.rank;
+}
+void CrossWarDestServerMgr::DevideServers()
+{
+	uint32 uniqueid = 0;
+	LLOG("[1002] CrossWarDestServerMgr::DevideServers");
+	std::sort(m_SerCountrys.begin(),m_SerCountrys.end(),SortByRank);		//排序
+	
+	for(std::vector<ServerCountry>::iterator it = m_SerCountrys.begin(); it != m_SerCountrys.end(); it++)
+	{
+		it->uniqueIndexID = ((it->countryid)<<16) + (++uniqueid);
+		LLOG("[1002] after sort countryid = %d, pronum = %d, sessionid = %d, rank = %d, uniqueid = %d",it->countryid,it->Pros_degree,it->SessionPID.first,it->rank,it->uniqueIndexID);
+	}
+
+	PairIdSessionMap& sessionmap = sLobbySvr.GetCrossSessionMap();
+	for(PairIdSessionMap::iterator it = sessionmap.begin();
+		it != sessionmap.end(); it++)
+	{
+		int countrynum = 0;
+		vector<ServerCountry> country_in_one;
+		while(m_SerCountrys.size()>0 && countrynum < 3)
+		{
+			int randpool;
+			if(m_SerCountrys.size()>20)
+				randpool = 20;
+			else
+				randpool = m_SerCountrys.size();
+			int random = System::Rand(0,randpool);
+			country_in_one.push_back(m_SerCountrys[random]);
+			m_SerCountrys.erase(m_SerCountrys.begin()+random);
+			countrynum++;
+		}
+		if(country_in_one.size()>0)		//分配成功
+		{
+			m_DevideCountrys.insert(std::make_pair(it->first, country_in_one));
+		}
+	}
+	
+	RetCSToGS();
+
+}
+
+void CrossWarDestServerMgr::RetCSToGS()
+{
+	LLOG("[1002] CrossWarDestServerMgr::RetCSToGS");
+	for(SessionCountrys::iterator it = m_DevideCountrys.begin(); it != m_DevideCountrys.end(); it++)
+	{
+		CrossServerSession* croSessionOne = sLobbySvr.GetCrossServerSessoin(it->first);		//三个国家可以连接的CrossServer
+		const SessionAddress & address = croSessionOne->GetAddress();
+		
+		pb::GS2L_Devide_Country_Infos msgToCross;
+
+		SCountryVec& countryVec = it->second;
+		
+		int devideid = 0;
+		for(SCountryVec::iterator ite = countryVec.begin(); ite != countryVec.end(); ite++)
+		{
+			pb::CountryWithAddress sendmsg;
+			pb::Address* pAddress = sendmsg.mutable_addresses();
+			pAddress->set_ip(address.second);
+			pAddress->set_port(address.first);
+			sendmsg.set_countryid(ite->countryid);
+			sendmsg.set_prepareendtime(m_NextStateTime);
+			sendmsg.set_uniqueid(ite->uniqueIndexID);
+			ite->crossAddr = address;
+			devideid++;
+
+			GameServerSession* gameSessionOne = sLobbySvr.GetGameServerSessoin(ite->SessionPID);		//各自国家的sessionpid
+			gameSessionOne->Send(pb::SL2G_DEVIDE_CROSS_SERVER,sendmsg);
+			LLOG("[1002] send one ip = %s, port = %s, countryid = %d",address.second.c_str(),address.first.c_str(),ite->countryid);
+
+			pb::Devide_Country_Info* countryone = msgToCross.add_countrys();
+
+			countryone->set_orig_country_id(ite->countryid);
+			countryone->set_devide_country_id(devideid);
+			countryone->set_unique_index_id(ite->uniqueIndexID);
+			countryone->set_pros_degree(ite->Pros_degree);
+			countryone->set_server_id(ite->serverid);
+		}
+		croSessionOne->Send(pb::SL2R_DEVIDE_CROSS_SERVER,msgToCross);
+
+	}
+}
+//
+void CrossWarDestServerMgr::GetCrossInfoInOneSession(uint32 serverid, pb::SL2G_DevideCrossServers& sendmsg)
+{
+	for(SessionCountrys::iterator it = m_DevideCountrys.begin(); it != m_DevideCountrys.end(); it++)
+	{
+		SCountryVec& countryVec = it->second;
+		for(std::vector<ServerCountry>::iterator it = countryVec.begin(); it != countryVec.end(); it++)
+		{
+			ServerCountry& countryone = *it;
+			if(countryone.serverid == serverid)
+			{
+				pb::CountryWithAddress* sendmsgone = sendmsg.add_country_addresses();
+				pb::Address* pAddress = sendmsgone->mutable_addresses();
+				pAddress->set_ip(countryone.crossAddr.second);
+				pAddress->set_port(countryone.crossAddr.first);
+				sendmsgone->set_countryid(countryone.countryid);
+				sendmsgone->set_prepareendtime(m_NextStateTime);
+				sendmsgone->set_uniqueid(countryone.uniqueIndexID);
+			}
+		}
+	}
+	sendmsg.set_curstate(m_CrossWarState);
+}

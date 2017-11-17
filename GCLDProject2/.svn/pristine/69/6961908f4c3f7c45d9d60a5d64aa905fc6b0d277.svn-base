@@ -1,0 +1,789 @@
+#include <fstream>
+#include <string>
+
+#include "DbProxyServerClient.h"
+#include "CenterServerClient.h"
+#include "EventLogServerClient.h"
+#include "Logger.h"
+#include "OS.h"
+
+#ifdef _MMO_SERVER_
+#include "../AutomaticUpdate/AutoUpdateGame.h"
+#include "../GameServer.h"
+#include "../GameServerLogicalTaker.h"
+#include "../session/PlayerSession.h"
+#include "SysEvent/SysEventMgr.h"
+#endif
+
+#include "../object/Player.h"
+#include "../object/PlayerStringGroup.h"
+#include "def/MmoAssert.h"
+#include "memory_buffer/NetPack.h"
+#include "data/PayItemTable.h"
+#include "../session/PlayerPool.h"
+//#include "Social/SocialHandler.h"
+
+#include "Enum.pb.h"
+#include "Opcode.pb.h"
+#include "ServerOpcode.pb.h"
+#include "InterServer.pb.h"
+#include "GameServer.pb.h"
+#include "Web.pb.h"
+#include "../CrossLogic/CountyDB.h"
+#include "../CrossLogic/PalaceDB.h"
+#include "../Palace/PalaceMgr.h"
+#include "Palace.pb.h"
+#include "Exploit/ExploitMgr.h"
+#include "ActivityControl/ActivityMgr.h"
+#include "ActivityRank/table/ActivityRankTableMgr.h"
+#include "item/ItemManager.h"
+#include "Congratulate/Table/CongratulateTableMgr.h"
+extern uint32 activity_occupy_city_god;
+extern uint32 activity_occupy_city_human;
+extern uint32 activity_occupy_city_worm;
+DbProxyServerClient::HandlerArray DbProxyServerClient::s_handlers =RegisteHandlers() ;
+
+
+DbProxyServerClient::HandlerArray DbProxyServerClient::RegisteHandlers( void )
+{
+	HandlerArray handlers( pb::SERVER_OPCODE_COUNT ) ;
+#ifdef _MMO_SERVER_
+	handlers[ pb::S_PONG ]                               =&DbProxyServerClient::HandlePong ;
+	handlers[ pb::SD2G_REGISTER_RET ]                    =&DbProxyServerClient::HandleRegisterRet ;
+	handlers[ pb::SD2G_GET_PLAYER_LIST_RET ]             =&DbProxyServerClient::HandleTakerPlayerList ;
+	handlers[ pb::SD2G_CREATE_PLAYER_RET ]               =&DbProxyServerClient::HandleTakerCreatePlayer ;
+	handlers[ pb::SD2G_SELSEC_PALYER_RET ]               =&DbProxyServerClient::HandleTakerSelectPlayer ;
+	handlers[ pb::SD2G_CHECK_MAIL_RECIVERS_EXIST_RET]    =&DbProxyServerClient::HandleMailSendCheck;
+	handlers[ pb::SD2G_MAIL_UPDATEMAILINFO_RET]          =&DbProxyServerClient::HandleMailUpdate;
+	handlers[ pb::SD2G_LOADINGGUILDINFO]				 =&DbProxyServerClient::HandleGuilds;
+	handlers[ pb::SD2G_LOADFRIENDINFO ]                  =&DbProxyServerClient::HandleSocialLoadFriendInfo;
+	handlers[ pb::SD2G_SOCIAL_SEARCH_PLAYERSINFO_RESPON] =&DbProxyServerClient::HandleFriendSearchRespon;
+	handlers[ pb::SD2G_FRIEND_OPERATE_RET ]              =&DbProxyServerClient::HandleFriendOperateRes ;
+	handlers[ pb::SD2G_GUILD_SEARCH_PLAYERSINFO_RESPON]  =&DbProxyServerClient::HandleGuildPlayerSearchRespon;
+	handlers[ pb::SD2G_BROADCAST_OFFLINE_RET]            =&DbProxyServerClient::HandleBroadCastOfflineRespon;
+	handlers[ pb::SD2G_CREAT_GUILD_RET ]                 =&DbProxyServerClient::HandleGuildCreateRespon;
+	handlers[ pb::SD2G_WEB_GET_PLAYER_LIST_RET ]         =&DbProxyServerClient::HandleWebGetPlayerListRet ;
+	handlers[ pb::SD2G_GET_PLAYERINFO_RESPON ]           =&DbProxyServerClient::HandleGetPlayerInfoResPon;
+	handlers[ pb::SD2G_PVP_CREATE_VIRTUAL_PLAYER_RET ]   =&DbProxyServerClient::HandlePvPCreateVirtualPlayer ;
+	handlers[ pb::SD2G_PVP_ENTRY_ARENA_RET ]             =&DbProxyServerClient::HandlePvPEntryArena ;
+	handlers[ pb::SD2G_PVP_ARENA_PLAYER_INFO_RET ]       =&DbProxyServerClient::HandlePvPGetPlayerInfo ;
+	handlers[ pb::SD2G_PVP_ARENA_FIGHT_RESULT_INFO_RET ] =&DbProxyServerClient::HandlePvPFightResultInfo ;
+	handlers[ pb::SD2G_PVP_ARENA_FIGLE_RECORD_INFO_RET ] =&DbProxyServerClient::HandlePvPFightRecordInfo ;
+	handlers[ pb::SD2G_SERVER_GOBAL_VALUE_RET ]          =&DbProxyServerClient::HandleServerGobalValues ;
+	handlers[ pb::SD2G_PVP_GET_REWARD_RANK_LIST_RET ]    =&DbProxyServerClient::HandlePvPGetRewardRankListRet ;
+	handlers[ pb::SD2G_PVP_ARENA_RANKING_LIST_RET ]      =&DbProxyServerClient::HandlePvPGetRankingList ;
+	handlers[ pb::SG2D_PVP_MARK_FIGHT_RET ]              =&DbProxyServerClient::HandlePvPMarkFightRet ;
+    handlers[ pb::SD2G_PLAYER_CHANGE_NAME_RET ]          =&DbProxyServerClient::HandlePlayerChangeName ;
+    handlers[ pb::SG2D_WEB_PAY_RET ]                     =&DbProxyServerClient::HandleWebPayRet ;
+	handlers[ pb::SD2G_GET_PLAYER_APPEND_DATA_RET ]      =&DbProxyServerClient::HandleReceivePlayerAppendData;
+    handlers[ pb::SD2G_COUNTRY_ALL_INFO]                 =&DbProxyServerClient::HandleReceiveCountryALLData;
+    handlers[ pb::SD2G_COUNTRY_LEVLE_UP_TASK_RANK]       =&DbProxyServerClient::HandleReceiveCountryLevelUpTaskRankData;
+    handlers[ pb::SD2G_PALACE_ALL_INFO]                  =&DbProxyServerClient::HandleReceivePalaceALLData;
+	handlers[ pb::SD2G_PLAYER_CACHE_DATA_SYNC]           =&DbProxyServerClient::HandlePlayerCacheDataSync;
+	handlers[ pb::SD2G_PLAYER_CACHE_REMOVE_SYNC]         =&DbProxyServerClient::HandlePlayerCacheRemoveSync;
+	handlers[ pb::SD2G_UNLOCK_FORBIDEN_RET]              =&DbProxyServerClient::HandlePlayerForbidenRet;
+	handlers[ pb::SD2G_PLAYER_SET_NAME_AND_HEADID_RET]   =&DbProxyServerClient::HandlePlayerSetNameAndHeadId;
+	handlers[ pb::SD2G_UPDATE_ACTIVITY_DATA_RET]         =&DbProxyServerClient::HandlePlayerUpdateActivityInfo;
+	handlers[ pb::SD2G_LOAD_ACTIIVTY_INFO]				=&DbProxyServerClient::HandlePlayerLoadActivityInfo;
+	handlers[ pb::SD2G_SELECT_COUNTRY_RET]				=&DbProxyServerClient::HandlePlayerSelectCountry;
+	handlers[ pb::SD2G_PLAYER_HAS_ALL_SYNC]				=&DbProxyServerClient::HandlePlayerAllSyncFromDB;
+	handlers[ pb::SD2G_ACTIVITY_COUNTRY_OCCUPY_CITY]     =&DbProxyServerClient::HandlePlayerActivityOccupyCity;
+#endif
+	return handlers ;
+}
+
+
+DbProxyServerClient::DbProxyServerClient( void )
+{
+#ifdef _MMO_SERVER_
+	SetClientType( PACKET_TYPE_SERVER_GAME ) ;
+	SetDstServerType( PACKET_TYPE_SERVER_DBPROXY ) ;
+
+	SetPingDiffMS( sGameSvr.Config().GetInt( "DatabaseServer.ping_time_ms", 5000 ) ) ;
+	SetReConnectDiffMS( sGameSvr.Config().GetInt( "Self.reconnect_diff_time_ms", 5000 ) ) ;
+	SetConnectNow() ;
+#endif
+}
+
+DbProxyServerClient::~DbProxyServerClient( void )
+{
+}
+
+
+
+void DbProxyServerClient::ClientDisconnect( void )
+{
+#ifdef _MMO_SERVER_
+	NLOG( "Flag all player data is lost, when connect they will send full data to dabase server. " ) ;
+	boost::reinterpret_pointer_cast<GameServerLogicalTaker>( sGameSvr.GetLogicalTaker() )->SetAllPlayerDataIsLost() ;
+#endif
+}
+
+
+void DbProxyServerClient::ClientUpdate( uint64 nowTimeMS, int64 diffMS )
+{
+	if( !m_lostDataPlayers.empty() )
+	{
+		for( LostDataPlayersTableItr itr =m_lostDataPlayers.begin(); itr != m_lostDataPlayers.end(); ++itr )
+		{
+			if( (*itr)->GetDataIsLost() )
+			{
+				SendCreatePlayerData( *itr->get() ) ;
+				SendPlayerOffLine( (*itr)->GetGuid() ) ;
+			}
+		}
+
+		m_lostDataPlayers.clear() ;
+	}
+}
+
+void DbProxyServerClient::SendPlayerOffLine( uint64 playerId )
+{
+#ifdef _MMO_SERVER_
+	// Send player offfline to database server
+	pb::SG2D_Player_Id offline ;
+	offline.set_player_id( playerId ) ;
+	Send( pb::SG2D_PLAYER_OFFLINE, offline ) ;
+#endif
+}
+
+void DbProxyServerClient::SendCreatePlayerData( Player &player )
+{
+#ifdef _MMO_SERVER_
+	pb::CreatePlayerData createData ;
+	createData.set_account_id( player.AccountId() ) ;
+	player.WritePlayerData( *createData.mutable_all_data() ) ;
+	if( Send( pb::SG2D_CREATE_PLAYER_DATA, createData ) )
+	{
+		player.SetDataIsLost( false ) ;
+		NLOG( "Player %llu send to database server create data.", player.GetGuid() ) ;
+	}
+#endif
+}
+
+bool DbProxyServerClient::HandlePacket( NetPack &packet )
+{
+	size_t opCode = packet.GetOpcode() ;
+
+	if( opCode >= s_handlers.size() )
+	{
+		ASSERT( false ) ;
+		return false ;
+	}
+
+	NetPackHandler packetFun = s_handlers[ opCode ] ;
+	if( packetFun )
+	{
+		(this->*packetFun)( packet ) ;
+		return true ;
+	}
+
+	return false ;
+}
+
+void DbProxyServerClient::ClientConnect( void )
+{
+	SendRegisterInfo() ;
+}
+
+void DbProxyServerClient::SendPing( void )
+{
+#ifdef _MMO_SERVER_
+	//LLOG("[1002] DbProxyServerClient::SendPing");
+	ServerClient::SendPing( pb::S_PING ) ;
+#endif
+}
+
+
+void DbProxyServerClient::SendRegisterInfo( void )
+{
+#ifdef _MMO_SERVER_
+	pb::SG2D_RegisterInfo msg ;
+
+	msg.set_server_id( sGameSvr.GetServerId() ) ;
+	msg.set_region_id( sGameSvr.GetRegionId() ) ;
+
+	msg.set_ip( sGameSvr.GetIP() ) ;
+	msg.set_port( sGameSvr.GetPort() ) ;
+
+	Send( pb::SG2D_REGISTER, msg ) ;
+#endif
+}
+
+void DbProxyServerClient::DirectSendToPlayerBySessionId( uint64 sessionId, uint16 newOpcoe, NetPack &packet )
+{
+#ifdef _MMO_SERVER_
+	PlayerSession *pSession =GetPlayerTakerSession( sessionId ) ;
+	if( pSession )
+	{
+		packet.SetOpCode( newOpcoe ) ;
+		pSession->Send( packet ) ;
+	}
+#endif
+}
+
+bool DbProxyServerClient::SendPlayerPack( Player &player, const int opCode, const ::google::protobuf::Message &msg )
+{
+#ifdef _MMO_SERVER_
+	if( !CanSend() )
+	{
+		ELOG( "send packet %s(%d) to %s faild !", pb::ServerOpcode_Name( static_cast<pb::ServerOpcode>( opCode ) ).c_str(),  opCode, GetServerName() ) ;
+		return false ;
+	}
+
+	if( player.GetDataIsLost() )
+	{
+		SendCreatePlayerData( player ) ;
+	}
+
+	NetPack packet( opCode, msg.ByteSize() + 2 + sizeof(player.GetGuid())) ; // + 2, beacuse packet << msg will add a uint16 sign the msg size .
+	packet.SetSessionId(player.SessionId());
+	packet << player.GetGuid() << msg ;
+	return Send( packet ) ;
+#endif
+	return true;
+}
+
+#ifdef _MMO_SERVER_
+PlayerSession* DbProxyServerClient::GetPlayerTakerSession( uint64 sessionId )
+{
+	Session *pSession =sGameSvr.GetSession( sessionId ) ;
+	if( pSession != NULL )
+	{
+		ASSERT( pSession->GetSessionType() == PACKET_TYPE_CLIENT ) ;
+		if( pSession->GetSessionType() != PACKET_TYPE_CLIENT )
+		{
+			return NULL ;
+		}
+
+		return static_cast<PlayerSession*>( pSession ) ;
+	}
+	else
+	{
+		ELOG( "DbProxyServerClient::GetPlayerTackerSession( %llu ) return NULL !", sessionId ) ;
+	}
+	return NULL ;
+}
+
+void DbProxyServerClient::HandleRegisterRet( NetPack &packet )
+{
+	pb::SG2D_RegisterInfoRet retInfo ;
+	packet >> retInfo ;
+
+	switch( retInfo.result() )
+	{
+	case pb::SERVER_REGISTER_OK:
+		{
+			NLOG( "%s regiter %s,(%s:%s) success !", GetClientName(), GetServerName(), GetIP(), GetPort() ) ;
+
+			//if( retInfo.pvp_table_size() == 0 )
+			//{
+			//	sPvP.CreateVirtualPvpPlayer() ;
+			//}
+
+			// Get gobal valuses ( send one empty pb::ServerGobalValue{} );
+			//Send( pb::SG2D_SERVER_GOBAL_VALUE, pb::ServerGobalValue() ) ;
+		} break ;
+
+	default:
+		{
+			NLOG( "%s regiter %s,(%s:%s)  fail !: %s .", GetClientName(), GetServerName(), GetIP(), GetPort(),pb::RegisterResult_Name( retInfo.result() ).c_str() ) ;
+		}
+	}
+}
+
+void DbProxyServerClient::HandlePong( NetPack &packet )
+{
+	ServerClient::HandlePong( packet ) ;
+}
+
+void DbProxyServerClient::HandleTakerPlayerList( NetPack &packet )
+{
+	PlayerSession *pPSession =GetPlayerTakerSession( packet.GetSessionId() ) ;
+	if( pPSession != NULL )
+	{
+		pPSession->TakerGetPlayerList( packet ) ;
+	}
+}
+
+void DbProxyServerClient::HandleTakerCreatePlayer( NetPack &packet )
+{
+	PlayerSession *pPSession =GetPlayerTakerSession( packet.GetSessionId() ) ;
+	if( pPSession != NULL )
+	{
+		pPSession->TakerCreatePlayer( packet ) ;
+	}
+}
+
+void DbProxyServerClient::HandleMailUpdate( NetPack &packet )
+{
+	PlayerSession *pPSession =GetPlayerTakerSession( packet.GetSessionId() ) ;
+	if( pPSession != NULL )
+	{
+		pb::GS2C_Mail_MailList mailupdates;
+		packet >> mailupdates;
+		NetPack *pPacket =new NetPack( SMSG_MAIL_UPDATE, mailupdates.ByteSize() + 2 ) ;
+		pPacket->SetPacketType(PACKET_TYPE_CLIENT);
+		pPacket->SetSessionId(pPSession->GetSessionId());
+		*pPacket << mailupdates;
+		pPSession->PostInputPacket(pPacket);
+	}
+}
+
+void DbProxyServerClient::HandleBroadCastOfflineRespon( NetPack &packet )
+{
+	/*SG2D_Broadcast_Info broadInfo;
+	packet >> broadInfo;
+	switch(broadInfo.opcode())
+	{*/
+	//case CMSG_SOCIAL_ADD:
+	//	{
+	//		C2GS_FriendAdd addInfo;
+	//		packet >> addInfo;
+	//		if (broadInfo.result())
+	//		{
+	//			sSocialHandler.DoPostAddFriend(addInfo);
+	//		}
+	//		else
+	//		{
+	//			if (addInfo.is_from_add_pannel())
+	//			{
+	//				pb::GS2C_FriendAdd_Result result;
+	//				if (broadInfo.is_include())
+	//				{
+	//					result.set_errorcode(6);//0,success.1,Is you friend,2,not exit player 3,failed ,4,is youself,5,your list full ,6 have invited
+	//				}
+	//				else
+	//				{
+	//					result.set_errorcode(2);//0,success.1,Is you friend,2,not exit player 3,failed ,4,is youself,5,your list full ,6 have invited
+	//				}
+	//				sGameSvr.SendMsgToPlayer(addInfo.your_guid(),pb::SMSG_SOCIAL_ADD_RE,result);
+	//			}
+	//			else
+	//			{
+	//				NetPack pack(pb::SMSG_GERROR);
+	//				pack << (uint32)ThisPlayerIsNotExist;
+	//				sGameSvr.SendMsgToPlayer(addInfo.your_guid(),pack);
+	//			}
+	//		}
+	//	}
+	//	break;
+	//case  CMSG_SOCIAL_ADD_RESP:
+	//	{
+	//		C2GS_FriendAdd_Respon resPonInfo;
+	//		packet >> resPonInfo;
+	//		if (broadInfo.result())
+	//		{
+	//			GS2C_FriendAdd_Respon toGsfriendAddRsp;
+	//			toGsfriendAddRsp.set_is_accept(resPonInfo.is_accept());
+	//			resPonInfo.mutable_record()->set_is_online(false);
+	//			toGsfriendAddRsp.mutable_record()->CopyFrom(resPonInfo.record());
+	//			toGsfriendAddRsp.set_is_add(true);
+	//			toGsfriendAddRsp.set_is_reply(true);
+	//			toGsfriendAddRsp.set_errorcode(1);
+	//			sGameSvr.SendMsgToPlayer(resPonInfo.your_guid(),SMSG_SOCIAL_ADD_RESP,toGsfriendAddRsp);
+	//		}
+	//		else
+	//		{
+	//			sSocialHandler.DoPostAddFriendRespon(resPonInfo,false);
+	//		}
+	//	}
+	//	break;
+	/*default:
+		break;
+	}*/
+}
+
+void DbProxyServerClient::HandleGuildCreateRespon( NetPack &packet )
+{
+	//pb::GxDB_Guild newGuild;
+	//packet >> newGuild;
+	//sGuildHandler.CreateGuild(newGuild);
+}
+
+
+void DbProxyServerClient::HandleReceivePlayerAppendData( NetPack &packet )
+{
+	PlayerSession *pPSession =GetPlayerTakerSession( packet.GetSessionId() ) ;
+	if( pPSession != NULL )
+	{
+		pPSession->LoadPlayerAppendDatas( packet ) ;
+	}
+}
+void DbProxyServerClient::HandleReceiveCountryALLData(NetPack &packet)
+{
+    pb::SD2G_Country_AllInfo msg; packet >> msg;
+    CountryDB::RecvAllInfoFromDB(msg);
+}
+void DbProxyServerClient::HandleReceiveCountryLevelUpTaskRankData(NetPack &packet)
+{
+    pb::Country_Levle_Up_Task_Rank msg; packet >> msg;
+    CountryDB::RecvLevelUpTaskRankFromDB(msg);
+}
+void DbProxyServerClient::HandleReceivePalaceALLData(NetPack &packet)
+{
+    pb::GS2C_Palace_All_Info msg; packet >> msg;
+	PalaceDB::RecvAllInfoFromDB(msg);
+}
+
+void DbProxyServerClient::HandlePlayerCacheDataSync(NetPack &packet)
+{
+	pb::SyncPlayerCacheData msg; packet >> msg;
+	PlayerPtr pPlayer ;
+	pPlayer.reset(new Player());
+	pPlayer->LoadPlayerData( msg.all_data());
+	NLOG( "--------CacheDataSync playerId:%llu",pPlayer->GetGuid()) ;
+	pPlayer->SetAccountId(msg.account_id());
+	pPlayer->UpDatePlayerData();
+	pPlayer->LoadPlayerDynamicData(*msg.mutable_all_data());
+	pPlayer->Attach(&sAutoUpdateGame.EventTimer());
+	pPlayer->CalculatePlayerData();
+	pPlayer->RegistQuestLogger();
+	pPlayer->LoadPlayerAppendData(msg.append());
+	pPlayer->FullCharHp();
+	sPlayerPool.Put(pPlayer);
+}
+
+void DbProxyServerClient::HandlePlayerCacheRemoveSync(NetPack &packet)
+{
+	pb::SG2D_Player_Id msg; packet >> msg;
+	 Player* curPlayer = sPlayerPool.GetByPlayerId(msg.player_id());
+	 if (curPlayer)
+	 {
+		 curPlayer->CloseSession();
+		 sPlayerPool.RemoveByPlayerId(msg.player_id());
+	 }
+}
+
+
+void DbProxyServerClient::HandleSocialLoadFriendInfo( NetPack &packet )
+{
+	//PlayerSession *pPSession =GetPlayerTakerSession( packet.GetSessionId() ) ;
+	//if( pPSession != NULL )
+	//{
+	//	pb::GxDB_FriendInfo friendinfo;
+	//	packet >> friendinfo;
+	//	sSocialHandler.DoLoadFriendInfos(friendinfo);
+	//}
+}
+
+void DbProxyServerClient::HandleFriendOperateRes( NetPack &packet )
+{
+	/*pb::SD2G_Friend_Operate_Res firendop;
+	packet >> firendop;
+	sSocialHandler.DoFriendOpRes(firendop);*/
+}
+
+
+void DbProxyServerClient::HandleGuildPlayerSearchRespon( NetPack &packet )
+{
+	GS2C_Guild_Player_Search_Respone searchRespon;
+	packet >> searchRespon;
+	uint64 playerId = searchRespon.your_guid();
+	sGameSvr.SendMsgToPlayer(playerId,SMSG_GUILD_SEARCH_PLAYER,searchRespon);
+
+}
+
+void DbProxyServerClient::HandleFriendSearchRespon( NetPack &packet )
+{
+	DirectSendToPlayerBySessionId( packet.GetSessionId(), SMSG_SOCIAL_SEARCH_RESP, packet ) ;
+}
+
+void DbProxyServerClient::HandleGetPlayerInfoResPon( NetPack &packet )
+{
+	DirectSendToPlayerBySessionId( packet.GetSessionId(), SMSG_GET_PLAYER_INFO_RESP, packet ) ;
+}
+
+void DbProxyServerClient::HandleGuilds( NetPack &packet )
+{
+	//pb::GxDB_Guilds guildInfos;
+	//packet >> guildInfos;
+	//sGuildHandler.LoadGuilds(guildInfos);
+}
+
+void DbProxyServerClient::HandleMailSendCheck( NetPack &packet )
+{
+	pb::GS2C_Mail_MailList msg; packet >> msg;
+	Player* curPlayer = sPlayerPool.GetByPlayerId(packet.GetSessionId());
+	if (curPlayer)
+	{
+		NetPack *pPacket =new NetPack( SMSG_MAIL_UPDATE, msg.ByteSize() + 2 ) ;
+		pPacket->SetPacketType(PACKET_TYPE_CLIENT);
+		pPacket->SetSessionId(packet.GetSessionId());
+		*pPacket << msg;
+		curPlayer->PostInputPacket(pPacket);
+	}
+}
+
+void DbProxyServerClient::HandleTakerSelectPlayer( NetPack &packet )
+{
+	PlayerSession *pPSession =GetPlayerTakerSession( packet.GetSessionId() ) ;
+	if( pPSession != NULL )
+	{
+		pPSession->TakerSelectPlayer( packet ) ;
+	}
+}
+
+void DbProxyServerClient::HandleWebGetPlayerListRet( NetPack &packet )
+{
+	packet.SetOpCode( pb::SC2G_WEB_GET_PLAYER_LIST_RET ) ;
+	sCenterClient.Send( packet ) ;
+}
+
+
+void DbProxyServerClient::HandlePvPCreateVirtualPlayer( NetPack &packet )
+{
+	//sPvP.CreateVirtualPvpPlayerRet( packet ) ;
+}
+
+
+void DbProxyServerClient::HandlePvPEntryArena( NetPack &packet )
+{
+	PlayerSession *pPSession =GetPlayerTakerSession( packet.GetSessionId() ) ;
+	if( pPSession != NULL )
+	{
+		pPSession->TakerPvPEntryArena( packet ) ;
+	}
+}
+
+void DbProxyServerClient::HandlePvPGetPlayerInfo( NetPack &packet )
+{
+	PlayerSession *pPSession =GetPlayerTakerSession( packet.GetSessionId() ) ;
+	if( pPSession != NULL )
+	{
+		pPSession->TakerPvPGetPlayerInfo( packet ) ;
+	}
+}
+
+void DbProxyServerClient::HandlePvPFightResultInfo( NetPack &packet )
+{
+	PlayerSession *pPSession =GetPlayerTakerSession( packet.GetSessionId() ) ;
+	if( pPSession != NULL )
+	{
+		pPSession->TakerPvPFightResultInfo( packet ) ;
+	}
+}
+
+void DbProxyServerClient::HandlePvPFightRecordInfo( NetPack &packet )
+{
+	PlayerSession *pPSession =GetPlayerTakerSession( packet.GetSessionId() ) ;
+	if( pPSession != NULL )
+	{
+		pPSession->TakerPvPFightRecordInfo( packet ) ;
+	}
+}
+
+
+void DbProxyServerClient::HandleServerGobalValues( NetPack &packet )
+{
+	//sGameSvr.InitServerGobalValues( packet ) ;
+}
+
+void DbProxyServerClient::HandlePvPGetRewardRankListRet( NetPack &packet )
+{
+	//sPvP.TakeGetRewardListRet( packet ) ;
+}
+
+
+void DbProxyServerClient::HandlePvPGetRankingList( NetPack &packet )
+{
+	PlayerSession *pPSession =GetPlayerTakerSession( packet.GetSessionId() ) ;
+	if( pPSession != NULL )
+	{
+		pPSession->TakerPvPGetRankingList( packet ) ;
+	}
+}
+
+void DbProxyServerClient::HandlePvPMarkFightRet( NetPack &packet )
+{
+	PlayerSession *pPSession =GetPlayerTakerSession( packet.GetSessionId() ) ;
+	if( pPSession != NULL )
+	{
+		pPSession->TakerPvPMarkFightRet( packet ) ;
+	}
+}
+
+void DbProxyServerClient::HandlePlayerChangeName( NetPack &packet )
+{
+    PlayerSession *pPSession =GetPlayerTakerSession( packet.GetSessionId() ) ;
+    if( pPSession != NULL )
+    {
+        pPSession->TakerPlayerChangeName( packet ) ;
+    }
+}
+
+void DbProxyServerClient::HandleWebPayRet( NetPack &packet )
+{
+	pb::WebPayToDatabaseRet info ;
+	packet >> info ;
+
+	if( !info.is_ok() )
+	{
+		pb::WebPayRet retInfo ;
+		retInfo.set_result( info.result()) ;
+		retInfo.set_order_id( info.order_id() ) ;
+		retInfo.set_error_msg( info.error_msg() ) ;
+		sCenterClient.Send( pb::SC2G_WEB_PAY_RET, packet.GetSessionId(), retInfo ) ;
+
+		// server log
+		sEventLogClient.SendEventInfo( pb::EVENT_PLAYER_PAY_FAILED, info.player_id(),0, 5, "u", info.channel(), "s", info.order_id().c_str(), "f", info.money(), "u", retInfo.result(), "s", retInfo.error_msg().c_str() ) ;
+
+	}
+	else
+	{
+		// server log
+		sEventLogClient.SendEventInfo( pb::EVENT_PLAYER_PAY_OK, info.player_id(),0, 5, "u", info.channel(), "s", info.order_id().c_str(), "f", info.money(), "u", info.order_record().crystal_final(),"u",info.platform()  ) ;
+		// for test
+		if( sPlayerPool.IsInCachePool(info.player_id()))
+		{
+			ELOG( " DbProxyServerClient::HandleWebPayRet() Player Is In Caceh Pool, But Pay Info Not Notify to Client !!!!") ;
+		}
+		// 返回给中心服务器
+		pb::WebPayRet retInfo ;
+		retInfo.set_result( pb::WEB_PAY_RERSULT_OK ) ;
+		retInfo.set_order_id( info.order_id() ) ;
+		sCenterClient.Send( pb::SC2G_WEB_PAY_RET, packet.GetSessionId(), retInfo ) ;
+	}
+
+	//// 发送信息给玩家提示失败还是成功
+	//if( info.is_online() )
+	//{
+	//	Player *pPlayer =sGameSvr.GetPlayerPtr( info.player_id() ) ;
+	//	if( pPlayer != NULL )
+	//	{
+	//		pb::G2C_PayResultNotice payInfo ;
+	//		payInfo.set_is_ok( info.is_ok() ) ;
+	//		payInfo.mutable_pay_item()->CopyFrom( info.pay_record() ) ;
+	//		payInfo.set_error_msg( info.error_msg() ) ;
+
+	//		pPlayer->Send( pb::SMSG_PAY_RESULT_NOTICE, payInfo ) ;
+	//	}
+	//	else
+	//	{
+	//		ELOG( "DbProxyServerClient::HandleWebPayRet() is online but can not find player????" ) ;
+	//	}
+	//}
+}
+
+void DbProxyServerClient::HandlePlayerForbidenRet( NetPack &packet )
+{
+	pb::SD2G_Forbiden_Player_Ret info ;
+	packet >> info ;
+
+	if (info.forbidid() == pb::ACCOUNT_OP_LOCK || info.forbidid() == pb::ACCOUNT_OP_UNLOCK )
+	{
+		sCenterClient.SendLockedAccount(info.acountid(),info.player_name(),info.forbidid(),info.time());
+	}
+}
+
+void DbProxyServerClient::HandlePlayerSetNameAndHeadId( NetPack& packet )
+{
+	PlayerSession *pPSession =GetPlayerTakerSession( packet.GetSessionId() ) ;
+	if( pPSession != NULL )
+	{
+		pPSession->TakerPlayerSetNameAndHeadId( packet ) ;
+	}
+}
+
+void DbProxyServerClient::HandlePlayerUpdateActivityInfo( NetPack& packet )
+{
+	pb::SC2G_activity_package msg;
+	packet >> msg;
+	sActivityMgr.UpdateInfo(msg);
+	pb::GS2C_Activity_All_Active_Info sendmsg;
+	const ActivityPack& ac_pack = sActivityMgr.GetActivityPack();
+	for(std::map<uint64,cur_activity>::const_iterator iter = ac_pack.cur_activity_map_.begin();
+		iter != ac_pack.cur_activity_map_.end();++iter)
+	{
+		pb::GS2C_Activity_Start* info = sendmsg.add_info();
+		info->set_activity_type(iter->second.activity_id_);
+		info->set_open_way(iter->second.open_way_);
+		std::pair<time_t,time_t> pair_time;
+		sActivityMgr.GetActivityStartAndEndTime(iter,pair_time);
+		info->set_activity_start_time(pair_time.first);
+		info->set_activity_last_time(pair_time.second);
+		info->set_activity_show_time(iter->second.last_show_date_);
+		info->set_server_open_time(sActivityMgr.GetOpenTimeById(sActivityMgr.GetCurServerId()));
+	}
+	sGameSvr.BroadcastMsgToPlayer(pb::SMSG_ACTIVITY_START_ALL_INFO_RSP,sendmsg);
+}
+
+void DbProxyServerClient::HandlePlayerLoadActivityInfo( NetPack& packet )
+{
+	pb::SC2G_activity_package msg;
+	packet >> msg;
+	sActivityMgr.LoadFrom(msg);
+}
+
+void DbProxyServerClient::HandlePlayerSelectCountry(NetPack& packet)
+{
+	PlayerSession *pPSession =GetPlayerTakerSession( packet.GetSessionId() ) ;
+	if( pPSession != NULL )
+	{
+		pPSession->TakerSelectCountryRet( packet ) ;
+	}
+}
+
+void DbProxyServerClient::HandlePlayerAllSyncFromDB(NetPack& packet)
+{
+	pb::SD2G_All_player_has_sync msg;packet >> msg;
+	if(msg.result())
+	{
+		sExploitMgr.Init();
+		sActivityRankTableMgr.InitializationRankMap();
+	}
+}
+
+void DbProxyServerClient::HandlePlayerActivityOccupyCity(NetPack& packet)
+{
+	pb::SD2G_Activity_Occupy_City_Num msg;packet >> msg;
+	for(int i = 0;i < msg.info_size();++i)
+	{
+		const pb::Activity_Occupy_City_Num &info = msg.info(i);
+		switch(info.country_id())
+		{
+		case pb::COUNTRY_GOD:
+			activity_occupy_city_god = info.city_num();
+			break;
+		case pb::COUNTRY_MAN:
+			activity_occupy_city_human = info.city_num();
+			break;
+		case pb::COUNTRY_WORM:
+			activity_occupy_city_worm = info.city_num();
+			break;
+// 		case CONGRATULATE_TYPE_SHENQI:
+// 			sCongratulateMgr.congratulate_shen_qi_num = info.city_num();
+// 			break;
+		default:
+			if(info.country_id() >= (SUIT_PRI_ITEM_ID_BASE << CONGRATULATE_TYPE_SUIT))
+			{
+				uint32 suitProId = info.country_id() >> CONGRATULATE_TYPE_SUIT;
+				const LogicItemProto* logic_proto = sItemMgr.Find(suitProId);
+				if(logic_proto)
+				{
+					if(logic_proto->Isprisuit())
+					{
+						sCongratulateMgr.suit_pri[suitProId-SUIT_PRI_ITEM_ID_BASE] = info.city_num();
+					}
+					if(logic_proto->Ismidsuit())
+					{
+						sCongratulateMgr.suit_mid[suitProId-SUIT_MID_ITEM_ID_BASE] = info.city_num();
+					}
+					if(logic_proto->Isadvsuit())
+					{
+						sCongratulateMgr.suit_adv[suitProId-SUIT_ADV_ITEM_ID_BASE] = info.city_num();
+					}
+				}
+			}
+			else if(info.country_id() >= (CONGRATULATE_SHEN_QI_LEVEL_BASE << CONGRATULATE_TYPE_SHENQI))
+			{
+				uint32 cat1 = info.country_id() >> CONGRATULATE_TYPE_SHENQI;
+				uint32 index = (cat1-CONGRATULATE_SHEN_QI_LEVEL_BASE) / 20;
+				sCongratulateMgr.congratulate_shen_qi_[index] = info.city_num();
+			}
+			break;
+		}
+	}
+}
+
+#endif

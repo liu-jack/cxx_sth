@@ -1,0 +1,376 @@
+
+package pb;
+
+import "GameServer.proto";
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// 客户端检查版本
+message CVersionCheck
+{
+	required uint32 channel_id  =1 ; // 渠道Id
+	required uint32 platform_id =2 ; // 平台Id
+	required uint32 version_id  =3 ; // 版本Id
+	required uint32 resource_id =4; // 资源Id
+	optional string device_id   =5 ; // 设备Id	
+}
+
+enum VERSION_CHECK_RESULT
+{
+	VERSION_CHECK_NEWEST_VERION_SUCCESS   =0 ; // 成功
+	VERSION_CHECK_INVALID_VERSION         =1 ; // 错误版本
+	VERSION_CHECK_INVALID_RESOURCE_VESION =2 ; // 错误资源版本
+	VERSION_CHECK_CAN_NOT_FIND_PLATFORM   =3 ; // 无法找到对应平台配置信息
+    VERSION_CHECK_RESOURCE_NOT_SET        =4 ;
+}
+
+
+message SVersionCheck
+{
+	required VERSION_CHECK_RESULT result                 =1 ; // use enum VERSION_CHECK_RESULT{}
+	optional uint32               resource_id            =2 ; // 资源Id
+	optional string               notice_address         =3 ; // 公告地址
+	optional string               resource_address       =4 ; // 资源地址
+	optional uint32               is_hot_update          =5 ; // 资源Id
+	optional string               newest_version_address =6 ; // 最新版本地址
+	optional float                apk_size               =7 ; // 资源Id
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////// 
+message CVstarGameAccountCheck
+{
+	optional string           client_id     =1 ;//appid
+	optional string           sdk_user_id   =2 ;
+	optional string           token         =3 ;
+	optional CRegisterAccount register_info =4 ;
+}
+
+message SVstarGameAccountCheck
+{
+	optional bool   status        =1 ;
+	
+	// status =true ;
+	optional string sdk_user_id   =2 ;
+	
+	// status =false ;
+	// 100 Verify Siganture Error
+	// 101 Missing parameters
+	// 103 User not found or invalid token
+	// 其他错误码，为http 错误码，如 404： Not Find 没有找到对应的网页
+	optional uint32 error_code    =3 ;
+	optional string error_msg     =4 ;
+	optional uint64 account_id    =5 ;
+}
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// 验证账号
+enum ACCOUNT_CHECK_METHOD
+{
+	ACCOUNT_CHECK_ACCOUNT   =1 ; // 账号方式验证
+	//ACCOUNT_CHECK_PHONE_NUM =2 ;
+}
+
+message CAccountCheck
+{
+	required ACCOUNT_CHECK_METHOD method       =1 ; // 验证方式
+	optional string               account      =2 ; // 账号
+	optional string               password     =3 ; // 密码
+	required uint32				  channel_id   =4 ; // 渠道Id
+	required uint32				   platform_id =5 ; // 平台Id
+	//optional string               phone_num    =6 ;
+}
+
+
+enum ACCOUNT_CHECK_RESULT
+{
+	ACCOUNT_CHECK_SUCCESS                             =0 ;
+	ACCOUNT_CHECK_NAME_ERROR                          =1 ; // 账号错误
+	ACCOUNT_CHECK_PWD_ERROR                           =2 ; // 密码错误
+	ACCOUNT_CHECK_METHOD_UNKNOW                       =3 ; // 无效验证方式
+	ACCOUNT_CHECK_FORBIDEN							  =4 ;//账号被封禁
+	//ACCOUNT_CHECK_PHONE_NUM_ERROR                     =5 ;
+}
+
+enum ACCOUNT_TYPE
+{
+	ACCOUNT_TYPE_GUEST  =0 ; // 游客账号
+	ACCOUNT_TYPE_NORMAL =1 ; // 普通账号
+}
+
+message SAccountCheck
+{
+	required ACCOUNT_CHECK_RESULT  result       =1 ; // use enum VERIFY_ACCOUNT_RESULT{}
+	optional ACCOUNT_TYPE          account_type =2 ; // 账号类型
+	optional uint64                account_id   =3 ; // 账号Id
+}
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// 注册账号
+
+// 注册类型
+enum REGISTER_ACCOUNT_TYPE
+{
+	REGISTER_ACCOUNT_ACCOUNT   =0 ; // 账号方式注册
+	REGISTER_ACCOUNT_GUEST     =1 ; // 游客方式注册
+	//REGISTER_ACCOUNT_PHONE_NUM =2 ;
+}
+
+message CRegisterAccount
+{
+	required REGISTER_ACCOUNT_TYPE type         =1 ; // 注册类型
+	optional string                account      =2 ; // 账号
+	optional string                password     =3 ; // 密码
+	optional string                phone_number =4 ; // 手机号码
+	optional string                device_id    =5 ; // 设备Id
+	optional uint32                channel_id   =6 ; // 渠道Id
+	optional uint32                platform_id  =7 ; // 平台Id
+}
+
+enum REGISTER_ACCOUNT_RESULT
+{
+	REGISTER_ACCOUNT_SUCCESS               =0 ;
+	REGISTER_ACCOUNT_NAME_ERROR            =1 ; // 账号格式错误
+	REGISTER_ACCOUNT_NAME_EXIST            =2 ; // 账号已存在
+	REGISTER_ACCOUTN_PWD_ERROR             =3 ; // 密码格式错误
+	//REGISTER_ACCOUNT_PHONE_NUM_ERROR       =4 ;
+	//REGISTER_ACCOUNT_PHONE_NUM_EXIST       =5 ;
+}
+
+message SRegisterAccount
+{
+	required REGISTER_ACCOUNT_RESULT result       =1 ;
+	optional uint64                  account_id   =2 ;
+	optional string                  account      =3 ; // 返回账号
+	optional string                  password     =4 ; // 返回密码
+}
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// 	修改账号密码
+message CChangeAccountAndPassord
+{
+	optional string old_account  =1 ; // 旧账号
+	optional string old_password =2 ; // 旧密码
+	optional string new_account  =3 ; // 新账号
+	optional string new_password =4 ; // 新密码
+	required uint32 channel_id   =5 ; // 渠道Id
+	required uint32 platform_id  =6 ; // 平台Id
+}
+
+enum CHANGE_ACCOUNT_PASSWORD_RESULT
+{
+	CHANGE_ACCOUNT_PWD_ACCOUNT_SUCCESS =0 ;
+	CHANGE_ACCOUNT_PWD_ACCOUNT_ERROR   =1 ; // 旧账号错误
+	CHANGE_ACCOUNT_PWD_PASSWORD_ERROR  =2 ; // 新账号错误
+}
+
+
+message SChangeAccountAndPassord
+{
+	required CHANGE_ACCOUNT_PASSWORD_RESULT result =1 ;
+}
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// 服务器列表
+message CGetServerList
+{
+	required uint64                account_id   =1 ;
+	optional uint32                channel_id   =2 ;
+	optional uint32                platform_id  =3 ;
+	optional uint32                version_id   =4 ;
+}
+
+enum ServerState
+{
+	SERVER_STATE_GOOD     =0 ; // 流畅
+	SERVER_STATE_BUSY     =1 ; // 繁忙
+	SERVER_STATE_LIMIT    =2 ; // 人满
+	SERVER_STATE_MAINTAIN =3 ; // 维护
+}
+
+message ServerInfo
+{
+	//optional uint64      id                =1 ;// 列表Id
+	optional uint32      region_id         =1 ;// 大区Id
+	optional uint32      group_id          =2 ;// 大组Id
+	optional uint32      server_id         =3 ;// 服务器Id
+	optional ServerState server_state      =4 ;// 账号在本服务器创建的角色数目
+	optional bool        is_new            =5 ;// 服务器Id
+}
+
+message SGetServerList
+{
+	optional uint32     region_id   =1 ;
+	optional uint32     group_id    =2 ;// 大组Id
+	optional uint32     server_id   =3; // 最近登录过的服务器
+	repeated ServerInfo server_info =4 ;
+}
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Select server
+
+message CSelectServerId
+{
+	//optional uint64 id          =1 ;
+	optional uint32 region_id   =1 ;
+	optional uint32 server_id   =2; // 最近登录过的服务器	
+	optional uint64 account_id  =3 ;
+}
+
+enum ASK_SELECTSERVERID_RESULT
+{
+	ASK_SELECTSERVERID_SUCCESS         =0 ;// 成功
+	ASK_SELECTSERVERID_INVALID_SERVER  =1 ;// ServerID非法
+	ASK_SELECTSERVERID_RECH_SERVER_LIMIT  =2 ;//爆满
+	ASK_SELECTSERVERID_IN_MAINTAIN  =3 ;// 维护
+};
+
+
+message SSelectServerId
+{
+	required ASK_SELECTSERVERID_RESULT result      =1 ;
+	optional string                    ip          =2 ;
+	optional string                    port        =3 ;
+	optional string                    session_key =4 ;
+	optional uint64                    key_value   =5 ;
+}
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// 请求角色列表
+message CGetPlayerList
+{
+	required uint64 account_id  =1 ;
+	optional string session_key =2 ;
+	optional uint64 key_value   =3 ;
+	optional string account     =4 ;
+}
+
+
+enum GET_PLAYER_LIST_RESULT
+{
+	GET_PALYER_LIST_SUCCESS            =0 ;
+	GET_PLAYER_LIST_KEY_ERROR          =1 ; // Key 验证错误
+	GET_PLAYER_LIST_KEY_VALUE_INVALID  =2 ; // Key 值无效	
+	GET_PLAYER_LIST_DB_ERROR           =3 ; // 数据库服务器错误
+}
+
+// 角色列表里面
+message PlayerListInfo
+{
+	required string name       =1 ;// 角色名字
+	optional int32  slot       =2 ;// slot
+	required uint64 player_id  =3 ;// id
+	optional uint32  head_icon  =4;// slot
+	optional uint32  country_id  =5;//
+}
+
+// 返回角色列表信息
+message SGetPlayerList
+{
+	required GET_PLAYER_LIST_RESULT result        =1 ;
+	repeated PlayerListInfo         player_infos  =2 ;
+}
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// 创建角色
+message CCreateChar
+{
+	required string name              =1 ; // 角色名字
+	optional uint32 channel_id        =2 ; // 渠道Id
+	optional uint32 card_solution_id  =3 ; // 
+	optional string sdk_user_id       =4 ;
+	optional uint32 platform_id       =5 ;
+}
+
+
+message MSG_ChangeName
+{
+	required string name            = 1 ; // 角色名字
+	optional uint32 err_code        = 2;
+	optional uint64 player_id        = 3;
+}
+
+message MSG_SetNameAndHeadId
+{
+	required string name            = 1 ; // 角色名字
+	required uint32 head_id         = 2;
+	optional uint64 player_id        = 3;
+	optional uint32 err_code        = 4;
+}
+
+enum CREATE_PLAYER_RESULT
+{
+	CREATE_PLAYER_SUCCESS              =0 ; //成功
+	CREATE_PLAYER_SAME_NAME            =1 ; //角色重名
+	CREATE_PLAYER_UNAVAILABLE_SERVER   =2 ; //服务器暂时不可用
+	CREATE_PLAYER_FULL                 =3 ; //角色已经满了
+	CREATE_PLAYER_INVALID_NAME         =4 ; //非法的名字
+	CREATE_PLAYER_CREATE_INFO_ERROR    =5 ; //The info like race, class, ... may error
+	CREATE_PLAYER_DATABASE_INSERT_FAIL =6 ;
+};
+
+// 返回创建角色
+message SCreateChar
+{
+	required CREATE_PLAYER_RESULT result        =1 ;// 创建角色结果
+	optional uint64 player_id    =2 ;
+}
+
+
+message SCreateCharRes
+{
+	required SCreateChar res        =1 ;// 创建角色结果
+	required string name              =2 ; // 角色名字
+	optional uint32 channel_id        =3 ; // 渠道Id
+	optional string sdk_user_id       =4 ;
+	optional uint32 platform_id       =5 ;
+}
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// 悬着角色进入游戏
+enum SELECT_PLAYER_RESULT
+{
+	SELECT_PLAYER_SUCCESS              =0 ; //成功	
+	SELECT_PLAYER_UNAVAILABLE_SERVER   =1 ; //服务器暂时不可用
+	SELECT_PLAYER_PLAYER_ID_ERROR      =2 ; //玩家Id错误
+	SELECT_PLAYER_PLAYER_ID_LOCKED     =3 ; //玩家Id被锁定
+}
+
+message CSlectPlayer
+{
+	required uint64 player_id    =1 ;
+	optional uint32 platform_id  =2 ; // 平台Id	
+	optional uint32 country_id   =3;//国家id
+	optional uint32 headpic_id   =4;//头像id
+	optional uint32 expected_country_id = 5;//推荐国家Id
+}
+
+
+message SSlectPlayer
+{
+	required SELECT_PLAYER_RESULT result        =1 ;
+	optional PlayerAllData        player_data   =2 ; // 玩家数据
+	optional bool                is_quick_login =3 ;
+	optional uint32 			 country_id     =4;//国家id
+	optional uint32 			 headpic_id     =5;//头像id
+	optional uint32 expected_country_id = 6;//推荐国家Id
+	required uint64 player_id    =7;
+}
+
+/////////////////////////////////////////////
+/////新手引导
+message SGuideProcess {
+	required bool is_need_guide = 1;
+	required bool is_finished_guide = 2;
+	required uint32 	cur_process = 3;   //当前进行的步骤
+	optional uint32 	left_precess = 4; //剩余步骤
+}

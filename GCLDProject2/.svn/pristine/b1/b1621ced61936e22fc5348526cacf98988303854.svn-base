@@ -1,0 +1,29 @@
+package pb;
+
+import "CommomDef.proto";
+
+
+message SubSmelter
+{
+    required uint32    star             =1;
+    required uint32    smelt_times      =2;//已经熔炼的次数
+}
+message GS2C_Smithy_All_Info
+{
+    optional uint32     levle           =1;
+    optional uint32     silver_coin     =2; //建造时累计的银币
+    repeated SubSmelter sub_smelter     =3;
+}
+message C2GS_Smithy_Smelter_Do
+{
+    required uint32     idx     =1;
+    repeated uint32     item_id =2;
+}
+message C2GS_Smithy_Sub_Smelter_LevelUp
+{
+    required uint32     idx =1;
+}
+message C2GS_Smithy_Build_By_Silver
+{
+    required bool       is_fast =1;
+}

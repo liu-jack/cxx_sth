@@ -1,0 +1,1021 @@
+
+#include "PlayerSession.h"
+
+#include "Logger.h"
+#include "OS.h"
+#include "../GameServer.h"
+#include "../AutomaticUpdate/AutoUpdateGame.h"
+#include "GameServerLogicalTaker.h"
+
+#include "def/MmoAssert.h"
+#include "def/ObjectDefines.h"
+
+#include "encrypt/Md5Tool.h"
+#include "memory_buffer/NetPack.h"
+
+#include "../object/Player.h"
+#include "../server_client/DbProxyServerClient.h"
+#include "../server_client/CenterServerClient.h"
+#include "../server_client/EventLogServerClient.h"
+#include "../server_client/CrossServerClient.h"
+#include "../Map/WorldMap.h"
+#include "../Map/country/country.h"
+#include "quest/IQuestLogger.h"
+#include "sell/SellLog.h"
+#include "character/CharacterStorage.h"
+#include "../Congratulate/CongratulateRewardLog.h"
+#include "../CrossLogic/PlayerCongratulateDB.h"
+//#include "Loot/ILootRoundRecordProvider.h"
+//#include "Lottery/LotteryLog.h"
+
+#include "Enum.pb.h"
+#include "Opcode.pb.h"
+#include "ServerOpcode.pb.h"
+#include "Login.pb.h"
+#include "InterServer.pb.h"
+#include "PvP.pb.h"
+#include "GameServer.pb.h"
+#include "BaseDefine.pb.h"
+//#include "../Social/SocialHandler.h"
+#include "../Mail/MailBox.h"
+#include "../chat/chat_handler.h"
+#include "../TimerEvent/TimerEventGroup.h"
+#include "PlayerPool.h"
+#include "../CrossLogic/PlayerCharacterLogic.h"
+#include "Map/country/country.h"
+#include "Map/WorldMap.h"
+#include "Building/BuildingLogMgr.h"
+#include "BaseDefineMgr.h"
+#include "Country.pb.h"
+#include "TeachMap/TeachMapMgr.h"
+#include "Rank.pb.h"
+#include "reward/reward.h"
+#include "Congratulate/Table/CongratulateTableMgr.h"
+PlayerSession::HandlerArray PlayerSession::s_serverHandlers =RegisteServerHandlers() ;
+
+
+PlayerSession::HandlerArray PlayerSession::RegisteServerHandlers( void )
+{
+	HandlerArray handlers( pb::CSMSG_COUNT ) ;
+
+	handlers[ pb::CMSG_PING ]                         =&PlayerSession::HandlePing ;
+	handlers[ pb::CMSG_GET_PLAYER_LIST ]              =&PlayerSession::HandleGetPlayerList ;
+	handlers[ pb::CMSG_CREATE_PLAYER ]                =&PlayerSession::HandleCreatePlayer ;
+	handlers[ pb::CMSG_SELECT_PLAYER ]                =&PlayerSession::HandleSelectPlayer ;
+	handlers[ pb::CMSG_QUICK_LOGIN ]                  =&PlayerSession::HandleQuickLogin ;
+	handlers[ pb::CMSG_GET_SERVER_TIME ]              =&PlayerSession::HandleGetServerTime ;
+
+	handlers[ pb::CMSG_PVP_ENTRY_ARENA ]              =&PlayerSession::HandlePvPEntryArena ;
+	handlers[ pb::CMSG_PVP_ARENA_PLAYER_INFO ]        =&PlayerSession::HandlePvPGetPlayerInfo ;
+	handlers[ pb::CMSG_PVP_ARENA_FIGHT_RESULT_INFO ]  =&PlayerSession::HandlePvPFightResultInfo ;
+	handlers[ pb::CMSG_PVP_ARENA_FIGLE_RECORD_INFO ]  =&PlayerSession::HandlePvPFightRecordInfo ;
+	handlers[ pb::CMSG_PVP_ARENA_RANKING_LIST ]       =&PlayerSession::HandlePvPGetRankingList ;
+	handlers[ pb::CMSG_PVP_MARK_FIGHT ]               =&PlayerSession::HandlePvPMarkFight;
+
+	handlers[ pb::CMSG_TRY_RESET_VALUE_TIMER ]		  =&PlayerSession::HandleTryResetValueTimer;
+	handlers[ pb::CMSG_ENTER_CROSS_WAR ]			 =&PlayerSession::HandleEnterCrossWar;
+	handlers[ pb::RMSG_ENTER_CROSS_WAR_RET ]		  =&PlayerSession::HandleRegisterCrossPlayerRet;
+	handlers[ pb::CMSG_SELECT_COUNTRY_FOR_REWARD ]		  =&PlayerSession::HandleSelectCountryForAward;
+	handlers[ pb::CMSG_CONGRATULATE_ACCEPT ]		  =&PlayerSession::HandleCongraulateAccept;
+	handlers[ pb::CMSG_CONGRATULATE_CURRENT_CONGRATULATION ]		  =&PlayerSession::HandleCongraulateCurrent;
+	return handlers ;
+}
+
+PlayerSession::PlayerSession( void )
+{
+	SetAccountId( 0 ) ;
+}
+
+PlayerSession::~PlayerSession( void )
+{
+	// event log
+	sEventLogClient.SendEventInfo( pb::EVENT_USER_ACCT_LOGOUT, *this, 0 ) ;
+
+	GetGameLogicalTaker()->RemovePlayerSession( this ) ;
+	if( m_pPlayer )
+	{
+		if(m_pPlayer->SessionId() == GetSessionId())
+		{
+			if( m_pPlayer->GetDataIsLost() )
+			{
+				sDbProxyClient.AddLostdataPlayer( m_pPlayer ) ;
+			}
+			else
+			{
+				uint64 guid =m_pPlayer->GetGuid() ;
+				// Send player offfline to database server
+				sDbProxyClient.SendPlayerOffLine( guid ) ;
+				//sSocialHandler.DoPlayerOffline(m_pPlayer);
+				//sGuildHandler.HandlePlayerOffline(guid);
+				//m_pPlayer.reset();
+			}
+			m_pPlayer->SetSession(NULL);
+			m_pPlayer.reset();
+		}
+	}
+	sGameSvr.OnSessionClose( *this ) ;
+}
+
+void PlayerSession::Update( uint64 nowTimeMS, int64 diffMS )
+{
+	//LLOG("PlayerSession::Update");
+	Session::Update( nowTimeMS, diffMS ) ;
+
+	if( m_pPlayer )
+	{
+		m_pPlayer->Update( nowTimeMS, diffMS);
+	}
+}
+
+bool PlayerSession::HandleNetPack( NetPack &pack )
+{
+	int opCode               =pack.GetOpcode() ;
+	HandlerArray &funTable   =s_serverHandlers ;
+	ASSERT( static_cast<size_t>( opCode ) < funTable.size() ) ;
+	NetPackHandler packetFun = funTable[ opCode ] ;
+
+	if( packetFun )
+	{
+		(this->*packetFun)( pack ) ;
+		return true ;
+	}
+	else
+	{
+		if( !m_pPlayer )
+		{
+			return false ;
+		}
+		NetPack *pPacket =new NetPack(pack) ;
+		m_pPlayer->PostInputPacket(pPacket);
+		return true;
+	}
+}
+
+bool PlayerSession::IsOpenChatChannel(uint32 chatType)
+{
+	return m_pPlayer->IsOpenChatChannel(chatType);
+}
+
+bool PlayerSession::CheckHasName( const std::string& strName )
+{
+	if (m_pLogicalTaker.get())
+	{
+		return m_pLogicalTaker->CheckHasName(strName);
+	}
+	return false;
+}
+
+void PlayerSession::HandlePing(NetPack &packet)
+{
+	Session::HandlePing( packet, pb::SMSG_PONG ) ;
+}
+
+void PlayerSession::HandleGetPlayerList( NetPack &packet )
+{
+	pb::CGetPlayerList info ;
+	packet >> info ;
+
+	// check the key is for my
+	// create session key to client .
+	std::string key ;
+
+	uint64 regionId =sGameSvr.GetRegionId() ;
+	uint64 serverId =sGameSvr.GetServerId() ;
+	uint64 pairId   =regionId << 32 | serverId ;
+
+	std::vector<uint64> args ;
+	args.push_back( info.account_id() ) ;
+	args.push_back( pairId ) ;
+	args.push_back( info.key_value() ) ;
+
+	Md5Tool::CalculateKey( key, args ) ;
+
+
+	pb::SGetPlayerList retInfo ;
+	if( info.session_key() != key )
+	{
+		retInfo.set_result( pb::GET_PLAYER_LIST_KEY_ERROR ) ;
+		Send( pb::SMSG_GET_PLAYER_LIST, retInfo ) ;
+		return ;
+	}
+
+	int diff =static_cast<int>( info.key_value() - sOS.GetRealTime() ) ;
+	if( ::abs( diff ) > 180 )
+	{
+		NLOG( "HandleGetPlayerList() the account more than 180s check md5 .sessoin id: %llu", GetSessionId() ) ;
+
+		retInfo.set_result( pb::GET_PLAYER_LIST_KEY_VALUE_INVALID ) ;
+		Send( pb::SMSG_GET_PLAYER_LIST, retInfo ) ;
+		return ;
+	}
+
+	if( !sDbProxyClient.CanSend() )
+	{
+		retInfo.set_result( pb::GET_PLAYER_LIST_DB_ERROR ) ;
+		Send( pb::SMSG_GET_PLAYER_LIST, retInfo ) ;
+		return ;
+	}
+
+	SetIsVerification( true ) ;
+	SetAccountId( info.account_id() ) ;
+	SetAccount(info.account());
+
+	SessionKeyInfo *pKeyInfo =sGameSvr.GetSessionKeyInfo( info.account_id() ) ;
+	if( pKeyInfo != NULL )
+	{
+		if( !sGameSvr.CheckForLogin( pKeyInfo, *this ) )
+		{
+			NLOG( "HandleGetPlayerList() the account is login .sessoin id: %llu", GetSessionId() ) ;
+
+			sEventLogClient.SendEventInfo( pb::EVENT_USER_ACCT_KICKED_OUT, *this, 0 ) ;
+			return ;
+		}
+
+		pKeyInfo->m_key       =key ;
+		pKeyInfo->m_sessionId =GetSessionId() ;
+	}
+	else
+	{
+		sGameSvr.AddSessionKeyInfo( GetAccountId(), GetSessionId(), key ) ;
+	}
+
+	NLOG( "Change to logical thread, session id: %llu", GetSessionId() ) ;
+	sGameSvr.ChangeToLogicalTacker( this ) ;
+
+	// send to database server
+	pb::SG2D_GetPlayerList getPlayerList ;
+	getPlayerList.set_account_id( GetAccountId() ) ;
+	sDbProxyClient.Send( pb::SG2D_GET_PLAYER_LIST, GetSessionId(), getPlayerList ) ;
+}
+
+void PlayerSession::TakerGetPlayerList( NetPack &packet )
+{
+	packet.SetOpCode( pb::SMSG_GET_PLAYER_LIST ) ;
+	Send( packet ) ;
+}
+
+
+
+void PlayerSession::HandleCreatePlayer( NetPack &packet )
+{
+	pb::CCreateChar info ;
+	packet >> info ;
+
+	pb::SCreateChar retInfo ;
+	if( !sDbProxyClient.CanSend() )
+	{
+		retInfo.set_result( pb::CREATE_PLAYER_UNAVAILABLE_SERVER ) ;
+		Send( pb::SMSG_CREATE_PLAYER, retInfo ) ;
+		return ;
+	}
+
+	pb::SG2D_CreatePlayer createInfo ;
+	createInfo.set_account_id( GetAccountId() ) ;
+	char buf_name[256] = {0};
+#ifdef _MSC_VER
+	sprintf_s(buf_name,sizeof(buf_name),"%lu",createInfo.account_id());
+#else
+	snprintf(buf_name,sizeof(buf_name),"%lu",createInfo.account_id());
+#endif
+	string name = info.name() + string(buf_name);
+	createInfo.set_name( name ) ;
+	createInfo.set_channel_id( info.channel_id() ) ;
+	createInfo.set_card_solution_id( info.card_solution_id() ) ;
+	createInfo.set_sdk_user_id( info.sdk_user_id() ) ;
+	createInfo.set_platform_id(info.platform_id());
+
+	sDbProxyClient.Send( pb::SG2D_CREATE_PLAYER, GetSessionId(), createInfo ) ;
+}
+
+
+void PlayerSession::TakerCreatePlayer( NetPack &packet )
+{
+	pb::SCreateCharRes retInfo ;
+	packet >> retInfo ;
+
+	if (retInfo.res().result() == pb::CREATE_PLAYER_SUCCESS)
+	{
+
+		sEventLogClient.SendEventInfo( pb::EVENT_PLAYER_CREATE, retInfo.res().player_id(),GetAccountId(), 2, "u", retInfo.channel_id(),"u", retInfo.platform_id()) ;
+	}
+
+	SCreateChar retMsg;
+	retMsg.CopyFrom(retInfo.res());
+	Send(pb::SMSG_CREATE_PLAYER,GetSessionId(),retMsg);
+}
+
+
+void PlayerSession::HandleSelectPlayer( NetPack &packet )
+{
+	if( m_pPlayer )
+	{
+		ELOG( "PlayerSession::HandleSelectPlayer() Player is had seted recvive select player packet again!!" ) ;
+		return ;
+	}
+
+	pb::CSlectPlayer info ;
+	packet >> info ;
+
+	pb::SSlectPlayer retInfo ;
+
+	if( !sDbProxyClient.CanSend() )
+	{
+		retInfo.set_result( pb::SELECT_PLAYER_UNAVAILABLE_SERVER ) ;
+		retInfo.set_player_id(m_pPlayer->GetGuid());
+		Send( pb::SMSG_SELECT_PLAYER, retInfo ) ;
+		SetIsNeedClose( true ) ;
+
+		// server log
+		sEventLogClient.SendEventInfo( pb::EVENT_PLAYER_LOGIN_FAILED, *this, 1, "u", retInfo.result() ) ;
+
+		return ;
+	}
+
+	// Send to database get player info .
+	pb::SG2D_SelectPlayer selectInfo ;
+	selectInfo.set_account_id( GetAccountId() ) ;
+	selectInfo.set_player_id( info.player_id() ) ;
+	selectInfo.set_platform_id( info.platform_id() ) ;
+	selectInfo.set_is_quick_login( false ) ;
+	selectInfo.set_country_id( info.country_id() ) ;
+	selectInfo.set_headpic_id( info.headpic_id() ) ;
+	selectInfo.set_expected_country_id(info.expected_country_id());
+
+	sDbProxyClient.Send( pb::SG2D_SELSEC_PALYER, GetSessionId(), selectInfo ) ;
+
+}
+
+void PlayerSession::TakerSelectPlayer( NetPack &packet )
+{
+    /*if (m_pPlayer){
+        ELOG("PlayerSession::TakerSelectPlayer() Player is had seted recvive select player packet again!!");
+		return ;
+	} //zhoumf*/
+
+	pb::SSlectPlayer retInfo ;
+	packet >> retInfo ;
+
+	bool isNewCachePlayer = false;
+	if( retInfo.result() == pb::SELECT_PLAYER_SUCCESS )
+	{
+        uint64 accountId = GetAccountId();
+        if (PlayerPtr player = sPlayerPool.GetPtrByPlayerId(retInfo.player_id())) {
+            m_pPlayer = player;
+        } else {
+            m_pPlayer.reset(new Player());
+			m_pPlayer->LoadPlayerData( retInfo.player_data() );
+			m_pPlayer->SetAccountId(accountId);
+			sPlayerPool.Put(m_pPlayer);
+			isNewCachePlayer = true;
+		}
+		if (!m_pPlayer) {
+			retInfo.set_result( pb::SELECT_PLAYER_UNAVAILABLE_SERVER ) ;
+			Send( pb::SMSG_SELECT_PLAYER, retInfo ) ;
+			return ;
+		}
+		m_pPlayer->_SetCountryId(retInfo.country_id());
+
+		m_pPlayer->SetSession( this ) ;
+		m_pPlayer->UpDatePlayerData();
+		//m_pPlayer->_SetIconID(retInfo.headpic_id());
+		m_pPlayer->SetHeadIconId(retInfo.headpic_id());
+		m_pPlayer->SetInCrossWar(false);
+
+		sTeachMapMgr.DealAskTeachRec(m_pPlayer.get(),*(retInfo.mutable_player_data()->mutable_teach_rec()));
+
+		if ( m_pPlayer->IsNew())
+		{
+			m_pPlayer->InitNewPlayerData();
+			m_pPlayer->SetOld();
+		}
+		m_pPlayer->SendZhengWuInfo();
+		m_pPlayer->SendUpdateCelebrityEvent();
+		if(retInfo.country_id() == retInfo.expected_country_id())
+		{
+			m_pPlayer->AddCurrency(pb::IR_RECOMMEND_COUNTRY_GET,eSysGold,GET_BASE_DEF_UINT(pb::BD_RECOMMEND_COUNTRY_REWARD));
+		}
+		if (isNewCachePlayer)
+		{
+			m_pPlayer->CalculatePlayerData();
+			m_pPlayer->RegistQuestLogger();
+			pb::SG2D_Player_Id idMsg;
+			idMsg.set_player_id(m_pPlayer->GetGuid());
+			sDbProxyClient.Send( pb::SG2D_GET_PLAYER_APPEND_DATA, GetSessionId(), idMsg ) ;
+			m_pPlayer->Attach(&sAutoUpdateGame.EventTimer());
+		}
+
+		if( !retInfo.is_quick_login() )
+		{
+			PlayerCharacterLogic::SwitchPlayerHeadIcon(m_pPlayer.get(), retInfo.headpic_id());
+			m_pPlayer->SyncPlayerData(*retInfo.mutable_player_data());
+			m_pPlayer->LoadPlayerDynamicData(*retInfo.mutable_player_data());
+			m_pPlayer->UpdateCurDateTo(*retInfo.mutable_player_data());
+		}
+        m_pPlayer->OnPlayerLogin();
+		GetGameLogicalTaker()->AddPlayerSession( this ) ;
+		// Broadcast gameserver performance information .
+		sCenterClient.SendUpdatePerformanceInfo();
+
+		if( retInfo.is_quick_login() )
+		{
+			// 删除玩家数据
+			retInfo.mutable_player_data()->Clear() ;
+			sChatHandle.SendOfflineChats(m_pPlayer.get());
+			//sSocialHandler.SendPlayerFriendInfo(m_pPlayer->GetGuid());
+		}
+
+		if( retInfo.result() == pb::SELECT_PLAYER_SUCCESS )
+		{
+			//sGuildHandler.HandlePlayerOnline(m_pPlayer->GetGuid());
+			m_pPlayer->TryDailyResetTime();
+
+			string strtime( "1970-01-01 08:00:00" );
+			TimeT2String((time_t)m_pPlayer->GetRegistTime(), strtime);
+			int maxHp = m_pPlayer->GetAllCharMaxHp();
+
+			// server log
+			sEventLogClient.SendEventInfo( pb::EVENT_PLAYER_LOGIN, *this, 7, "u",m_pPlayer->GetChannelId(),"u",m_pPlayer->GetPlatformId(),"s",strtime.c_str(),"s",m_pPlayer->CharName().c_str(),"u",m_pPlayer->GetVipLevel(),"u",m_pPlayer->GetLevel(),"u",maxHp) ;
+		}
+		else
+		{
+			// server log
+			sEventLogClient.SendEventInfo( pb::EVENT_PLAYER_LOGIN_FAILED, *this, 1, "u", retInfo.result() ) ;
+		}
+
+	}
+
+	Send( pb::SMSG_SELECT_PLAYER, retInfo ) ;
+
+	//如果选择成功，则发送国家信息过去
+	if(retInfo.result() == pb::SELECT_PLAYER_SUCCESS )
+	{
+		pb::GS2C_Country_Info msgBack;
+		sWorldMap.SaveAllCountryInfo(msgBack);	
+		Send(pb::SMSG_COUNTRY_INFO, msgBack);
+	}
+	//HandleEnterCrossWar(packet);
+}
+
+void PlayerSession::HandleQuickLogin( NetPack &packet )
+{
+	pb::CQuickLogin info ;
+	packet >> info ;
+
+	pb::SQuickLogin retInfo ;
+
+	SessionKeyInfo *pKeyInfo =sGameSvr.GetSessionKeyInfo( info.account_id() ) ;
+	if( pKeyInfo == NULL )
+	{
+		retInfo.set_result( pb::QUICK_LOGIN_CAN_NOT_FIND_KEY_INFO ) ;
+		Send( pb::SMSG_QUICK_LOGIN, retInfo ) ;
+		return ;
+	}
+
+	if( !pKeyInfo->m_canUse )
+	{
+		retInfo.set_result( pb::QUICK_LOGIN_NEED_RELOGIN_AGAIN ) ;
+		Send( pb::SMSG_QUICK_LOGIN, retInfo ) ;
+		return ;
+	}
+
+	uint64 timeSeconds =sOS.GetRealTime() ;
+
+	if( timeSeconds - pKeyInfo->m_preQuickLoginTime < 3  )
+	{
+		WLOG( "AccountId: %llu, playerId: %llu quick login less than 10 seconds will return .", info.account_id(), info.player_id() ) ;
+		return ;
+	}
+
+	if( pKeyInfo->m_usefullLife < timeSeconds )
+	{
+		retInfo.set_result( pb::QUICK_LOGIN_KEY_PAST_DUE ) ;
+		Send( pb::SMSG_QUICK_LOGIN, retInfo ) ;
+		return ;
+	}
+
+	if( pKeyInfo->m_key != info.session_key() )
+	{
+		retInfo.set_result( pb::QUICK_LOGIN_KEY_ERROR ) ;
+		Send( pb::SMSG_QUICK_LOGIN, retInfo ) ;
+		return ;
+	}
+
+	if( !sDbProxyClient.CanSend() )
+	{
+		retInfo.set_result( pb::QUICK_LOGIN_KEY_UNAVAILABLE_SERVER ) ;
+		Send( pb::SMSG_QUICK_LOGIN, retInfo ) ;
+		return ;
+	}
+
+	pKeyInfo->m_preQuickLoginTime =timeSeconds ;
+
+	SetIsVerification( true ) ;
+	SetAccountId( info.account_id() ) ;
+
+	if( !sGameSvr.CheckForLogin( pKeyInfo, *this ) )
+	{
+		ELOG( "HandleQuickLogin() the account is login .sessoin id: %llu", GetSessionId() ) ;
+
+		// server log
+		sEventLogClient.SendEventInfo( pb::EVENT_USER_ACCT_KICKED_OUT, *this, 0 ) ;
+		return ;
+	}
+
+	pKeyInfo->m_sessionId =GetSessionId() ;
+
+	NLOG( "Change to logical thread, session id: %llu", GetSessionId() ) ;
+	sGameSvr.ChangeToLogicalTacker( this ) ;
+
+
+	retInfo.set_result( pb::QUICK_LOGIN_SUCCESS ) ;
+
+	if( info.player_id() != 0 )
+	{
+		// Send Ok
+		PlayerPtr player = sPlayerPool.GetPtrByPlayerId(info.player_id());
+		if (player) {
+			Send( pb::SMSG_QUICK_LOGIN, retInfo ) ;
+			m_pPlayer = player;
+			m_pPlayer->SetSession( this ) ;
+			m_pPlayer->SetInCrossWar(false);
+			GetGameLogicalTaker()->AddPlayerSession( this ) ;
+			pb::SSlectPlayer retInfo ;
+			retInfo.set_result( pb::SELECT_PLAYER_SUCCESS ) ;
+			retInfo.set_is_quick_login( true) ;
+			retInfo.set_country_id(m_pPlayer->GetCountryId());
+			retInfo.set_headpic_id(m_pPlayer->GetHeadIconId());
+			retInfo.set_player_id(info.player_id());
+			Send( pb::SMSG_SELECT_PLAYER, retInfo ) ;
+		} else {
+			// Send to database get player info .
+		/*	pb::SG2D_SelectPlayer selectInfo ;
+			selectInfo.set_account_id( GetAccountId() ) ;
+			selectInfo.set_player_id( info.player_id() ) ;
+			selectInfo.set_platform_id( info.platform_id() ) ;
+			selectInfo.set_is_quick_login( true ) ;
+
+			sDbProxyClient.Send( pb::SG2D_SELSEC_PALYER, GetSessionId(), selectInfo ) ;*/
+			pb::SSlectPlayer retInfo ;
+			retInfo.set_result( pb::SELECT_PLAYER_PLAYER_ID_ERROR ) ;
+			retInfo.set_player_id(info.player_id());
+			Send( pb::SD2G_SELSEC_PALYER_RET, retInfo ) ;
+		}
+	}
+	else
+	{
+		retInfo.set_result( pb::QUICK_LOGIN_SUCCESS_NO_PLAYER ) ;
+		// Send Ok
+		Send( pb::SMSG_QUICK_LOGIN, retInfo ) ;
+	}
+
+	
+}
+
+void PlayerSession::HandleGetServerTime( NetPack &packet )
+{
+    static int32 offset = (int32)get_gmt_offset();
+	NetPack pack( pb::SMSG_GET_SERVER_TIME, 4 * sizeof(time_t) + 2 ) ;
+	pack << sOS.TimeMS()
+        << static_cast<int64>( sPeriodSystem.GetBeginTime() )
+        << static_cast<int64>( sPeriodEvent.GetBeginTime() )
+        << static_cast<int64>( sPeriodSettle.GetBeginTime() )
+        << static_cast<int32>( offset );
+	Send( pack ) ;
+}
+
+uint64 PlayerSession::GetPlayerId( void ) const
+{
+	if(m_pPlayer.get())
+		return m_pPlayer->GetGuid();
+	else
+		return 0;
+}
+
+uint32 PlayerSession::GetCountryId( void ) const
+{
+	if(m_pPlayer.get())
+		return m_pPlayer->GetCountryId();
+	else
+		return 0;
+}
+
+const std::string& PlayerSession::GetPlayerName( void ) const
+{
+	if(m_pPlayer.get())
+	{
+		return m_pPlayer->CharName();
+	}
+	else
+	{
+		static std::string staticName( "hadNotInitPlayer" ) ;
+		return staticName ;
+	}
+}
+
+
+void PlayerSession::HandlePvPEntryArena( NetPack &packet )
+{
+	/*if( !m_pPlayer )
+	{
+		return ;
+	}
+
+	pb::PvPEntryArena info ;
+	packet >> info ;
+
+	int level =m_pPlayer->GetAttrInt( pb::PLAYER_FIELD_PVP_RANK ) ;
+	if( level != 0 )
+	{
+		pb::PvPEntryArenaRet retInfo ;
+		retInfo.set_result( pb::PVP_ARENA_RESULT_HAD_ENTRY ) ;
+		retInfo.set_rank( level ) ;
+		Send( pb::SMSG_PVP_ENTRY_ARENA_RET, retInfo ) ;
+		ELOG( "PlayerSession::HandlePvPEntryArena() rank is %d, had entry arena ?", level ) ;
+		return ;
+	}
+
+	info.set_account_id( GetAccountId() ) ;
+	info.set_player_id( m_pPlayer->GetGuid() ) ;
+
+	if( !sDbProxyClient.Send(  pb::SG2D_PVP_ENTRY_ARENA, GetSessionId(), info ) )
+	{
+		pb::PvPEntryArenaRet retInfo ;
+		retInfo.set_result( pb::PVP_ARENA_RESULT_DB_DISCONNECT ) ;
+		Send( pb::SMSG_PVP_ENTRY_ARENA_RET, retInfo ) ;
+	}*/
+}
+
+void PlayerSession::LoadPlayerAppendDatas( NetPack &packet )
+{
+	if( !m_pPlayer )
+	{
+		return ;
+	}
+	pb::PlayerAppendData logsMsg;
+	packet >> logsMsg;
+	m_pPlayer->LoadPlayerAppendData(logsMsg);
+}
+
+void PlayerSession::TakerPvPEntryArena( NetPack &packet )
+{
+	if( !m_pPlayer )
+	{
+		return ;
+	}
+
+	pb::PvPEntryArenaRet info ;
+	packet >> info ;
+	if( info.result() == pb::PVP_ARENA_RESULT_SUCCESS )
+	{
+		m_pPlayer->SetPVPRank( info.rank() ) ;
+		m_pPlayer->SetPVPHistoryRank( info.rank() ) ;
+	}
+
+	packet.SetOpCode( pb::SMSG_PVP_ENTRY_ARENA_RET ) ;
+	Send( packet ) ;
+}
+
+
+void PlayerSession::HandlePvPGetPlayerInfo( NetPack &packet )
+{
+	if( !m_pPlayer )
+	{
+		return ;
+	}
+
+	packet.SetOpCode( pb::SG2D_PVP_ARENA_PLAYER_INFO ) ;
+	packet.SetSessionId( GetSessionId() ) ;
+
+	if( !sDbProxyClient.Send( packet )  )
+	{
+		pb::PvPGetArenaPlayerInfoRet retInfo ;
+		retInfo.set_result( pb::PVP_ARENA_RESULT_DB_DISCONNECT ) ;
+		Send( pb::SMSG_PVP_ARENA_PLAYER_INFO_RET, retInfo ) ;
+	}
+}
+
+void PlayerSession::TakerPvPGetPlayerInfo( NetPack &packet )
+{
+	packet.SetOpCode( pb::SMSG_PVP_ARENA_PLAYER_INFO_RET ) ;
+	Send( packet ) ;
+}
+
+
+void PlayerSession::HandlePvPFightResultInfo( NetPack &packet )
+{
+	/*if( !m_pPlayer )
+	{
+		return ;
+	}
+
+	pb::PvPArenaFinghtInfo info ;
+	packet >> info ;
+
+	info.set_time( sOS.GetRealTime() ) ;
+	info.set_self_id( m_pPlayer->GetGuid()) ;
+	info.set_self_rank( m_pPlayer->GetAttrInt( pb::PLAYER_FIELD_PVP_RANK ) ) ;
+	info.set_self_level( m_pPlayer->GetLevel() ) ;
+	info.set_self_name( m_pPlayer->CharName() ) ;
+	info.set_self_fight_value( m_pPlayer->GetCombatPower() ) ;
+	info.set_self_char_proto_id( m_pPlayer->m_characterStorage->GetLeaderProtoId() ) ;
+	info.set_self_vip_level( m_pPlayer->GetVipLevel() ) ;
+
+	if( !sDbProxyClient.Send( pb::SG2D_PVP_ARENA_FIGHT_RESULT_INFO, GetSessionId(), info ) )
+	{
+		pb::PvPArenaFinghtInfoRet retInfo ;
+		retInfo.set_result( pb::PVP_ARENA_RESULT_DB_DISCONNECT ) ;
+
+		Send( pb::SMSG_PVP_ARENA_FIGHT_RESULT_INFO_RET, retInfo ) ;
+	}*/
+}
+
+
+void PlayerSession::TakerPvPFightResultInfo( NetPack &packet )
+{
+	//pb::PvPArenaFinghtInfoRet info ;
+	//packet >> info ;
+
+	//if( pb::PVP_ARENA_RESULT_SUCCESS == info.result() )
+	//{
+	//	if( info.is_win() )
+	//	{
+	//		// 胜利
+	//		uint32 nowHistoryRank =m_pPlayer->GetAttrUint( pb::PLAYER_FIELD_PVP_HISTORY_RANK ) ;
+
+	//		ASSERT( nowHistoryRank == info.new_history_rank() ) ;
+
+	//		if( info.new_rank() < nowHistoryRank )
+	//		{
+	//			uint32 diff = nowHistoryRank - info.new_rank();
+ //               m_pPlayer->AddCurrency( pb::IR_PVP_RANK_REWARD_GET, eSysGold, diff ) ;
+	//			info.set_get_coin_count( diff ) ;
+
+	//			m_pPlayer->SetPVPHistoryRank( info.new_rank() ) ;
+	//		}
+
+	//		m_pPlayer->SetPVPRank( info.new_rank() ) ;
+
+	//		Player *pTarget =sGameSvr.GetPlayerPtr( info.target_id() ) ;
+	//		if( pTarget != NULL )
+	//		{
+	//			pTarget->SetPVPRank( info.target_rank() ) ;
+	//		}
+	//	}
+	//	else
+	//	{
+	//		// 战败
+
+	//	}
+	//}
+
+	//Send( pb::SMSG_PVP_ARENA_FIGHT_RESULT_INFO_RET, info ) ;
+}
+
+
+void PlayerSession::HandlePvPFightRecordInfo( NetPack &packet )
+{
+	/*if( !m_pPlayer )
+	{
+		return ;
+	}
+
+	pb::PvPArenaFightRecordInfo info ;
+	packet >> info ;
+	info.set_rank( m_pPlayer->GetAttrInt( pb::PLAYER_FIELD_PVP_RANK ) ) ;
+	info.set_palyer_id( m_pPlayer->GetGuid()) ;
+
+	if( !sDbProxyClient.Send( pb::SG2D_PVP_ARENA_FIGLE_RECORD_INFO, GetSessionId(), info ) )
+	{
+		pb::PvPArenaFightRecordInfoRet retInfo ;
+		retInfo.set_result( pb::PVP_ARENA_RESULT_DB_DISCONNECT ) ;
+
+		Send( pb::SMSG_PVP_ARENA_FIGLE_RECORD_INFO_RET, retInfo ) ;
+	}*/
+}
+
+void PlayerSession::TakerPvPFightRecordInfo( NetPack &packet )
+{
+	packet.SetOpCode( pb::SMSG_PVP_ARENA_FIGLE_RECORD_INFO_RET ) ;
+	Send( packet ) ;
+}
+
+
+void PlayerSession::HandlePvPGetRankingList( NetPack &packet )
+{
+	// 转发到数据库服务器
+	packet.SetSessionId( GetSessionId() ) ;
+	packet.SetOpCode( pb::SG2D_PVP_ARENA_RANKING_LIST ) ;
+
+	if( !sDbProxyClient.Send( packet ) )
+	{
+		pb::PvPGetRankingListRet retInfo ;
+		retInfo.set_result( pb::PVP_ARENA_RESULT_DB_DISCONNECT ) ;
+		Send( pb::CMSG_PVP_ARENA_RANKING_LIST_RET, retInfo ) ;
+	}
+}
+
+void PlayerSession::TakerPvPGetRankingList( NetPack &packet )
+{
+	packet.SetOpCode( pb::CMSG_PVP_ARENA_RANKING_LIST_RET ) ;
+	Send( packet ) ;
+}
+
+void PlayerSession::TakerPlayerChangeName( NetPack &packet )
+{
+    static const uint32 changeNameCashGold = GET_BASE_DEF_UINT( pb::BD_PLAYER_CHANGE_NAME );
+
+    pb::MSG_ChangeName msg; 
+    packet >> msg;
+
+    if (m_pPlayer)
+    {
+        if ( msg.err_code() == pb::ErrCommonSuccess)
+        {
+            if ( !m_pPlayer->TryDeductCurrency( pb::IR_PLAYER_CHANGE_NAME_COST, eSysGold, changeNameCashGold))
+            {
+                ELOG(" player not enough crsytal to change name but db has change , userid : %llu" , m_pPlayer->GetGuid());  
+            }
+            m_pPlayer->SetCharName( msg.name());
+
+        }
+		Send( pb::SMSG_PLAYER_CHANGE_NAME_RESP, msg);
+    }
+}
+
+//收到客户端发来的CMSG_ENTER_CROSS_WAR
+void PlayerSession::HandleEnterCrossWar( NetPack &packet )
+{
+	LLOG("[1002] PlayerSession::HandleEnterCrossWar");
+	if(m_pPlayer)
+	{
+		LLOG("[1002] no player");
+		if (m_pPlayer->IsCanCrossWarState())	//跨服灭国战是开启状态
+		{
+			LLOG("[1002] is cross war start");
+			if(Country* country = sWorldMap.GetCountry(m_pPlayer->GetCountryId()))
+			{
+				LLOG("[1002] is cross war open");
+				//无论在跨服注册过没有，均需要发送注册消息，由跨服服务器筛选
+				pb::RegistCrossPlayerData playerData;
+				playerData.set_account_id(GetAccountId());
+				playerData.set_country_id(m_pPlayer->GetCountryId());
+				playerData.set_cross_unique_id(country->GetCrossUniqueID());
+				m_pPlayer->WritePlayerCrossWarData(*playerData.mutable_player_data());
+
+				pb::PlayerAppendData* AppendData = playerData.mutable_append();
+				m_pPlayer->m_buildingLogMgr->SaveBuildingTo(*AppendData->mutable_building());
+				m_pPlayer->m_buildingLogMgr->SaveModuInfoTo(*AppendData->mutable_module());
+
+				//将玩家信息发送给cross server 进行注册
+				m_pPlayer->SendCrossServerMsg(pb::SG2R_REGIST_CROSS_PLAYER_INFO,playerData,PACKET_TYPE_SERVER_GAME,m_pPlayer->GetGuid());
+			}
+		}
+	}
+}
+
+
+void PlayerSession::HandleRegisterCrossPlayerRet( NetPack &packet )
+{
+	LLOG("[1002] HandleRegisterCrossPlayerRet");
+	pb::SG2R_RegisterPlayerInfoRet retInfo ;
+	packet >> retInfo ;
+	if (retInfo.is_success())
+	{
+		if (m_pPlayer)
+		{
+			m_pPlayer->SetRegistCrossServer(true);
+			m_pPlayer->SetInCrossWar(true);
+			m_pPlayer->SetCrossUniqueID();
+			pb::EMPTY_PACK emptyMsg;
+			LLOG("[1002] send CMSG_ENTER_CROSS_WAR");
+			//向服务器发送参加跨服战的消息
+			m_pPlayer->SendCrossServerMsg(pb::CMSG_ENTER_CROSS_WAR,emptyMsg,PACKET_TYPE_CLIENT_CROSS,m_pPlayer->GetGuid());
+		}
+	}
+	else
+	{
+		if (m_pPlayer)
+		{
+			m_pPlayer->SetRegistCrossServer(false);
+		}
+	}
+}
+
+
+void PlayerSession::HandleTryResetValueTimer( NetPack &packet )
+{
+	/*uint32 resetType;
+	packet >> resetType;
+	if (m_pPlayer)
+	{
+		m_pPlayer->TryResetTimerByType(resetType);
+	}*/
+}
+
+
+void PlayerSession::HandlePvPMarkFight( NetPack &packet )
+{
+	if( !m_pPlayer )
+	{
+		WLOG( "PlayerSession::HandlePvPMarkFight() recv packet but player is NULL???" ) ;
+		return ;
+	}
+
+	// 转发到数据库服务器
+	packet.SetSessionId( GetSessionId() ) ;
+	packet.SetOpCode( pb::SG2D_PVP_MARK_FIGHT ) ;
+	packet << m_pPlayer->GetGuid() ;
+
+	if( !sDbProxyClient.Send( packet ) )
+	{
+		pb::PvpMarkFightRet retInfo ;
+		retInfo.set_result( pb::PVP_ARENA_RESULT_DB_DISCONNECT ) ;
+		Send( pb::SMSG_PVP_MARK_FIGHT, retInfo ) ;
+	}
+}
+
+void PlayerSession::TakerPvPMarkFightRet( NetPack &packet )
+{
+	packet.SetOpCode( pb::SMSG_PVP_MARK_FIGHT ) ;
+	Send( packet ) ;
+}
+//设置名字和图像ID
+void PlayerSession::TakerPlayerSetNameAndHeadId( NetPack &packet )
+{
+	pb::MSG_SetNameAndHeadId msg; 
+	packet >> msg;
+
+	if (m_pPlayer)
+	{
+		if ( msg.err_code() == pb::ErrCommonSuccess)
+		{
+			m_pPlayer->SetCharName( msg.name());
+			m_pPlayer->SetHeadIconId(msg.head_id());
+		}
+		Send( pb::SMSG_SET_NAME_AND_HEADID_RSP, msg);
+	}
+}
+
+void PlayerSession::HandleSelectCountryForAward(NetPack& packet)
+{
+	packet.SetOpCode(pb::SG2D_SELECT_COUNTRY);
+	packet.SetSessionId(GetSessionId());
+	sDbProxyClient.Send(packet);
+}
+
+void PlayerSession::TakerSelectCountryRet(NetPack& packet)
+{
+	packet.SetOpCode( pb::SMSG_SELECT_COUNTRY_FOR_REWARD_RSP ) ;
+	Send( packet ) ;
+}
+
+
+void PlayerSession::HandleCongraulateAccept(NetPack& packet)
+{
+	pb::C2GS_Congratulate_Accept msg;
+	packet >> msg;
+	pb::GS2C_Congratulate_Accept_Rsp sendmsg;
+	//PlayerPtr from_player = sPlayerPool.GetPtrByPlayerId(msg.from_player_id());
+	if(m_pPlayer && m_pPlayer->GetAttrUint(pb::PLAYER_FIELD_TODAY_CONGRATULATE_TIMES) < GET_BASE_DEF_UINT(pb::BD_CONGRATULATE_MAX_TIME))
+	{
+		const IntPairVec* vec = sCongratulateMgr.GetCongratulateReward(msg.table_id());
+		if(vec)
+		{
+			sReward.Change(*m_pPlayer,*vec);
+			for(IntPairVec::const_iterator iter = vec->begin();iter != vec->end();++iter)
+			{
+				pb::StReward * reward = sendmsg.add_reward();
+				reward->set_type(iter->first);
+				reward->set_value(iter->second);
+			}
+		}
+		m_pPlayer->AddValue(pb::PLAYER_FIELD_TODAY_CONGRATULATE_TIMES,1);
+		m_pPlayer->Send(pb::SMSG_CONGRATULATE_ACCEPT_RSP,sendmsg);
+		m_pPlayer->m_CongratulateLog->EraseFromCongratulateBeenMap(::strtoul(msg.active_time().c_str(),NULL,10));
+		msg.set_operate_type(pb::DATA_DEL);
+		CongratulateLogDB::SendInfoToCongratulateBeenDb(*m_pPlayer,msg);
+	}
+	PlayerPtr to_player = sPlayerPool.GetPtrByPlayerId(::strtoul(msg.to_player_id().c_str(),NULL,10));
+	if(to_player)
+	{
+		if(to_player->GetCongratulateActiveTime() == 0)
+		{
+			to_player->SetCongratulateActiveTime(sOS.TimeSeconds());
+#ifdef _MMO_SERVER_
+			sAutoUpdateGame.AddEvent(boost::bind(&Player::When24HoursPasted, to_player.get()),ONE_DAY_SECOND);
+#endif
+		}
+		to_player->m_CongratulateLog->AddBeenCongratulated(msg.table_id());
+		CongratulateLogDB::SendInfoToSelfCongratulateDb(*to_player,*(to_player->m_CongratulateLog),msg.table_id());
+	}
+}
+
+void PlayerSession::HandleCongraulateCurrent(NetPack& pack)
+{
+	pb::GS2C_ListOfCurrentCanCongratulate msg;
+	if(m_pPlayer)
+	{
+		m_pPlayer->m_CongratulateLog->SaveTo(msg);
+		m_pPlayer->Send(pb::SMSG_CONGRATULATE_CURRENT_CONGRATULATION_RSP,msg);
+	}
+}

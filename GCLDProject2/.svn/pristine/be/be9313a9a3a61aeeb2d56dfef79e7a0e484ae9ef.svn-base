@@ -1,0 +1,126 @@
+package pb;
+import "CommomDef.proto";
+
+
+message OfficeInfo
+{
+    required uint32 country_id              = 1;
+    required uint32 office_id               = 2;
+    optional PlayerShowData player          = 3;
+    repeated PlayerShowData aide_lst        = 4;
+    repeated PlayerShowData aide_apply_lst  = 5;
+    optional uint64 skill_use_time          = 6;
+}
+
+message PalaceAchievementInfo
+{
+	optional uint32 office_id =1;
+	optional uint32 office_state = 2;
+}
+
+message GxDB_PalaceAchievement
+{
+	repeated PalaceAchievementInfo info = 1;
+}
+
+message GS2C_Palace_Level_Info
+{
+	repeated PalaceAchievementInfo info = 1;
+}
+message GS2C_Palace_All_Info
+{
+    repeated OfficeInfo office_lst = 1; //官职列表
+    optional uint32	unique_country_id = 2;	//跨服独立国家id
+}
+
+
+//打新官职
+message C2GS_Palace_Fight_New_Office
+{
+    required uint32 office_id   = 1;
+    repeated uint32 hero_id     = 2; //按武将上阵顺序排列
+}
+
+//放弃官职
+message C2GS_Palace_Cancel_Office
+{
+}
+
+//放弃官职
+message GS2C_Palace_Cancel_Office
+{
+}
+
+//申请侍从
+message C2GS_Palace_Apply_Aide
+{
+    required uint32 office_id   = 1;
+}
+//放弃侍从
+message C2GS_Palace_Cancel_Aide
+{
+}
+//取消申请
+message C2GS_Palace_Cancel_Apply_Aide
+{
+}
+//同意申请
+message C2GS_Palace_Agree_Aide
+{
+    required uint64 aide_id   = 1;
+}
+//拒绝申请
+message C2GS_Palace_Refuse_Aide
+{
+    required uint64 aide_id   = 1;
+}
+//解除侍从
+message C2GS_Palace_Fire_Aide
+{
+    required uint64 aide_id   = 1;
+}
+//领取俸禄
+message GS2C_Palace_Take_Salary
+{
+    required StReward reward    =1;
+}
+
+
+//官职计策
+//皇帝-奇兵
+message C2GS_Palace_Skill_FlyTo
+{
+    required uint32 city_id   = 1;
+}
+//储君-空城
+message C2GS_Palace_Skill_Empty
+{
+    required uint32 city_id   = 1;
+}
+//元老-混乱
+message C2GS_Palace_Skill_Confuse
+{
+    required uint32 city_id   = 1;
+}
+//太师-迷宫
+message C2GS_Palace_Skill_Maze
+{
+    required uint32 city_id   = 1;
+}
+//大将-陷阱
+message C2GS_Palace_Skill_Trap
+{
+    required uint32 city_id   = 1;
+}
+
+
+//官职成就
+message C2GS_Palace_Take_Reward
+{
+	required uint32 office_id = 1;//官职等级
+}
+message GS2C_Palace_Take_Reward_Rsp
+{
+	optional uint32 office_id = 1;
+	optional uint32 office_state = 2;
+}

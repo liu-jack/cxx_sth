@@ -1,0 +1,10 @@
+//////////////////////////////////////////////////////////////////////////
+//邮件功能模块
+HandleOpcode(CMSG_MAIL_GETNEWMAILCOUNT);
+HandleOpcode(CMSG_MAIL_GETMAILLIST);
+HandleOpcode(CMSG_MAIL_READMAIL);
+HandleOpcode(CMSG_MAIL_DELMAIL);
+HandleOpcode(CMSG_MAIL_RECVMAILAWARD);
+HandleOpcode(SMSG_MAIL_UPDATE);
+HandleOpcode(CMSG_EXCHANGE_GIFT_CODE);
+HandleOpcode(CMSG_FEEDBACK);

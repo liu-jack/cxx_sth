@@ -1,0 +1,40 @@
+#include "FuBenTable.h"
+#include "Fuben.pb.h"
+#include "InterServer.pb.h"
+
+void FuBenBaseTable::SaveTo(pb::SG2D_UpdataFuBenBase& msg)
+{
+    msg.set_cur_fuben_id(cur_fuben_id);
+    msg.set_cur_fuben_id(cur_stage_id);
+}
+void FuBenBaseTable::LoadFrom(const pb::SG2D_UpdataFuBenBase& msg)
+{
+    cur_fuben_id = msg.cur_fuben_id();
+    cur_stage_id = msg.cur_stage_id();
+}
+void FuBenResourceTable::SaveTo(pb::GS2C_Resource_Stage& msg)
+{
+    msg.set_stage_id(stage_id);
+    msg.set_times(times);
+    msg.set_data_valid_time(valid_time);
+	msg.set_quest_times(quest_times);
+}
+void FuBenResourceTable::LoadFrom(const pb::GS2C_Resource_Stage& msg)
+{
+    stage_id = msg.stage_id();
+	times = msg.times();
+    valid_time = msg.data_valid_time();
+	quest_times = msg.quest_times();
+}
+void FuBenPassStageTable::SaveTo(pb::Stage_Info& msg)
+{
+    msg.set_stage_type(stage_type);
+	msg.set_pass_count(pass_count);
+	msg.set_is_take_reward(is_take_reward);
+}
+void FuBenPassStageTable::LoadFrom(const pb::Stage_Info& msg)
+{
+    stage_type = msg.stage_type();
+	pass_count = msg.pass_count();
+	is_take_reward = msg.is_take_reward();
+}

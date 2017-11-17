@@ -1,0 +1,446 @@
+#include "ItemEquip.h"
+
+#include "ItemArray.h"
+#include "LogicItemProto.h"
+#include "def/MmoAssert.h"
+
+#include "def/ObjectDefines.h"
+#include "mysqldata.h"
+#include "DbTool.h"
+
+#include "Enum.pb.h"
+#include "Item.pb.h"
+
+#include "ItemManager.h"
+
+bool CompareItemEquip( const ItemEquip* EQ1, const ItemEquip* EQ2 )
+{
+    if ( EQ1->Quality() > EQ2->Quality())
+        return true;
+
+    if ( EQ1->Quality() == EQ2->Quality())
+    {
+        if ( EQ1->Level() > EQ2->Level())
+        {
+            return true;
+        }
+        if ( EQ1->Level() == EQ2->Level())
+        {
+            if ( EQ1->Reinforce() > EQ2->Reinforce())
+            {
+                return true;
+            }
+            if ( EQ1->Reinforce() == EQ2->Reinforce())
+            {
+                if ( EQ1->ProtoId() > EQ2->ProtoId())
+                {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+
+
+ItemEquip::ItemEquip( const LogicItemProto* proto )
+: Item( proto)
+, m_equipedCharId( 0)
+// ,m_equip_level(0)
+//,m_equip_reinforce(proto->attr_flag_reinforce)
+{
+   memset(m_attr,0,sizeof(m_attr));
+   memset(m_level,0,sizeof(m_level));
+}
+
+bool ItemEquip::CanBeDestroyed() const
+{
+    return !IsEquiped();
+}
+
+void ItemEquip::AttachToCharacter( uint32 charId )
+{
+    MMO_ASSERT(m_equipedCharId == 0); // equip 之前应该remove掉
+	if(m_equipedCharId != charId)
+		m_equipedCharId = charId;
+}
+
+void ItemEquip::DettachFromCharacter( uint32 charId )
+{
+    MMO_ASSERT(m_equipedCharId == 0 || m_equipedCharId == charId); //
+	if(m_equipedCharId == charId)
+		m_equipedCharId = 0;
+}
+
+void ItemEquip::SaveTo(  pb::GS2C_SlotItem& msg  ) const
+{
+    Item::SaveTo(msg);
+    pb::GxDB_EquipInfo* equipInfo = msg.mutable_equip();
+    if (equipInfo)
+    {
+        equipInfo->set_equip_to_charid( m_equipedCharId);
+		for (int i=0; i < EQUIPITEMSKILLATTRCOUNT; i++)
+		{
+			pb::PairValue* skill = equipInfo->add_skill_attrs();
+			skill->set_first(m_attr[i]);
+			skill->set_second(m_level[i]);
+		}
+    }
+}
+
+void ItemEquip::LoadFrom( const pb::GS2C_SlotItem& msg )
+{
+    Item::LoadFrom(msg);
+    const pb::GxDB_EquipInfo& equip_info = msg.equip();
+    m_equipedCharId = equip_info.equip_to_charid();
+	for (int i=0; i < (int)equip_info.skill_attrs_size(); i++)
+	{
+		const pb::PairValue& curValue = equip_info.skill_attrs(i);
+		m_attr[i] = curValue.first();
+		m_level[i] = curValue.second();
+	}
+}
+
+void ItemEquip::LoadFrom( const ItemEquip* other )
+{
+	if (other)
+	{
+		for (int i=0; i < (int)EQUIPITEMSKILLATTRCOUNT; i++)
+		{
+			m_attr[i] = other->m_attr[i];
+			m_level[i] = other->m_level[i];
+		}
+		//m_equip_level = other->m_equip_level;
+		//m_equip_reinforce = other->m_equip_reinforce;
+	}
+}
+
+void ItemEquip::UpdateAttrLv( IntPairVec& alv )
+{
+	int nFreshCount = sItemMgr.GetItemMaxStarCount(Proto()->id) - 1;	//前几个星
+	IntPairVec::iterator pIter = alv.begin();
+	for (int i = 0; (pIter != alv.end()) && i < nFreshCount; ++pIter,++i)
+	{
+		const IntPair& curPair = *pIter;
+		m_attr[i] = curPair.first;
+		m_level[i] = curPair.second;
+	}
+	CheckUpdateSameAtrrMaxLv();
+}
+
+bool ItemEquip::TryAddLevel( uint32 level )
+{
+    //m_equip_level += level;
+	//if(m_equip_level > MAX_EQUIP_LEVEL){
+		//m_equip_level = MAX_EQUIP_LEVEL;
+	//}
+	
+    return true;
+}
+
+bool ItemEquip::TryAddReinforce( uint32 rein )
+{
+   // m_equip_reinforce += rein;
+    return true;  
+}
+
+uint32 ItemEquip::GetSumXp() const
+{
+	
+	return 0;
+}
+
+
+bool ItemEquip::IsSameAtrrMaxLv() const
+{
+	uint32 curAttr = 0;
+	bool   isSameAtrr = true;
+	bool   isSameMaxLevel = true;
+	int nFreshCount = EQUIPITEMSKILLATTRCOUNT -1;
+	for (int i=0; i < nFreshCount; i++)
+	{
+		if (m_attr[i] == 0)    ////没有技能，则开启失败
+		{
+			isSameAtrr = false;
+			break;
+		}
+		else
+		{
+			if (curAttr == 0) //将隐藏技能设置为默认技能
+			{
+				curAttr = m_attr[i];
+			}
+			else if (curAttr != m_attr[i])////技能不同，则开启失败
+			{
+				isSameAtrr = false;
+				break;
+			}
+		}
+		if(m_level[i] != EQUIPITEMSKILLATTRMAXLEVEL)////该技能等级不为最高等级，则开启失败
+		{
+			isSameMaxLevel = false;
+			break;
+		}
+	}
+	return isSameAtrr && isSameMaxLevel;////三个相同技能，且都为最高等级，则开启成功
+}
+
+bool ItemEquip::ReTrievalSameAttrMaxLv()
+{
+	int nFreshCount = sItemMgr.GetItemMaxStarCount(ProtoId()) - 1;
+	uint32 curAttr = m_attr[nFreshCount];
+	uint32 curLevel = m_level[nFreshCount];
+	if(curAttr > 0 && (curLevel == sItemMgr.GetItemMaxXiLianLevel(ProtoId())))
+	{
+		for (int i=0; i < nFreshCount; i++)
+		{
+			m_attr[i] =  curAttr;
+			m_level[i] = curLevel;
+		}
+
+		return true;
+	}
+	return false;
+}
+
+void ItemEquip::CheckUpdateSameAtrrMaxLv()
+{
+	uint32 curAttr = 0;
+	bool   isSameAtrr = true;
+	bool   isSameMaxLevel = true;
+	int nFreshCount = sItemMgr.GetItemMaxStarCount(Proto()->id) - 1;	//前几个星
+	int nMaxXiLianLevel = sItemMgr.GetItemMaxXiLianLevel(Proto()->id);
+	if(nFreshCount <= 1)
+	{
+		isSameAtrr = false;
+	}
+	for (int i=0; i < nFreshCount; i++)
+	{
+		if (m_attr[i] == 0)    ////没有技能，则开启失败
+		{
+			isSameAtrr = false;
+			break;
+		}
+		else
+		{
+			if (curAttr == 0) //将隐藏技能设置为默认技能
+			{
+				curAttr = m_attr[i];
+			}
+			else if (curAttr != m_attr[i])////技能不同，则开启失败
+			{
+				isSameAtrr = false;
+				break;
+			}
+		}
+		if(m_level[i] != nMaxXiLianLevel)////该技能等级不为最高等级，则开启失败
+		{
+			isSameMaxLevel = false;
+			break;
+		}
+	}
+
+	if(isSameAtrr && isSameMaxLevel)		//三个相同技能，且都为最高等级，则开启成功
+	{
+		m_attr[nFreshCount] =  curAttr;
+		m_level[nFreshCount] = nMaxXiLianLevel;
+	}
+}
+
+
+void ItemEquip::Rebirth()
+{
+   /* m_equip_reinforce = MIN_ITEM_REINFORCE;
+    m_equip_level = MIN_ITEM_LEVEL;
+    m_exp = 0;*/
+}
+
+
+bool ItemEquip::isHasLastAttr(const uint32 ItemId) const
+{
+	uint32 max_attr = sItemMgr.GetItemMaxStarCount(ItemId);
+	return max_attr == GetAttrCount();
+}
+
+//uint32& ItemEquip::MutableLevelWithXp()
+//{
+//    return   Proto()->IsEquip() ?  m_equip_reinforce : m_equip_level;
+//}
+
+//uint32 ItemEquip::GetLevelWithXp() const
+//{
+//    return  Proto()->IsEquip() ?  m_equip_reinforce : m_equip_level;
+//}
+
+uint32 ItemEquip::GetMinLevelWithXp() const
+{
+    return  Proto()->IsEquip() ?  MIN_ITEM_REINFORCE : MIN_ITEM_LEVEL;
+}
+
+bool ItemEquip::IsEquiped() const
+{
+    return m_equipedCharId != 0;
+}
+
+
+uint32 ItemEquip::GetAttr( int solt ) const
+{
+	if (solt >=0 && solt < (int)EQUIPITEMSKILLATTRCOUNT)
+	{
+		return m_attr[solt];
+	}
+	else
+	{
+		ASSERT(false);
+		return 0;
+	}
+}
+///返回装备的属性数量
+uint32 ItemEquip::GetAttrCount() const
+{
+	uint32 attrCount =0;
+	for (int  solt=0; solt < (int)EQUIPITEMSKILLATTRCOUNT; solt++)
+	{
+		if(m_attr[solt] > 0)
+		{
+			if(solt == (int)(EQUIPITEMSKILLATTRCOUNT -1))
+			{
+				if(!IsSameAtrrMaxLv())
+				{
+					continue;
+				}
+			}
+			attrCount++;
+		}
+	}
+	return attrCount;
+
+}
+
+void ItemEquip::SetAttr( int solt, uint32 attrId )
+{
+	if (solt >=0 && solt < (int)EQUIPITEMSKILLATTRCOUNT)
+	{
+		m_attr[solt] = attrId;
+	}
+	else
+	{
+		ASSERT(false);
+	}
+}
+
+uint32 ItemEquip::GetAttrLevel( int solt ) const
+{
+	if (solt >=0 && solt < (int)EQUIPITEMSKILLATTRCOUNT)
+	{
+		return m_level[solt];
+	}
+	else
+	{
+		ASSERT(false);
+		return 0;
+	}
+}
+
+void ItemEquip::SetAttrLevel( int solt, uint32 attrlevel )
+{
+	if (solt >=0 && solt < (int)EQUIPITEMSKILLATTRCOUNT)
+	{
+		m_level[solt] = attrlevel;
+	}
+	else
+	{
+		ASSERT(false);
+	}
+}
+
+bool ItemEquip::IsSameMaxLevelAttr( uint32 atrrId )
+{
+	bool isSameMax = true;
+	for (int i = 0; i < sItemMgr.GetItemMaxStarCount(ProtoId()); i++)
+	{
+		if (m_attr[i] != atrrId)
+		{
+			isSameMax = false;
+			break;
+		}
+		if (m_level[i] != sItemMgr.GetItemMaxXiLianLevel(ProtoId()))
+		{
+			isSameMax = false;
+			break;
+		}
+	}
+	return isSameMax;
+}
+
+const void ItemEquip::GetTotalAttr(float (&attr)[CHARACTER_VALUES_COUNT], bool isLastAttrWork) const
+{
+
+	//if(Proto()->IsDecoration())		//饰品暂时不加
+	//	return;
+
+	//获取装备的基础属性
+	sItemMgr.GetRealItemAttr(Proto()->id,attr);
+
+
+
+	//获取装备的洗练属性
+	if(!Proto()->IsSuit())	//套装没有洗练属性，全部计算在额外属性中
+	{
+		int lastExid = 0;	//用来比较
+		bool attrOutUse = false;
+		for (int i=0; i < sItemMgr.GetItemMaxStarCount(Proto()->id); i++)	//四个属性
+		{
+			if(GetAttr(i) != 0)
+			{
+				IntPair newpair;
+				newpair = sItemMgr.TranslateAttr(GetAttr(i),GetAttrLevel(i));
+
+				if(i == 0)
+					lastExid = newpair.first;
+
+				if(i != 0 && attrOutUse == false)
+				{
+					if(lastExid != newpair.first || GetAttrLevel(i) != sItemMgr.GetItemMaxXiLianLevel(Proto()->id))
+					{
+						attrOutUse = true;
+					}
+				}
+
+				//最后一个元素的时候隐藏
+				//if(i == sItemMgr.GetItemMaxStarCount(Proto()->id)-1 && attrOutUse == true && sItemMgr.isLastStarHide(Proto()->id))
+				//	break;
+
+				if(i == sItemMgr.GetItemMaxStarCount(Proto()->id)-1 && sItemMgr.isLastStarHide(Proto()->id) && (!isLastAttrWork || attrOutUse == true))
+					break;
+
+				attr[newpair.first] += newpair.second;
+			}
+		}
+	}
+}
+
+void ItemEquip::AddAttrLevelOne( int solt )
+{
+	uint32 cur_level = GetAttrLevel(solt);
+	cur_level  = MIN(cur_level + 1,EQUIPITEMSKILLATTRMAXLEVEL);
+	SetAttrLevel(solt,cur_level);
+}
+
+bool ItemEquip::IsAllAttrIsMaxLevel() const
+{
+	std::vector<bool> vec_flag;
+	uint32 AttrCount = GetAttrCount();
+	for (uint32 i = 0; i < AttrCount; i++)
+	{
+		vec_flag.push_back(m_level[i] == sItemMgr.GetItemMaxXiLianLevel(ProtoId()));
+	}
+	bool max_level = true;
+	for(size_t i = 0;i < vec_flag.size();i++)
+	{
+		max_level = max_level && vec_flag[i];
+	}
+	return max_level;
+}
+

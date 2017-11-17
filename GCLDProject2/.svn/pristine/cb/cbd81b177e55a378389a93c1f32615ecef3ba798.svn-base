@@ -1,0 +1,766 @@
+#include "LotteryLog.h"
+#include "LotteryDefine.h"
+
+#include "OS.h"
+#include "BaseDefineMgr.h"
+#include "BaseDefine.pb.h"
+
+#include "Loot/LootManager.h"
+#include "Loot/LootList.h"
+#include "item/ItemArray.h"
+#include "item/ItemEquip.h"
+#include "object/Player.h"
+#include "server_client/DbProxyServerClient.h"
+#include "quest/behavior/PlayerBehaviorCounter.h"
+
+#include "def/MmoAssert.h"
+#include "Item.pb.h"
+#include "Enum.pb.h"
+#include "Opcode.pb.h"
+#include "InterServer.pb.h"
+#include "ServerOpcode.pb.h"
+ 
+#include "CrossLogic/PlayerItemLogic.h"
+#include "CrossLogic/ItemCharacterLogic.h"
+#include "item/ItemManager.h"
+#include "Map/PlayerMapLogic.h"
+#include "Map/country/country.h"
+#include "BaseDefineMgr.h"
+#include "Technology/PlayerTechnology.h"
+using namespace pb;
+#define KING_PURIFY_COST_GOLD (GET_BASE_DEF_UINT(pb::BD_KING_PURIFY_COST_DIAMOND))
+namespace
+{
+    bool TryGetCategory2( uint32 lotteryType, uint32& cat2)
+    {
+        if ( lotteryType == LOTTERY_SILVER)
+        {
+            cat2 = QC2_SILVER_LOTTO;
+            return true;
+        }
+        else if( lotteryType == LOTTERY_GOLD)
+        {
+            cat2 = QC2_GOLD_LOTTO;
+            return true;
+        }
+        else if( lotteryType == LOTTERY_EVENT)
+        {
+            cat2 = QC2_EVENT_LOTTO;
+            return true;
+        }
+        return false;
+    }
+}
+//////////////////////////////////////////////////////////////////////////
+
+LotteryFreeRecord::LotteryFreeRecord( uint32 lotteryType )
+: m_lotteryType( lotteryType)
+, m_remainFreeCount( 0)
+, m_nextFreeLotteryTime( 0)
+{
+    Init();
+}
+
+bool LotteryFreeRecord::TryUseFreeChance()
+{
+    time_t now = sOS.GetRealTime();
+    if ( m_remainFreeCount == 0 &&  m_nextFreeLotteryTime < now )
+    {
+        m_remainFreeCount = LotteryLogic::GetFreeCount(m_lotteryType);
+    }
+    
+    if ( m_remainFreeCount != 0)
+    {
+        --m_remainFreeCount;
+        if ( m_remainFreeCount == 0)
+        {
+            m_nextFreeLotteryTime = now + LotteryLogic::GetInterval( m_lotteryType);
+        }
+        return true;
+    }
+    else
+    {
+        return false;
+    }
+
+
+}
+
+void LotteryFreeRecord::Init()
+{
+	if ( m_lotteryType == LOTTERY_SILVER || m_lotteryType == LOTTERY_GOLD)
+    {
+        m_remainFreeCount = 1;
+        m_nextFreeLotteryTime = sOS.GetRealTime();
+    }
+    else
+    {
+        m_remainFreeCount = 0;
+        m_nextFreeLotteryTime = sOS.GetRealTime() + LotteryLogic::GetInterval( m_lotteryType);
+    }
+}
+
+void LotteryFreeRecord::SaveTo( GS2C_LotteryFreeRecord& msg ) const
+{
+    msg.set_lottery_type( m_lotteryType);
+    msg.set_remain_free_count( m_remainFreeCount);
+    msg.set_next_free_lottery_time( m_nextFreeLotteryTime);
+}
+
+void LotteryFreeRecord::LoadFrom( const GS2C_LotteryFreeRecord& msg )
+{
+    m_lotteryType = msg.lottery_type();
+    m_remainFreeCount = msg.remain_free_count();
+    m_nextFreeLotteryTime = msg.next_free_lottery_time();
+
+}
+
+
+
+//////////////////////////////////////////////////////////////////////////
+LotteryLogger::LotteryLogger()
+{
+    Init();
+}
+
+void LotteryLogger::Init()
+{
+    m_freeRecords.resize( LOTTERY_NORMAL_MAX);
+    for ( int i = LOTTERY_SILVER; i < LOTTERY_NORMAL_MAX; ++i)
+    {
+        LotteryFreeRecord* freeRecord = new LotteryFreeRecord(i);
+        m_freeRecords[ i - LOTTERY_SILVER] = freeRecord;
+    }
+}
+
+uint32 LotteryLogger::GetLotteryTypeIdx( uint32 lotteryType )
+{
+    switch( lotteryType)
+    {
+    case LOTTERY_SILVER:
+    case LOTTERY_GOLD  :
+    case LOTTERY_EVENT :
+        return lotteryType - LOTTERY_SILVER;
+    default:
+        return InValidIndex;
+    }
+}
+
+bool LotteryLogger::TryUseFreeLottery( Player * player, uint32 lotteryType )
+{
+    LotteryFreeRecord* record = MutableLotteryRecord(lotteryType);
+    if ( record )
+    {
+        bool result = record->TryUseFreeChance();
+        if ( result && player)
+        {
+            GS2C_LotteryFreeRecord msg; 
+            record->SaveTo( msg);
+            // send;
+            player->Send( SMSG_UPDATE_LOTTERY_FREE, msg );
+            sDbProxyClient.SendPlayerPack( *player,pb::SG2D_UPDATE_LOTTERY_RECORD, msg);
+        }
+        return result;
+    }
+    return false;
+}
+
+LotteryFreeRecord* LotteryLogger::MutableLotteryRecord( uint32 lotteryType )
+{
+    uint32 idx = GetLotteryTypeIdx(lotteryType);
+    if ( idx != InValidIndex && idx < m_freeRecords.size())
+    {
+        return m_freeRecords[idx];
+    }
+    return NULL;
+}
+
+void LotteryLogger::SaveTo( GS2C_AllLotteryInfo& msg ) const
+{
+    for ( LotteryFreeRecords::const_iterator iter = m_freeRecords.begin();
+        iter != m_freeRecords.end(); ++iter)
+    {
+        MsgTool::SaveToRepeatField( *iter, msg.mutable_free_records());
+    }
+}
+
+void LotteryLogger::LoadFrom( const GS2C_AllLotteryInfo& msg )
+{
+    for ( int i = 0; i < msg.free_records_size(); ++i)
+    {
+        const pb::GS2C_LotteryFreeRecord& recordMsg = msg.free_records(i);
+        if ( LotteryFreeRecord* record =  MutableLotteryRecord( recordMsg.lottery_type()))
+        {
+            record->LoadFrom( recordMsg);
+        }
+    }
+}
+
+void LotteryLogger::SendFreeRecordToDB( Player * player ) const
+{
+    for ( LotteryFreeRecords::const_iterator iter = m_freeRecords.begin();
+        iter != m_freeRecords.end(); ++iter)
+    {
+        GS2C_LotteryFreeRecord msg; 
+        (*iter)->SaveTo( msg);
+        // send;
+        sDbProxyClient.SendPlayerPack( *player,pb::SG2D_UPDATE_LOTTERY_RECORD, msg);
+    }
+}
+
+
+
+
+//////////////////////////////////////////////////////////////////////////
+
+uint32 LotteryLogic::GetSubstituteId( uint32 lotteryType )
+{
+    static const uint32 Silver    = GET_BASE_DEF_UINT( pb::BD_LOTTERY_SUBSTITUTE_SILVER);
+    static const uint32 Gold      = GET_BASE_DEF_UINT( pb::BD_LOTTERY_SUBSTITUTE_GOLD);
+    static const uint32 Event     = GET_BASE_DEF_UINT( pb::BD_LOTTERY_SUBSTITUTE_EVENT);
+
+    switch( lotteryType)
+    {
+    case LOTTERY_SILVER: return Silver;
+    case LOTTERY_GOLD  : return Gold;
+    case LOTTERY_EVENT : return Event;
+    default            :
+        MMO_ASSERT( false);
+        return InValidResult;
+    }
+}
+
+
+
+uint32 LotteryLogic::GetLotteryCurr( uint32 lotteryType, uint32 count )
+{
+    static const uint32 Gold1      = GET_BASE_DEF_UINT( pb::BD_LOTTERY_CURR_GOLD_1);
+    static const uint32 Event1     = GET_BASE_DEF_UINT( pb::BD_LOTTERY_CURR_EVENT_1);
+    static const uint32 Gold10      = GET_BASE_DEF_UINT( pb::BD_LOTTERY_CURR_GOLD_10);
+    static const uint32 Event10     = GET_BASE_DEF_UINT( pb::BD_LOTTERY_CURR_EVENT_10);
+
+    if ( count == 1)
+    {
+        switch( lotteryType)
+        {
+        case LOTTERY_GOLD  : return Gold1;
+        case LOTTERY_EVENT : return Event1;
+        default            :
+            return InValidResult;
+        }
+    }
+    else if ( count == 10)
+    {
+        switch( lotteryType)
+        {
+        case LOTTERY_GOLD  : return Gold10;
+        case LOTTERY_EVENT : return Event10;
+        default            : 
+            return InValidResult;
+        }
+    }
+    return InValidResult;
+}
+
+
+uint32 LotteryLogic::GetInterval( uint32 lotteryType )
+{
+    static const uint32 Silver    = GET_BASE_DEF_UINT( pb::BD_LOTTERY_INTERVAL_SILVER) * 60;
+    static const uint32 Gold      = GET_BASE_DEF_UINT( pb::BD_LOTTERY_INTERVAL_GOLD) * 60;
+    static const uint32 Event     = GET_BASE_DEF_UINT( pb::BD_LOTTERY_INTERVAL_EVENT) * 60;
+
+    switch( lotteryType)
+    {
+    case LOTTERY_SILVER: return Silver;
+    case LOTTERY_GOLD  : return Gold;
+    case LOTTERY_EVENT : return Event;
+    default            :
+        MMO_ASSERT( false);
+        return InValidResult;
+    }
+}
+
+uint32 LotteryLogic::GetFreeCount( uint32 lotteryType )
+{
+    static const uint32 Silver    = GET_BASE_DEF_UINT( pb::BD_LOTTERY_FREE_TIME_SILVER);
+    static const uint32 Gold      = GET_BASE_DEF_UINT( pb::BD_LOTTERY_FREE_TIME_GOLD);
+    static const uint32 Event     = GET_BASE_DEF_UINT( pb::BD_LOTTERY_FREE_TIME_EVENT);
+
+    switch( lotteryType)
+    {
+    case LOTTERY_SILVER: return Silver;
+    case LOTTERY_GOLD  : return Gold;
+    case LOTTERY_EVENT : return Event;
+    default            : 
+        MMO_ASSERT( false);
+        return InValidResult;
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////
+uint32 LotteryLogic::PlayerTryUseFreeLottery( Player* player, uint32 lotteryType, pb::GS2C_LootResult& msg )
+{
+    //if ( player == NULL )
+    //    return ErrCommonFail;
+
+    //ItemArray* bag = player->m_bag.get();
+    //if( bag == NULL )
+    //    return ErrCommonFail;
+    //
+    //LotteryLogger* lotteryLogger = player->m_lotteryLogger.get();
+    //if ( lotteryLogger == NULL)
+    //    return ErrCommonFail;
+
+    //if ( !lotteryLogger->TryUseFreeLottery(player,lotteryType))
+    //    return ErrDidNotHaveFreeChanceToLottery;
+
+    //PlayerLootLottery(player, lotteryType, *msg.mutable_loot_list());
+    //if ( PlayerBehaviorCounter * counter = player->m_behaviorCounter.get())
+    //{
+    //    uint32 cat2 = 0;
+    //    if (TryGetCategory2(lotteryType, cat2))
+    //    {
+    //        counter->TriggerBehavior(player, QC1_LOTTERY, cat2, QC3_UNDEFINED, 0, 1);
+    //    }
+    //}
+
+    return ErrCommonSuccess;    
+}
+
+uint32 LotteryLogic::PlayerTryLottery( Player* player, uint32 lotteryType, pb::GS2C_LootResult& msg, uint32 count )
+{
+    if ( player == NULL )
+        return ErrCommonFail;
+
+    ItemArray* bag = player->m_bag.get();
+    if( bag == NULL )
+        return ErrCommonFail;
+
+    uint32 substituteItemId = GetSubstituteId( lotteryType);
+    if ( substituteItemId == InValidResult)
+        return ErrInvalidParam;
+
+    uint32 needCurr = GetLotteryCurr( lotteryType, count);
+    bool haveCashGold = false;
+    if (needCurr != InValidResult)
+    {
+        haveCashGold = player->EnoughGold(needCurr);
+    }
+    bool haveSubstituteItem = bag->EnoughItem( substituteItemId, count);
+
+
+    if ( haveCashGold || haveSubstituteItem)
+    {
+        if ( PlayerLootLottery( player, lotteryType, *msg.mutable_loot_list(), count)) 
+        {
+            if ( haveSubstituteItem)
+            {
+                player->DestroyItem( pb::IR_LOTTO_COST, substituteItemId, count);
+            }
+            else
+            {
+                player->TryDeductCurrency( pb::IR_LOTTO_COST, eSysGold, needCurr);
+            }
+
+            if ( PlayerBehaviorCounter * counter = player->m_behaviorCounter.get())
+            {
+                uint32 cat2 = 0;
+                if (TryGetCategory2(lotteryType, cat2))
+                {
+                    counter->TriggerBehavior(player, QC1_LOTTERY, cat2, QC3_UNDEFINED, 0, count);
+                }
+            }
+            return ErrCommonSuccess;
+        }
+    }
+    return ErrCommonFail;
+}
+
+
+uint32 LotteryLogic::PlayerTryLotteryOne( Player* player, uint32 lotteryType, pb::GS2C_LootResult& msg )
+{
+    return PlayerTryLottery( player, lotteryType, msg, 1);
+}
+
+uint32 LotteryLogic::PlayerTryLotteryTen( Player* player, uint32 lotteryType, pb::GS2C_LootResult& msg )
+{
+    return PlayerTryLottery( player, lotteryType, msg, 10);
+}
+
+uint32 LotteryLogic::PlayerTryLootShopEquip( Player* player, pb::GS2C_LootShopEquipResult& msg ,bool isInit/* = false */)
+{
+	time_t colTime =  player->GetEquipShopBuyCoolDownTime();
+	time_t curTime =  sOS.GetRealTime();
+	if (colTime < curTime || colTime > (curTime + SHOP_EQUIP_BUY_COOLDOWN_SEC_TIME + SHOP_EQUIP_BUY_ONCE_COOLDOWN_SEC_TIME))
+	{
+		player->SetEquipShopBuyCoolDownTime(sOS.GetRealTime());
+		colTime =  player->GetEquipShopBuyCoolDownTime();
+	}
+	if ((curTime + SHOP_EQUIP_BUY_COOLDOWN_SEC_TIME) > colTime || isInit)
+	{
+		if(PlayerLootShopEquip( player, msg))
+		{
+			int nItem = msg.loot_list().items_size();
+			for (int i=0; i < nItem; i++)
+			{
+				PlayerLootShopEquipSkillAttr(player,*msg.mutable_loot_list()->mutable_items(i));
+			}
+			if (!isInit)
+			{
+				int cd = 0;
+				if (player->m_worldMapLogic->GetWorldMapCountry()->HaveSpecialCity(MapCity::Equipment))
+					cd = SHOP_EQUIP_BUY_ONCE_COOLDOWN_SEC_TIME/2;
+				else
+					cd = SHOP_EQUIP_BUY_ONCE_COOLDOWN_SEC_TIME;
+				player->SetEquipShopBuyCoolDownTime(colTime + cd);
+			}
+			return ErrCommonSuccess;
+		}
+		else
+		{
+			return ErrCommonFail;
+		}
+	}
+	else
+	{
+		return ErrNotFreeTime;
+	}
+	
+}
+
+uint32 LotteryLogic::PlayerTryLootEquipSkillAttr( Player* player, uint32 purifyType, uint32 bagSoltId )
+{
+	if (purifyType == KING_PURIFY )		//1是至尊洗练
+	{
+		if (!player->EnoughCurrency(eExtrmePurify,1))		//至尊洗练次数不够	
+		{
+		   if (!player->EnoughGold(KING_PURIFY_COST_GOLD))		//至尊洗练次数不够就用钻石
+		   {
+			   return ErrNotEnoughCoin;
+		   }
+		}
+	}
+	else if(purifyType == FREE_PURIFY)
+	{
+		if (!player->EnoughCurrency(eFreePurify,1))		//免费洗练次数
+		{
+			return ErrNotEnoughCurr;
+		}
+	}
+	
+	
+	bool haveLoot = false;
+	bool haveModify = false;
+	ItemEquip* curItem = player->m_bag->MutableItemEquip(bagSoltId);	//根据背包索引找到道具
+	if (curItem)	//有该道具
+	{
+		LootList lootList;
+		LootParam param;
+		param.provider = NULL;
+		param.victim_type = (purifyType == 0 ? LOOTTYPE_FREEPURIFY: LOOTTYPE_GOLDENPURIFY);		//洗练类型
+		param.victim_id = curItem->ProtoId();		//洗练道具id
+		param.player_vip_lv = player->GetVipLevel();	//VIP等级
+		param.is_count_loot = true;
+		if (curItem->IsEquip())		//是装备
+		{
+			int maxStarCount = sItemMgr.GetItemMaxStarCount(curItem->Proto()->id);
+			for (int i = 0; i < maxStarCount; i++)		//几个技能
+			{
+				NLOG("第 %d 个技能",i+1);
+				if (i == (maxStarCount -1) && sItemMgr.isLastStarHide(curItem->Proto()->id))		//如果是最后一个技能且最后一个技能是隐藏技能
+				{
+					if(curItem->CheckUpdateSameAtrrMaxLv())
+					{
+						player->UpdateWannaBeStrongerInfo();
+					}		
+				}
+				else if (curItem->GetAttr(i) > 0)		//不是最后技能且有技能
+				{
+					uint32 curLv = curItem->GetAttrLevel(i);	//当前技能等级
+					param.victim_lv = curLv;
+					if (sLootMgr.FillLootList(player,param,lootList))	//洗练
+					{
+						NLOG("洗练完毕");
+						GS2C_ItemLootList ItemList;
+						lootList.SaveTo(ItemList);
+						uint32 nLoot = ItemList.item_id_value_size();
+						haveLoot = true;
+						if (nLoot > 0)
+						{
+							int rand = sOS.Rand(0, nLoot);
+							const PairValue& paValue =  ItemList.item_id_value(rand);
+							if (paValue.first() > 0)
+							{
+								haveModify = true;
+								curItem->SetAttr(i,paValue.first());
+								uint32 curRechLv = paValue.second() + curLv;
+								curRechLv = curRechLv > (uint32)sItemMgr.GetItemMaxXiLianLevel(curItem->Proto()->id) ? (uint32)sItemMgr.GetItemMaxXiLianLevel(curItem->Proto()->id) : curRechLv;
+								curItem->SetAttrLevel(i,curRechLv);
+								NLOG("获得id：%d, level: %d",paValue.first(),curRechLv);
+							}
+
+							for(uint32 i=0; i<nLoot; i++)
+							{
+								const PairValue& paValue =  ItemList.item_id_value(i);
+								NLOG("队列 id：%d",paValue.first());
+							}
+						}
+						lootList.Clear();
+					}
+				}
+				else
+				{
+					break;
+				}
+			}
+			if (haveModify)	//有改变
+			{
+				player->m_bag->SetModifiedID(bagSoltId);
+			}
+		}
+	}
+
+	if (haveLoot)
+	{
+		if (purifyType == KING_PURIFY)
+		{
+			if (!player->TryDeductCurrency(IR_EQUIP_UPGRADE_LV_COST,eExtrmePurify,1))
+			{
+				player->TryDeductCurrency(IR_EQUIP_UPGRADE_LV_COST,eSysGold,KING_PURIFY_COST_GOLD);
+				player->AddActivityXiLianValue(1);
+			}
+		}
+		else
+		{
+			player->TryDeductCurrency(IR_EQUIP_UPGRADE_LV_COST,eFreePurify,1);
+			player->AddActivityXiLianValue(1);
+		}
+
+		if(player->m_characterStorage->IsInBatterArray(curItem->EquiperId()))
+		{
+			ItemCharacterLogic::ReCalculateBattleAttr(player);
+		}
+
+	}
+	return haveLoot ? ErrCommonSuccess:ErrCommonFail;
+
+}
+
+uint32 LotteryLogic::PlayerTryRetrievalPurify( Player* player,uint32 bagSoltId )
+{
+	ItemEquip* curItem = player->m_bag->MutableItemEquip(bagSoltId);
+	if (curItem)
+	{
+		if(curItem->ReTrievalSameAttrMaxLv())
+		{
+			player->m_bag->SetModifiedID(bagSoltId);
+			return ErrCommonSuccess;
+		}
+	}
+	return ErrNotYetActiveHidenSkill;
+}
+
+bool LotteryLogic::PlayerLootLottery( Player* player, uint32 lotteryType, pb::GS2C_LootList& lootMsg, uint32 count /*= 1*/)
+{
+    if ( lotteryType == LOTTERY_GOLD)
+    {
+        uint32 count = 0;
+        if ( player->m_behaviorCounter->GetCount(BehaviorType(QC1_LOTTERY, QC2_GOLD_LOTTO, QC3_UNDEFINED, 0 , EVENT_TYPE_NORMAL), count))
+        {
+            if ( count == 0)
+            {
+                int solution = player->GetAttrInt( pb::PLAYER_FIELD_HEAD_ICON_ID);
+                lotteryType = LOTTERY_FIRST_SOLU_0 + solution;
+            }
+        }
+    }
+
+    LootList lootList;
+    LootParam param;
+    param.provider = NULL;//player->m_lootRecord.get();
+    param.victim_type = LOOTTYPE_LOTTERY;
+    param.victim_id = lotteryType;
+    param.victim_lv = player->GetLevel();
+    param.player_vip_lv = player->GetVipLevel();
+
+    bool haveLoot = false;
+    for ( uint32 i = 0; i < count; ++i)
+    {
+        if (sLootMgr.FillLootList(player,param,lootList))
+        {
+            haveLoot = true;
+            lootList.PickAllMoneyAndItems( player, lootMsg, pb::IR_LOTTO_GET);
+        }
+    }
+    return haveLoot;
+}
+
+bool LotteryLogic::PlayerLootShopEquip( Player* player, pb::GS2C_LootShopEquipResult& lootMsg)
+{
+	LootList lootList;
+	LootParam param;
+	param.provider = NULL;
+	param.victim_type = LOOTTYPE_EQUIPSHOP;
+	//param.victim_id = lotteryType;
+	param.victim_lv = player->GetLevel();
+	param.player_vip_lv = player->GetVipLevel();
+
+	bool haveLoot = false;
+	uint32 nEquipType = SHOP_EQUIP_SLOT_COUNT;
+	for ( uint32 i = 0; i < nEquipType; ++i)
+	{
+		param.victim_id = i+1;
+		if (sLootMgr.FillLootList(player,param,lootList))
+		{
+			haveLoot = true;
+			lootList.SaveTo(*lootMsg.mutable_loot_list());
+			lootList.Clear();
+		}
+	}
+	return haveLoot;
+}
+
+int LotteryLogic::PlayerLootKuangChangRebuildEffectGem( Player& player )
+{
+	LootList lootList;
+	LootParam param;
+	param.provider = NULL;
+	param.victim_type = LOOTTYPE_REBUILD;
+	param.victim_lv = player.GetLevel();
+	param.player_vip_lv = player.GetVipLevel();
+	param.victim_id = 1;
+	int itemId = 0;
+	int itemCount = 0;
+	if (sLootMgr.FillLootList(&player,param,lootList))
+	{
+		if(lootList.PickOneItem(itemId,itemCount))
+		{
+			ASSERT(itemCount == 1);
+		}
+		lootList.Clear();
+	}
+	return itemId;
+}
+
+bool LotteryLogic::PlayerLootShopEquipSkillAttr( Player* player, pb::GS2C_SlotItem& lootMsg)
+{
+	LootList lootList;
+	LootParam param;
+	param.provider = NULL;
+	param.victim_type = LOOTTYPE_ITEM;
+	param.victim_id = lootMsg.item().proto_id();
+	param.victim_lv = player->GetLevel();
+	param.player_vip_lv = player->GetVipLevel();
+
+	bool haveLoot = false;
+	if (sLootMgr.FillLootList(player,param,lootList))
+	{
+		haveLoot = true;
+		lootList.SaveTo(*lootMsg.mutable_equip());
+		lootList.Clear();
+	}
+	lootMsg.mutable_equip()->set_equip_to_charid(0);
+	lootMsg.mutable_item()->set_count(1);
+	lootMsg.mutable_item()->set_is_new(true);
+	return haveLoot;
+}
+
+uint32 LotteryLogic::PlayerTryLootEquipSkillAttrByXilianItem( Player* player,uint32 purifyType,uint32 bagSoltId,uint32 attr_id )
+{
+	if (purifyType == pb::UP_XILIAN )		//1 是升级洗练 
+	{
+		if (!player->m_bag->EnoughItem(ItemEnum::PRIMER_XILIAN,1))
+		{
+			return ErrNotEnoughItem;
+		}
+	}
+	else if(purifyType == pb::MIJI_XILIAN)//2，是秘技洗练，
+	{
+		if (!player->m_bag->EnoughItem(ItemEnum::MIDDLE_XILIAN,1))
+		{
+			return ErrNotEnoughItem;
+		}
+	}
+	else								//3 是神级洗练
+	{
+		if (!player->m_bag->EnoughItem(ItemEnum::HIGH_XILIAN,1))
+		{
+			return ErrNotEnoughItem;
+		}
+	}
+
+	bool haveModify = false;
+	ItemEquip* curItem = player->m_bag->MutableItemEquip(bagSoltId);	//根据背包索引找到道具
+	if (curItem)	//有该道具
+	{
+		if (curItem->IsEquip() && curItem->Proto()->Quality() == ItemEnum::QUALITY_5 && curItem->GetAttrCount() >= 3)		//是装备并且至少是三星橙装
+		{
+			int attrCount= curItem->GetAttrCount();
+			if(purifyType == pb::UP_XILIAN)
+			{
+				if(attrCount == EQUIPITEMSKILLATTRCOUNT - 1 && !curItem->IsAllAttrIsMaxLevel())
+				{
+					for (int i = 0; i < attrCount; ++i)		//几个技能
+					{
+						curItem->AddAttrLevelOne(i);
+						haveModify = true;
+					}
+					player->DestroyItem(pb::IR_ACTIVITY_XILIAN_COST,ItemEnum::PRIMER_XILIAN,1);
+				}
+			}
+			else /*if(purifyType == MIJI_XILIAN || purifyType == SHENJI_XILIAN)*/
+			{
+				if(player->HaveTechnology(MIJI))
+				{
+					if(curItem->IsAllAttrIsMaxLevel())
+					{
+						if(purifyType == pb::MIJI_XILIAN)
+						{
+							int rand = sOS.Rand(0, ItemEnum::ATTR_COUNT);
+							for(int i = 0;i < attrCount;++i)
+							{
+								curItem->SetAttr(i,sItemMgr.GetAttrFromId(rand));
+								haveModify = true;
+							}
+							player->DestroyItem(pb::IR_ACTIVITY_XILIAN_COST,ItemEnum::MIDDLE_XILIAN,1);
+						}
+						else if(purifyType == pb::SHENJI_XILIAN )
+						{
+							for(int i = 0;i < attrCount;++i)
+							{
+								curItem->SetAttr(i,attr_id);
+								haveModify = true;
+							}
+							player->DestroyItem(pb::IR_ACTIVITY_XILIAN_COST,ItemEnum::HIGH_XILIAN,1);
+						}
+						if(attrCount == EQUIPITEMSKILLATTRCOUNT - 1)
+						{
+							if(curItem->CheckUpdateSameAtrrMaxLv())
+							{
+								player->UpdateWannaBeStrongerInfo();
+							}
+						}
+					}
+				}
+				else
+				{
+					return pb::ErrNoTechnology;
+				}
+			}
+			
+			if (haveModify)	//有改变
+			{
+				player->m_bag->SetModifiedID(bagSoltId);
+			}
+		}
+		else
+		{
+			return pb::ErrCommonFail;
+		}
+	}
+	if(player->m_characterStorage->IsInBatterArray(curItem->EquiperId()))
+	{
+		ItemCharacterLogic::ReCalculateBattleAttr(player);
+	}
+	return pb::ErrCommonSuccess;
+}

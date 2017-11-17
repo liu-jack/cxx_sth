@@ -1,0 +1,34 @@
+
+
+#ifndef __DAILY_QUEST_DEF__H
+#define __DAILY_QUEST_DEF__H
+
+enum DailyQuestType
+{
+	MARKET_BUY			= 1, //集市中购买任意资源
+	HEISHI_DUIHUAN		= 2,//黑市中兑换任意资源
+	XILIAN				= 3,//洗练装备
+	ATTACK_ENEMY		= 4,//诱敌
+	TUJING				= 5,//突进
+	COUNTRY_TASK		= 6,//参加国家任务
+	OCCUPY_OR_ZHUZHENG	= 7,//占领城池或助阵次数
+	OCCUPY_SOME_CITY	= 8,//占领特定城池次数
+	TAKE_JUNZI			=9,//领取军姿
+	SHOUMAI_MANZU		=10,//收买蛮族                0
+	DONATE_TUNTIAN		=11,//捐赠练兵
+	TUNTIAN_TRAINING	=12,//练兵
+	CHAT				=13,//发送聊天信息
+	ADD_SOLIDER			=14,//使用增兵
+	DINNER_CHARACTER	=15,//宴会
+	BAOQI_ZHUZAO		=16,//铸造
+	ALTAR_GET_ADD_TIMES	=17,//祭坛产出增兵
+	DUNGEON_ZHUABU		=18,//抓捕犯人
+	TIEJIANGPU			=19,//铁匠铺获得铁矿
+	CITY_EVENT			=20,//城池事件 个人和世界事件都算
+	FUBEN				=21,//攻打副本
+	COLLECT				=22,//征收
+};
+
+
+
+#endif

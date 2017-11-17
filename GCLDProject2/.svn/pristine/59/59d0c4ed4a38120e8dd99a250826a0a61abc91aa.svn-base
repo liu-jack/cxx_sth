@@ -1,0 +1,523 @@
+
+#include <sstream>
+#include <algorithm>
+#include <boost/bind.hpp>
+#include <boost/function.hpp>
+#include <boost/smart_ptr.hpp>
+#include <boost/dynamic_bitset.hpp>
+#include <boost/typeof/typeof.hpp>
+
+#include "PlayerData.h"
+
+#include "Logger.h"
+#include "OS.h"
+#include "def/MmoAssert.h"
+#include "utility/Utility.h"
+#include "utility/STLUtility.h"
+#include "utility/MsgTool.h"
+#include "memory_buffer/NetPack.h"
+#include "memory_buffer/MultiValueArray.h"
+#include "data/DbProxyDataMgr.h"
+
+
+#include "Enum.pb.h"
+#include "Login.pb.h"
+#include "InterServer.pb.h"
+#include "Item.pb.h"
+#include "Social.pb.h"
+#include "Quest.pb.h"
+#include "data/FriendInfo.h"
+
+
+
+
+PlayerData::PlayerData(uint64 playerId)
+{
+	Init( playerId ) ;
+	SetIsLoadedDatabaseTable( false ) ;
+	
+	m_loadCount = 0;
+	m_unloadCount = 0;
+}
+
+PlayerData::~PlayerData()
+{
+	time_t curTimeMS =sOS.TimeMS() ;
+	SaveDirtyPart(curTimeMS);
+}
+
+
+void PlayerData::InitDirtySaver()
+{
+    save_dirty_function[DIRTY_PLAYER_VALUE]         = &PlayerData::save_player_value;
+    save_dirty_function[DIRTY_CHARACTER]            = &PlayerData::save_mode_character;
+    save_dirty_function[DIRTY_BATTLE_ARRAY]         = &PlayerData::save_battle_array;
+    save_dirty_function[DIRTY_ITEM]                 = &PlayerData::save_mode_item; 
+	save_dirty_function[DIRTY_FUBEN_INFO]           = &PlayerData::save_fuben_record;
+    save_dirty_function[DIRTY_MARKET_INFO]          = &PlayerData::save_market_record;
+    save_dirty_function[DIRTY_ALTAR_INFO]           = &PlayerData::save_altar_record;
+    save_dirty_function[DIRTY_BAO_QI_INFO]          = &PlayerData::save_bao_qi_record;
+    save_dirty_function[DIRTY_DUNGEON_INFO]         = &PlayerData::save_dungeon_record;
+    save_dirty_function[DIRTY_MAP_LOGIC]            = &PlayerData::save_map_logic_record;
+
+    save_dirty_function[DIRTY_QUEST_COUNTER]        = &PlayerData::save_mod_quest_counter;
+    save_dirty_function[DIRTY_QUEST_LOG]            = &PlayerData::save_mod_quest_log;
+    save_dirty_function[DIRTY_QUEST_COMPLETE]       = &PlayerData::save_quest_complete;
+
+    //save_dirty_function[DIRTY_SELL_RANDOM_PROGRAM]  = &PlayerData::save_mod_sell_random_program;
+    //save_dirty_function[DIRTY_SELL_PROGRAM_INFO]    = &PlayerData::save_mod_sell_program_info;
+    //save_dirty_function[DIRTY_SELL_RECORD]          = &PlayerData::save_mod_sell_record;
+
+    //save_dirty_function[DIRTY_LOOT_RECORD]          = &PlayerData::save_mod_loot_record;
+    //save_dirty_function[DIRTY_LOTTERY_RECORD]       = &PlayerData::save_mod_lottery_record;
+
+    save_dirty_function[DIRTY_PLAYER_STRING]        = &PlayerData::save_mod_player_string;    
+	save_dirty_function[DIRTY_PLAYER_BUILDING]      = &PlayerData::save_mod_player_building;    
+	save_dirty_function[DIRTY_PLAYER_MODULE]		= &PlayerData::save_mod_player_module;
+    save_dirty_function[DIRTY_TECHNOLOGY]           = &PlayerData::save_technology_record;
+
+	save_dirty_function[DIRTY_CRUSADE]				= &PlayerData::save_mod_crusade;
+	save_dirty_function[DIRTY_MAIL]					= &PlayerData::save_mod_mail;
+	save_dirty_function[DIRTY_SMITHY]				= &PlayerData::save_smithy;
+	save_dirty_function[DIRTY_DAILYQUEST]			= &PlayerData::save_dailyquest;
+	save_dirty_function[DIRTY_GROW_UP_QUEST]        = &PlayerData::save_growupquest;
+	save_dirty_function[DIRTY_GROW_UP_QUEST_GROUP]  = &PlayerData::save_growupquestgroup;
+	save_dirty_function[DIRTY_SIGN_UP]				= &PlayerData::save_signup;
+	save_dirty_function[DIRTY_PASS_STAGE_REWARD]	= &PlayerData::save_pass_stage_reward;
+	save_dirty_function[DIRTY_ACTIVITY_STAR_BOX]	= &PlayerData::save_activity_star_box;
+	save_dirty_function[DIRTY_PALACE_ACHIEVEMENT]	= &PlayerData::save_palace_achievement;
+	save_dirty_function[DIRTY_ZHENG_WU]             = &PlayerData::save_zheng_wu;
+	save_dirty_function[DIRTY_GENERAL_REWARD]		= &PlayerData::save_general_reward;
+	save_dirty_function[DIRTY_WORLD_FIGHT_ACHIEVEMENT] = &PlayerData::save_world_fight_achievement;
+	save_dirty_function[DIRTY_SEIGE_FORCE]			=&PlayerData::save_seige_force;
+	save_dirty_function[DIRTY_CONTINUE_CITY]			=&PlayerData::save_continue_occupy_city;
+	save_dirty_function[DIRTY_CONGRATULATE]				=&PlayerData::save_congratulate;
+	save_dirty_function[DIRTY_CONGRATULATE_BEEN_CON]	=&PlayerData::save_congratulate_been_con;
+}
+
+
+void PlayerData::Init( uint64 playerId )
+{
+	SetIsLoadedDatabaseTable( false );
+	SetPlayerId(  playerId ) ;
+
+	SetIsReconnectInit( false ) ;
+	SetIsOffline( false ) ;
+	SetLastSaveTime( 0 );  
+    InitDirtySaver();
+}
+
+
+bool PlayerData::ReadPlayerAllInitInfo( const uint64 &guid )
+{
+	// 已经读取过数据库信息了，不再读取 -- Add by caibingjie 2015-6-3
+	if( GetIsLoadedDatabaseTable() )
+	{
+		return true ;
+	}
+
+	SetIsLoadedDatabaseTable( true ) ;
+
+	return true ;
+}
+
+
+void PlayerData::SetAllDirty( void )
+{
+	m_dirtyBit.set();
+}
+
+void PlayerData::SaveDirtyPart(time_t cur_time)
+{
+	for (size_t i = 0; i < m_dirtyBit.size(); ++i)
+	{
+		if (m_dirtyBit[i])
+		{
+			(this->*save_dirty_function[i])();
+		}
+	} 
+	SetIsReconnectInit( false ) ;
+	m_dirtyBit.reset();
+	SetLastSaveTime( cur_time );
+}
+
+
+void PlayerData::ReadAllPlayerdata( const pb::PlayerAllData &data )
+{
+	m_PlayerTable->LoadFrom( data.full_value() ) ;
+}
+
+void PlayerData::WriteOtherInfo( pb::OtherInfo &info )
+{
+	if( m_PlayerTable )
+    {
+        info.set_channel_id( m_PlayerTable->channelId ) ;
+        info.set_platform_id( m_PlayerTable->platformId ) ;
+    }
+    else
+	{
+		ASSERT( false ) ;
+		return ;
+	}
+}
+
+void PlayerData::WriteFriendInfo(pb::Friend_list_Record& info)
+{
+    /*if( m_PlayerTable )
+    {
+	    info.set_friend_name(m_PlayerTable->name);
+	    info.set_friend_guid(m_PlayerTable->playerId);
+	    info.set_head_icon(GetLearderCardProId());
+	    info.set_vip_level(m_PlayerTable->vipLv);
+	    info.set_level(m_PlayerTable->level);
+	    info.set_power(m_PlayerTable->combatMax);
+	    info.set_guild_name(m_PlayerTable->guildName);
+	    info.set_is_send_ap(false);
+	    info.set_is_receive_ap(false);
+	    info.set_is_online(!m_isOffline);
+	    info.set_last_onlin_time(m_PlayerTable->lastLogin);
+	    info.set_request_time(time(NULL));
+    }*/
+}
+
+void PlayerData::WriteAllPlayerData( pb::PlayerAllData *pAllData )
+{
+    //pb::PlayerAllData *pAllData =retInfo.mutable_player_data() ;
+
+    m_PlayerTable->SaveTo( *pAllData->mutable_full_value() ); 
+
+	WriteOtherInfo( *pAllData->mutable_other_info() ) ;
+	//WritePlayerStageLevelInfo(*pAllData->mutable_stage_info());
+	WritePlayerFuBenInfo(*pAllData->mutable_fuben_info());
+	WritePlayerMarketInfo(*pAllData->mutable_market_info());
+	WritePlayerAltarInfo(*pAllData->mutable_altar_info());
+    WritePlayerBaoQiInfo(*pAllData->mutable_bao_qi_info());
+    WritePlayerMapLogic(*pAllData->mutable_world_map_logic());
+    WritePlayerDungeonInfo(*pAllData->mutable_dungeon_info());
+	WritePlayerBagInfo( *pAllData->mutable_bag_info());
+    WriteCharacterStorage( *pAllData->mutable_character_info());
+    WriteQuestCounter( *pAllData->mutable_behavior_count());
+    WriteQuestList( *pAllData->mutable_quest_log());
+	GetPlayerMailUpdate( *pAllData->mutable_mails());
+    //WriteSellData( *pAllData->mutable_sell_data());
+    //WriteLootData( *pAllData->mutable_loot_data());
+    //WriteLotteryData( *pAllData->mutable_lottery_data());
+    WritePlayerString( *pAllData->mutable_string_data());
+	WritePlayerTechnologyInfo( *pAllData->mutable_technology_info());
+	WritePlayerZhengWu(*pAllData->mutable_gov_affairs_info());
+	WritePlayerGeneralReward(*pAllData->mutable_hero_reward());
+	WritePlayerDailyQuestInfo(*pAllData->mutable_dailyquest_info());
+	WritePlayerGrowUpQuestInfo(*pAllData->mutable_growupquest_info());
+	WritePlayerGrowUpQuestGroupInfo(*pAllData->mutable_growupquestgroup_info());
+	WritePlayerSignUp(*pAllData->mutable_sign_up_info());
+	WritePlayerPassStageReward(*pAllData->mutable_pass_stage_reward_info());
+	WritePlayerActivityStarBox(*pAllData->mutable_activity_star_box_info());
+	WritePlayerPalaceAchievement(*pAllData->mutable_achievement_info());
+	WritePlayerWorldFightAchievement(*pAllData->mutable_world_fight_achieve_info());
+	WritePlayerContinueOccupyCity(*pAllData->mutable_continue_info());
+	WritePlayerCongratulate(*pAllData->mutable_congratulate_info());
+	WritePlayerCongratulateBeenCon(*pAllData->mutable_con_been_congratulated());
+	WritePlayerSeigeForce(*pAllData->mutable_seige_force_info());
+	WriteSmithyInfo(*pAllData->mutable_smithy_info());
+
+#ifdef _DEBUG
+    const pb::PlayerAllData& all_data = *pAllData;
+    NLOG( "---------------------------------------------------");
+    NLOG( "Player Data size : %d", all_data.ByteSize());
+
+    const pb::GS2C_Bag& bag = all_data.bag_info();
+    NLOG( "Item count        : %d", bag.items_size());
+    NLOG( "Item sum size     : %d", bag.ByteSize());
+
+    const pb::GS2C_CharacterStorage& character = all_data.character_info();
+    NLOG( "Character count   : %d", character.characters_size());
+    NLOG( "Character sum size: %d", character.ByteSize());
+
+  /*  const pb::GS2C_AllStageInfo& stageInfo = all_data.stage_info();
+    NLOG( "Stage level count : %d", stageInfo.stage_level_infos_size());
+    NLOG( "Stage sum size    : %d", stageInfo.ByteSize());*/
+
+  /*  const pb::GS2C_AllSellData& sellData =  all_data.sell_data();
+    NLOG( "Sell record count : %d", sellData.sell_records_size());
+    NLOG( "Sell Data size    : %d", sellData.ByteSize());*/
+
+    const pb::GxDB_BehaviorList& behavior = all_data.behavior_count();
+    NLOG( "Behavior count    : %d", behavior.behavior_list_size());
+    NLOG( "Behavior size     : %d", behavior.ByteSize());
+
+    NLOG( "---------------------------------------------------");
+#endif
+}
+
+void PlayerData::UpdatePlayerValue( const pb::ObjectValueUpdate& playerValueUp )
+{
+    if ( m_PlayerTable)
+    {
+        bool needSyncSave = m_PlayerTable->LoadUpdateFrom( playerValueUp);
+		if (needSyncSave)
+		{
+			m_PlayerTable.SaveMod();
+		}
+		else
+		{
+			SetIsDirty( DIRTY_PLAYER_VALUE);
+		}
+    }
+}
+
+
+bool PlayerData::save_player_value()
+{
+    m_PlayerTable.SaveMod();
+    return true;
+}
+
+std::string PlayerData::GetPlayerName()
+{
+	if ( m_PlayerTable)
+	{
+		return m_PlayerTable->name;
+	}
+	return "";
+}
+
+//void PlayerData::WriteGuildMemberInfo( pb::GxDB_GMember_Info &info )
+//{
+//
+//	info.set_player_name(m_pPlayerTable->name);
+//	info.set_playerid(m_pPlayerTable->playerId);
+//	info.set_guild_id(m_pPlayerTable->guildId);
+//	info.set_guild_name(m_pPlayerTable->guildName);
+//	info.set_level(m_pPlayerTable->level);
+//	info.set_power(m_pPlayerTable->combatMax);
+//	info.set_guild_name(m_pPlayerTable->guildName);
+//	info.set_is_send_ap(false);
+//	info.set_is_receive_ap(true);
+//	info.set_isonline(!m_isOffline);
+//	info.set_lastactivetime(m_pPlayerTable->lastLogin);
+//	//TODO
+//}
+
+bool  PlayerData::HasLearder()
+{
+	if( m_BattleArrayTable)
+		return true;
+	else
+		return false;
+}
+
+uint32 PlayerData::GetLearderCardProId()
+{
+	if( m_BattleArrayTable)
+	{
+		uint32 charId = m_BattleArrayTable->char_id[0];
+		CharacterTable * charTable = m_CharacterTable.GetElement(charId);
+		if (charTable)
+		{
+			return charTable->char_proto_id;
+		}
+	}
+
+	return 11;//默认头像
+}
+
+void PlayerData::WritePlayerInfo( pb::MsgPlayerBaseData &info, int dataFlag /*=0*/ )
+{
+	WritePlayerBaseInfo( *info.mutable_info(), dataFlag ) ;
+	WritePlayerTeamInfo( *info.mutable_team_info(), dataFlag );
+}
+
+void PlayerData::WritePlayerBaseInfo(pb::MsgPlayerBaseInfo &info, int dataFlag /*=0*/ )
+{
+    if ( m_PlayerTable)
+    {
+		switch( dataFlag )
+		{
+		case pb::PALYER_BASE_DATA_ALL:
+			{
+				info.set_playerid( m_PlayerTable->playerId);
+				info.set_player_name(m_PlayerTable->name);
+				info.set_guild_id(m_PlayerTable->guildId);
+				info.set_guild_name(m_PlayerTable->guildName);
+				info.set_level(m_PlayerTable->level);
+				info.set_vip_level(m_PlayerTable->vipLv);
+				info.set_isonline(!m_isOffline);
+				info.set_last_login(m_PlayerTable->lastLogin);
+				//info.set_power(m_PlayerTable->combatMax);
+				info.set_card_proid(GetLearderCardProId());
+			} break ;
+
+		case pb::PLAYER_BASE_DATA_JUST_PVP_BASE_INFO:
+			{
+				info.set_playerid( m_PlayerTable->playerId);
+				info.set_player_name(m_PlayerTable->name);
+				info.set_level(m_PlayerTable->level);
+				info.set_vip_level(m_PlayerTable->vipLv);
+				//info.set_power(m_PlayerTable->combatMax);
+				info.set_card_proid(GetLearderCardProId());
+			} break ;
+
+		default:
+			ELOG( "PlayerData::WritePlayerBaseInfo() unknow data flag %d", dataFlag ) ;
+		}
+    }
+
+}
+
+void PlayerData::WritePlayerTeamInfo(pb::MsgPlayerTeamInfo &info, int dataFlag /*=0*/ )
+{
+    pb::GS2C_CharacterStorage* pCharactInfo = info.mutable_character_info();
+
+	_WriteBattleArray(*pCharactInfo);
+
+	std::set<uint32> charIds, itemIds;
+	GetBattleArray( charIds);
+
+	for ( std::set<uint32>::const_iterator it = charIds.begin();
+			it != charIds.end(); ++it)
+	{
+		CharacterTable* character = m_CharacterTable.GetElement(*it);
+		if( character == NULL )
+		{
+			continue ;
+		}
+
+		pb::GS2C_CharacterCreate* charMsg =pCharactInfo->mutable_characters()->Add() ;
+		character->SaveTo( *charMsg, dataFlag ) ;
+		if ( charMsg)
+		{
+			switch( dataFlag )
+			{
+			case pb::PALYER_BASE_DATA_ALL:
+				{
+					CharacterJueXingTable* charTraing = m_CharacterJueXingTable.GetElement(*it);
+					if ( charTraing)
+					{
+						charTraing->SaveTo( *charMsg );
+					}
+					else
+					{
+						emptyCharaJuXing.SaveTo( *charMsg );
+					}
+				} break ;
+			}
+		}
+	}
+
+	switch( dataFlag )
+	{
+	case pb::PALYER_BASE_DATA_ALL:
+		{
+			GetEquip( charIds, itemIds);
+
+			pb::GS2C_Bag* pBagInfo = info.mutable_bag_info();
+			for ( std::set<uint32>::const_iterator it = itemIds.begin();
+					it != itemIds.end(); ++it)
+			{
+				_WritePlayerBagInfo(*pBagInfo, m_ItemBaseTable.GetElement(*it));
+			}
+		} break ;
+
+	case pb::PLAYER_BASE_DATA_JUST_PVP_BASE_INFO:
+		{
+		} break ;
+
+	default:
+		ELOG( "PlayerData::WritePlayerTeamInfo() unknow data flag %d", dataFlag ) ;
+	}
+
+}
+
+time_t PlayerData::GetLastLoginTime()
+{
+	if ( m_PlayerTable)
+	{
+		return m_PlayerTable->lastLogin;
+	}
+	return 0;
+}
+
+void PlayerData::UpdatePlayerString( const pb::GS2C_PlayerString& msg )
+{
+    PlayerStringTable * cell = m_PlayerStringTable.GetElement( msg.str_type());
+    if ( cell)
+    {
+        SetIsDirty( DIRTY_PLAYER_STRING);
+        cell->LoadFrom(msg);
+        m_PlayerStringTable.SetModifiedID( msg.str_type());
+    }
+    else
+    {
+        PlayerStringTable aCell;
+        aCell.player_id = GetPlayerId();
+        aCell.LoadFrom(msg);
+
+        m_PlayerStringTable.AddAndAddToCache( &aCell);
+    }
+}
+
+string PlayerData::GetPlayerString(uint32 strType)
+{
+	PlayerStringTable * cell = m_PlayerStringTable.GetElement( strType);
+	if ( cell && (cell->str_type == strType))
+	{
+		return cell->str;
+	}
+	return "";
+}
+
+bool PlayerData::save_mod_player_string()
+{
+    m_PlayerStringTable.SaveMod();
+    return true;
+}
+
+void PlayerData::WritePlayerString( pb::GS2C_PlayerStringGroup& playerstring )
+{
+    for ( BOOST_AUTO( it , m_PlayerStringTable.Begin());
+        it != m_PlayerStringTable.End(); ++it )
+    {
+        MsgTool::SaveToRepeatField( it->second, playerstring.mutable_player_strings());
+    }
+}
+
+void PlayerData::ChangeNameImm( const std::string& name )
+{
+    m_PlayerTable->name = name;
+    m_PlayerTable.SaveMod();
+}
+
+uint64 PlayerData::GetPlayerAccountId()
+{
+	if ( m_PlayerTable)
+	{
+		return m_PlayerTable->accountId;
+	}
+	return 0;
+}
+
+
+bool PlayerData::IsLockType(uint32 type)
+{
+	if ( m_PlayerTable)
+	{
+		return m_PlayerTable->lockReason == type;
+	}
+	return false;
+}
+
+bool PlayerData::IsLocked()
+{
+	if ( m_PlayerTable)
+	{
+		return m_PlayerTable->lockReason == (uint32)pb::ACCOUNT_LOCK_TYPE_LOCKED;
+	}
+	return false;
+}
+
+void PlayerData::SetNameAndHeadId( const std::string& name,const uint32 head_id )
+{
+	m_PlayerTable->name = name;
+	m_PlayerTable->cardHeadIconId = head_id;
+	m_PlayerTable.SaveMod();
+}

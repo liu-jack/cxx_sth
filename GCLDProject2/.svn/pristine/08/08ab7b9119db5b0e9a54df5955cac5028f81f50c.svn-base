@@ -1,0 +1,424 @@
+#include "ModuleLog.h"
+#include "datastruct/struct_building.h"
+#include "Module.h"
+#include "BuildingLog.h"
+#include "Module.pb.h"
+#include "BuildingManager.h"
+#include <boost/bind.hpp>
+#include "OS.h"
+#include "datastruct/struct_buff.h"
+ModuleLog::ModuleLog( const Module* moduleProto )
+:m_pModuleProto(moduleProto)
+,m_curGainMode(0)
+,m_expireTime(0)
+,m_isRebuild(false)
+,m_starGainTime(0)
+,m_gainValue(0)
+{
+
+}
+ModuleLog::~ModuleLog()
+{
+}
+
+uint32 ModuleLog::id() const
+{
+	return m_pModuleProto->id();
+}
+
+void ModuleLog::SaveTo( pb::GxDB_Module& msg ) const
+{
+	msg.set_module_id(id());
+	msg.set_expire_time(m_expireTime);
+	msg.set_gain_mode(m_curGainMode);
+	msg.set_is_rebuild(m_isRebuild);
+	msg.set_gain_start_time(m_starGainTime);
+	msg.set_gain_value(m_gainValue);
+}
+
+void ModuleLog::SaveBuildInfoTo(uint32 buildId,  pb::GxDB_Building& msg ) const
+{
+	BuildingLog* curBuildLog = m_BuildingLogMap.pfind(buildId);
+	if (curBuildLog)
+	{
+		curBuildLog->SaveTo(msg);
+	}
+}
+
+void ModuleLog::SaveBuildInfoTo(pb::GxDB_Buildings_Info& msg)
+{
+
+	BuildingLogMap::iterator curBuildLog = m_BuildingLogMap.begin();
+	for (; curBuildLog != m_BuildingLogMap.end(); ++curBuildLog)
+	{
+		BuildingLog* pBuilding = curBuildLog->second;
+		if (pBuilding)
+		{
+			pBuilding->SaveTo(*msg.add_building_arr());
+		}
+	}
+}
+
+
+void ModuleLog::SaveToState( pb::GS2C_Building_State& msg )
+{
+   SaveTo(*msg.mutable_module());
+   BuildingLogMap::const_iterator buildingIter = m_BuildingLogMap.begin();
+   for (; buildingIter != m_BuildingLogMap.end(); ++buildingIter)
+   {
+	   const BuildingLog* pBuilding = buildingIter->second;
+	   if (pBuilding)
+	   {
+		   pb::GxDB_Building* curBuildState = msg.add_building_state();
+		   if (curBuildState)
+		   {
+			   pBuilding->SaveTo(*curBuildState);
+			   curBuildState->set_lvup_start_time(0);
+		   }
+	   }
+   }
+}
+
+void ModuleLog::LoadFrom( const pb::GxDB_Module& msg )
+{
+	ASSERT( id() == msg.module_id());
+	m_curGainMode = msg.gain_mode();
+	m_expireTime = msg.expire_time();
+	m_isRebuild = msg.is_rebuild();
+}
+
+void ModuleLog::AddBuildingLog( BuildingLog* buildingLog )
+{
+	if (buildingLog)
+	{
+		ASSERT(buildingLog->ModuleId() == id());
+		if (m_BuildingLogMap.pfind(buildingLog->id()))
+		{
+			m_BuildingLogMap.erase(buildingLog->id());
+		}
+		m_BuildingLogMap[buildingLog->id()] = buildingLog;
+	}
+}
+
+BuildingLog* ModuleLog::GetBuildingLog( uint32 buildindId )
+{
+	return m_BuildingLogMap.pfind(buildindId);
+}
+
+uint32 ModuleLog::GetLvUpTime( uint32 BuildingId )
+{
+	BuildingLog* buildLog = m_BuildingLogMap.pfind(BuildingId);
+	if (buildLog)
+	{
+		return buildLog->LvUpTime();
+	}
+	else
+	{
+		const Building* buildingpro = sBuildingManager.GetBuildingById(BuildingId);
+		if (buildingpro)
+		{
+			BuildingLog* newBuildLog = new BuildingLog(buildingpro);
+			if (newBuildLog)
+			{
+				AddBuildingLog(newBuildLog);
+			}
+			return	newBuildLog->LvUpTime();
+		}
+	}
+	return 0;
+}
+
+uint32 ModuleLog::BuildLvUp( uint32 buildId )
+{
+	BuildingLog* buildLog = m_BuildingLogMap.pfind(buildId);
+	if (buildLog)
+	{
+		return buildLog->BuildLvUp();
+	}
+	else
+	{
+		const Building* buildingpro = sBuildingManager.GetBuildingById(buildId);
+		if (buildingpro)
+		{
+			BuildingLog* newBuildLog = new BuildingLog(buildingpro);
+			if (newBuildLog)
+			{
+				AddBuildingLog(newBuildLog);
+			}
+		 return	newBuildLog->BuildLvUp();
+		}
+	}
+	return 1;
+}
+
+void ModuleLog::CheckAutoLvUpBuildings()
+{
+	std::vector<uint32> buildids;		//该模型所有建筑id
+	sBuildingManager.GetModuleBuildingIds(id(),buildids);
+	int nBuilds = buildids.size();
+	for (int i = 0; i < nBuilds; i++ )
+	{
+		BuildingLog* buildLog = m_BuildingLogMap.pfind(buildids[i]);
+		if (!buildLog)
+		{
+			const Building* buildingpro = sBuildingManager.GetBuildingById(buildids[i]);
+			if (buildingpro)
+			{
+				BuildingLog* newBuildLog = new BuildingLog(buildingpro);
+				if (newBuildLog)
+				{
+					AddBuildingLog(newBuildLog);
+				}
+			}
+		}
+	}
+}
+
+bool ModuleLog::CanBuildingLvUp( uint32 buildId,uint32 curPlayerLv )
+{
+	BuildingLog* buildLog = m_BuildingLogMap.pfind(buildId);
+	if (buildLog)
+	{
+		if (buildLog->IsRechMaxLv() || buildLog->PlayerLvReq() > curPlayerLv || buildLog->CurLv() >= curPlayerLv)
+		{
+			return false;
+		}
+
+		return true;
+	}
+	return false;
+}
+
+uint32 ModuleLog::TimeType() const
+{
+	return m_pModuleProto->TimeType();
+}
+
+uint32 ModuleLog::IncomeType() const
+{
+	return m_pModuleProto->IncomeType();
+}
+
+uint32 ModuleLog::IcomeBase() const
+{
+	uint32 IcomSum = 0;
+	BuildingLogMap::const_iterator it = m_BuildingLogMap.begin();
+	for (; it != m_BuildingLogMap.end(); ++it)
+	{
+        if (const BuildingLog* pBuilding = it->second)
+		{
+			IcomSum += pBuilding->Icome();
+		}
+	}
+    return IcomSum;
+}
+uint32 ModuleLog::Icome() const
+{
+	uint32 IcomSum = IcomeBase();
+	if (m_curGainMode == 0)
+	{
+		return IcomSum;
+	}
+	const PlayerBuffTable* pCurBuff = PlayerBuffTable::GetTable(m_curGainMode);
+	if (pCurBuff)
+	{
+		float IcomeGrowBuff = pCurBuff->GetBuffValue1();
+		time_t curTime = sOS.GetRealTime();
+		if (curTime > m_expireTime)
+		{
+			IcomeGrowBuff = 1.0f;
+		}
+		return (uint32)(IcomSum*IcomeGrowBuff);
+	}
+	return IcomSum;
+}
+
+uint32 ModuleLog::IcomeLimit() const
+{
+	uint32 IcomLimitSum = 0;
+	BuildingLogMap::const_iterator buildingIter = m_BuildingLogMap.begin();
+	for (; buildingIter != m_BuildingLogMap.end(); ++buildingIter)
+	{
+		const BuildingLog* pBuilding = buildingIter->second;
+		if (pBuilding)
+		{
+			IcomLimitSum += pBuilding->IcomeLimit();
+		}
+	}
+	return IcomLimitSum;
+}
+
+uint32 ModuleLog::CurGainBuffId() const
+{
+	return m_curGainMode;
+}
+
+void ModuleLog::SetSartGainTimerTime( time_t time )
+{
+   m_starGainTime = time;
+}
+
+time_t ModuleLog::GetSartGainTimerTime()
+{
+	return m_starGainTime;
+}
+void ModuleLog::SetGainValue( uint32 value )
+{
+	//NLOG("ModuleLog::SetGainValue value=%d",value);
+	m_gainValue = value;
+}
+
+uint32 ModuleLog::GetGainValue()
+{
+	return m_gainValue;
+}
+
+void ModuleLog::SetRebuildState( bool isRebuild )
+{
+	m_isRebuild = isRebuild;
+}
+
+void ModuleLog::ResetExpireTime()
+{
+	m_expireTime  = sOS.GetRealTime();
+}
+
+uint32 ModuleLog::GetBuildCurLv( uint32 buildindId )
+{
+	BuildingLog* buildLog = m_BuildingLogMap.pfind(buildindId);
+	if (buildLog )
+	{
+		return buildLog->CurLv();
+	} 
+	return 0;
+}
+
+bool ModuleLog::AddExpireTime( uint32 buffid, uint32 expTime)
+{
+	if (expTime > 0 )
+	{
+		time_t curTime = sOS.GetRealTime();
+		if (m_curGainMode != buffid)
+		{
+			m_curGainMode = buffid;
+			m_expireTime  = curTime;
+		}
+		if (m_expireTime < curTime)
+		{
+			m_expireTime = curTime;
+		}
+		m_expireTime += expTime;
+		return true;
+	}
+	return false;
+}
+
+void ModuleLog::GetMinLevelUpBuildIds(std::vector<uint32>& vec,uint32 moduleId,uint32 limitTimes,uint32 curPlayerLv, ModuleLvUpInfo& curLvUpIds)
+{
+	uint32 curIdCoount = 0;
+	for (ModuleLvUpInfo::iterator iter = curLvUpIds.begin(); iter != curLvUpIds.end(); ++iter)
+	{
+		curIdCoount += iter->second.size();
+	}
+	if(curIdCoount >= MAXBUILDINGLVUPHAMMERS)
+		return;
+	uint32 curLimitTime = 0;
+	if (limitTimes > 0)
+	{
+		curLimitTime = MAXBUILDINGLVUPHAMMERS - curIdCoount;
+		curLimitTime = curLimitTime > limitTimes ? limitTimes : curLimitTime;
+	}
+	else
+	{
+		return;
+	}
+	std::vector<BuildingLog*> buildlogarry;
+	BuildingLogMap::iterator buildingIter = m_BuildingLogMap.begin();
+	for (; buildingIter != m_BuildingLogMap.end(); ++buildingIter)
+	{
+		BuildingLog* pBuilding = buildingIter->second;
+		if (pBuilding->IsRechMaxLv() || pBuilding->PlayerLvReq() > curPlayerLv || pBuilding->CurLv() >= curPlayerLv)
+		{
+			continue;
+		}
+		buildlogarry.push_back(pBuilding);
+	}
+
+	//std::copy(m_BuildingLogMap.begin(), m_BuildingLogMap.end(), boost::bind(&std::back_inserter(buildlogarry),boost::bind(&BuildingLogMap::value_type::second,_1)));
+
+	uint32 nIdAdded = 0;
+	int nBuild = buildlogarry.size();
+	if (nBuild == 0)
+	{
+		return;
+	}
+	else if (nBuild == 1)
+	{
+		BuildingLog* pBuilding = buildlogarry[0];
+		if ((curLvUpIds[moduleId].find(pBuilding->id()) == curLvUpIds[moduleId].end()) && curIdCoount < MAXBUILDINGLVUPHAMMERS && nIdAdded < curLimitTime)
+		{
+			vec.push_back(pBuilding->id());
+			nIdAdded++;
+			curLvUpIds[moduleId].insert(pBuilding->id());
+		}
+	}
+	else if (nBuild > 1)
+	{
+		std::sort(buildlogarry.begin(),buildlogarry.end(),boost::bind(std::less<uint32>(),boost::bind(&BuildingLog::CurLv,_1),boost::bind(&BuildingLog::CurLv,_2)));
+		for (int i = 0; i< nBuild && curIdCoount < MAXBUILDINGLVUPHAMMERS && nIdAdded < curLimitTime ; i++)
+		{
+			BuildingLog* pBuilding = buildlogarry[i];
+			if (curLvUpIds[moduleId].find(pBuilding->id()) != curLvUpIds[moduleId].end())
+			{
+				continue;
+			}
+			vec.push_back(pBuilding->id());
+			nIdAdded++;
+			curLvUpIds[moduleId].insert(pBuilding->id());
+			curIdCoount++;
+		}
+	}
+}
+
+bool ModuleLog::GetBuildingLvUpReq( uint32 buildId,uint32& coinReq, uint32& woodReq )
+{
+	BuildingLog* buildLog = m_BuildingLogMap.pfind(buildId);
+	if (buildLog)
+	{
+		return buildLog->LvUpReq(coinReq,woodReq);
+	} 
+	return false;
+}
+
+void  ModuleLog::CheckBuildingIsUnlock( uint32 player_lv )
+{
+	BuildingLogMap::const_iterator buildingIter = m_BuildingLogMap.begin();
+	for (; buildingIter != m_BuildingLogMap.end(); ++buildingIter)
+	{
+		BuildingLog* pBuilding = buildingIter->second;
+		if (pBuilding)
+		{
+			 pBuilding->CheckBuildingIsUnlock(player_lv);
+		}
+	}
+}
+
+const BuildingLogMap& ModuleLog::GetBuildingLogMap() const
+{
+	return m_BuildingLogMap;
+}
+
+bool ModuleLog::IsBuildingUnlock()
+{
+	if(m_BuildingLogMap.size()>0)
+	{
+		BuildingLogMap::const_iterator buildingIter = m_BuildingLogMap.begin();
+		for(; buildingIter!=m_BuildingLogMap.end();  buildingIter++)
+		{
+			BuildingLog* pBuilding = buildingIter->second;
+			if(pBuilding && pBuilding->IsUnlock())
+				return true;
+		}
+	}
+	return false;
+}

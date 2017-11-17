@@ -1,0 +1,40 @@
+package pb;
+import "Country.proto";
+
+message ExpeditionNpc
+{
+	optional uint32 country_id = 1;
+	optional uint32 npc_table_id = 2;
+	optional uint32 expeid = 3;
+}
+
+message callUPInfo
+{
+	optional uint64 m_unique_callid = 1;
+	optional uint32 country_call_up = 2;
+	optional uint64	callup_end_time = 3;
+}
+
+message Struct_City_Info
+{
+	required uint32 city_id 		= 1;//城池id
+	optional uint32 country			= 2;//所属国家//1匈奴-虫族 2罗马-人族 3大汉-神族 4蛮族
+	optional uint32 status 			= 3;
+	optional uint32 combat_group_id = 4;
+	repeated ExpeditionNpc exNpcs 	= 5;
+	repeated callUPInfo m_call_info = 6;
+	repeated callUPInfo m_monster_call_info = 7;
+}
+
+message GS2C_City_All_Info
+{
+	repeated Struct_City_Info city_lst = 1;//城池列表
+	repeated uint64 call_up_down_list = 2;	//已经点击过的征召id
+	repeated GS2C_Notice_Country_NPC_NextTime npc_time = 3;
+	repeated uint64 monster_call_up_down_lst = 4;	//已经用过的蛮王令列表
+}
+
+message GS2C_City_Update_Info
+{
+	required Struct_City_Info city 	= 1;
+}

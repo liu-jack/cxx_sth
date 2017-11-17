@@ -1,0 +1,122 @@
+package pb;
+import "CommomDef.proto";
+
+
+//征收
+message C2GS_Market_Collect 
+{
+    required uint32 table_id  =1;
+	required uint32 coll_times = 2;
+}
+message GxDB_Market_Collect_Info
+{
+	optional uint32 table_id = 1; //id
+	optional uint32 times = 2;	//征收次数
+}
+
+message GS2C_Iron_Collect
+{
+	optional uint32 item_id = 1;//道具是ItemId
+	optional uint64 use_time = 2;//道具使用的时间
+	optional uint32 left_times = 3;//剩余次数
+}
+
+message GS2C_Market_Collect
+{
+	repeated PairValue value = 1;///first 是数量，second 是暴击倍数
+	repeated GxDB_Market_Collect_Info info = 2;
+	repeated GS2C_Iron_Collect iron_collect_info = 3; // 
+	optional uint32 ret = 4;//0 成功  1失败
+}
+
+//集市
+message MarketBuyContent
+{
+    required uint32 cost_typ    =1;
+    required uint32 cost_val    =2;
+    required uint32 give_typ    =3;
+    required uint32 give_val    =4;
+    required uint32 quality     =5;
+}
+message C2GS_Market_Buy
+{
+    required uint32 idx  =1;
+}
+message GS2C_Market_Buy
+{
+    required uint64 left_num_add_time       =1; //上次增加购买次数的时刻
+    required uint64 content_refresh_time    =2; //上次商品刷新的时刻
+    repeated MarketBuyContent content       =3;
+}
+
+
+//黑市
+message C2GS_Market_Black 
+{
+    required uint32 table_id  =1;
+    required uint32 idx       =2; //第一、第二种资源
+}
+message GS2C_Market_Black
+{
+    required uint64 time     =1; //过点能交易的时刻
+    optional StReward reward =2;
+}
+
+//点券兑换
+message C2GS_Market_Ticket_Change
+{
+    required uint32 table_id  =1;
+}
+
+//神秘商店
+message C2GS_Market_Mystery_Shop_Invest //投资
+{
+    required uint32 table_id  =1;
+}
+message C2GS_Market_Mystery_Shop_Take_Item //领奖
+{
+    required uint32 table_id  =1;
+}
+message GS2C_Market_Mystery_Shop_Take_Item
+{
+    required uint32 table_id    =1;
+    required uint32 reward_id   =2;
+    required uint32 reward_cnt  =3;
+}
+message GS2C_Market_Mystery_Shop
+{
+    repeated uint32 progress        = 1; //商品进度
+    repeated uint64 take_item_time  = 2; //投资时刻
+    repeated PairValue suits_part   = 3; //玩家获得过的套装残页数目<itemId, cnt>
+}
+
+
+
+
+message GS2C_Market_All_Info
+{
+    optional GS2C_Market_Collect    collect =1;
+    optional GS2C_Market_Buy        buy     =2;
+    optional GS2C_Market_Black      black   =3;
+    optional GS2C_Market_Mystery_Shop mystery =4;
+}
+
+
+////铁矿征收活动
+message C2GS_Activity_Iron_Collect_Reward
+{
+	required uint32 id = 1;
+}
+
+enum IRON_COLLECT_RESULT
+{
+	COLLECT_REWARD_SUCCESS = 1;
+	COLLECT_REWARD_HAS_TAKE = 2;
+	COLLECT_REWARD_OTHER_REASON = 3;
+}
+message GS2C_Activity_Iron_Collect_Reward_Rsp
+{
+	repeated StReward reward = 1;
+	required IRON_COLLECT_RESULT ret = 2;
+	repeated GS2C_Iron_Collect info = 3;
+}

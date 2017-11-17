@@ -1,0 +1,43 @@
+/************************************************************************/
+/*Add by:zhoulunhao													*/
+/*Email	:zhoulunhao@hotmail.com											*/
+/************************************************************************/
+
+#pragma once
+#include "def/TypeDef.h"
+#include "ptr_container/PtrMap.h"
+
+struct DB_Science;
+class TecTable {
+public:
+    const DB_Science&   m_db;
+    IntPairVec          m_StarCost;
+    IntPairVec          m_AttrReward;
+    std::vector<int>    m_Trigger;
+public:
+    explicit TecTable(const DB_Science& db);
+    uint32 Id() const;
+	uint32 TypeId() const;
+    uint32 NeedStarCnt() const;
+    uint32 NeedTimeSec() const;
+    uint32 Value1() const;
+    uint32 Value2() const;
+    uint32 Value3() const;
+};
+
+
+typedef PtrMap<int, const TecTable>     TechnologyMap;
+class TechnologyTableMgr {
+private:
+    TechnologyMap      m_TechnologyMap;		//id´Ó1¿ªÊ¼
+
+public:
+    static TechnologyTableMgr& Instance(){ static TechnologyTableMgr T; return T; }
+
+    void Init();
+    const TecTable* GetTable(uint32 id);
+	const uint32 GetTableSize();
+	const TechnologyMap& GetTechnologyMap() const;
+	bool IsTechIdValid(const uint32 tech_id);
+};
+#define sTechnologyTableMgr TechnologyTableMgr::Instance()

@@ -1,0 +1,318 @@
+/************************************************************************/
+/*Add by:zhoulunhao													*/
+/*Email	:zhoulunhao@hotmail.com											*/
+/************************************************************************/
+#include "ActivityControl/ActivityMgr.h"
+#include "def/ObjectDefines.h"
+#include "OS.h"
+#include "GameServer.h"
+#include "server_client/EventLogServerClient.h"
+#include "def/EventLogDefine.h"
+#include "utility/TimeParser.h"
+void ActivityMgr::Init()
+{
+	cur_server_id_ = sGameSvr.GetServerId();
+	cur_region_id_ = sGameSvr.GetRegionId();
+	activity_num_peopel_.resize(pb::NR_ACTIVITY-1);
+}
+
+///此文件中返回的time_t时间都是当地时间戳
+
+void ActivityMgr::UpdateInfo(const pb::SC2G_activity_package& info)
+{
+	for(int i = 0;i < info.activity_proto_size();++i)
+	{
+		const pb::SC2G_activity_proto& ac_proto_info = info.activity_proto(i);
+		activity_proto ac_proto(ac_proto_info.reward_type(),ac_proto_info.act_type_id());
+		InsertOrUpdateItem<uint64,activity_proto>(activity_log_pack_.activity_proto_map_,ac_proto_info.table_id(),ac_proto);
+	}
+	for(int i = 0;i < info.activity_reward_size();++i)
+	{
+		const pb::SC2G_activity_reward& ac_reward_info = info.activity_reward(i);
+		activity_reward ac_reward(ac_reward_info.activity_id(),ac_reward_info.cost_price(),ac_reward_info.is_has_discount(),ac_reward_info.cost_discount(),
+			ac_reward_info.conditon(),ac_reward_info.reward_list());
+		InsertOrUpdateItem<uint64,activity_reward>(activity_log_pack_.activity_reward_map_,ac_reward_info.table_id(),ac_reward);
+	}
+	for(int i = 0;i < info.activity_plan_size();++i)
+	{
+		const pb::SC2G_activity_plan& ac_plan_info = info.activity_plan(i);
+		if(ac_plan_info.open_way() == REGIST_WAY)
+		{
+			cur_activity cur_ac_(ac_plan_info.activity_id(),ac_plan_info.open_way(),ac_plan_info.start_time(),
+				ac_plan_info.last_time(),ac_plan_info.show_time(),ac_plan_info.need_greater_than_open(),ac_plan_info.need_less_than_open(),ac_plan_info.stage_area());
+			InsertOrUpdateItem<uint64,cur_activity>(activity_log_pack_.cur_activity_map_,ac_plan_info.table_id(),cur_ac_);
+		}
+		else if(ac_plan_info.open_way() == MANAL_AN_TIME_WAY)
+		{
+			cur_activity cur_ac_(ac_plan_info.activity_id(),ac_plan_info.open_way(),ac_plan_info.start_date(),
+				ac_plan_info.end_date(),ac_plan_info.end_show_date(),ac_plan_info.need_greater_than_open(),ac_plan_info.need_less_than_open(),ac_plan_info.stage_area());
+			InsertOrUpdateItem<uint64,cur_activity>(activity_log_pack_.cur_activity_map_,ac_plan_info.table_id(),cur_ac_);
+		}
+	}
+	for(int i = 0;i < info.server_open_time_size();++i)
+	{
+		const pb::SC2G_server_open_time& server_open_time_info = info.server_open_time(i);
+		server_open_time ser_op_time(server_open_time_info.server_id(),server_open_time_info.open_time());
+		InsertOrUpdateItem<uint64,server_open_time>(activity_log_pack_.server_open_time_map_,server_open_time_info.table_id(),ser_op_time);
+	}
+	EraseOutOfDate();
+}
+
+void ActivityMgr::LoadFrom( const pb::SC2G_activity_package& info )
+{
+	UpdateInfo(info);
+}
+
+void ActivityMgr::EraseOutOfDate()
+{
+	time_t open_time = GetOpenTimeById(cur_server_id_);
+	time_t cur_time = sOS.TimeSeconds();
+	for(std::map<uint64,cur_activity>::const_iterator iter = activity_log_pack_.cur_activity_map_.begin();
+		iter != activity_log_pack_.cur_activity_map_.end();)
+	{
+		std::pair<time_t,time_t> pair_time;
+		GetActivityStartAndEndTime(iter,pair_time);
+		if(iter->second.need_than_greater_time_ == 0 || iter->second.need_than_less_time_ == 0)
+		{
+			if(cur_time > pair_time.second)
+			{
+				activity_log_pack_.cur_activity_map_.erase(iter++);
+			}
+			else
+				++iter;
+		}
+		else
+		{
+			if(cur_time > pair_time.second && !IsCurTimeBetweenOffTime(iter,cur_time,open_time))
+			{
+				activity_log_pack_.cur_activity_map_.erase(iter++);
+			}
+			else
+				++iter;
+		}
+		
+	}
+}
+
+uint32 ActivityMgr::GetRewardType( const uint32 activity_id ) const
+{
+	std::map<uint64,activity_proto>::const_iterator iter = activity_log_pack_.activity_proto_map_.begin();
+	for(;iter != activity_log_pack_.activity_proto_map_.end();++iter)
+	{
+		if(iter->second.act_enum_id_ == activity_id)
+			return iter->second.reward_type_;
+	}
+	return 0;
+}
+
+time_t ActivityMgr::GetOpenTimeById( const uint32 server_id ) const
+{
+	std::map<uint64,server_open_time>::const_iterator iter = activity_log_pack_.server_open_time_map_.begin();
+	for(;iter != activity_log_pack_.server_open_time_map_.end();++iter)
+	{
+		if(iter->second.server_id_ == server_id)
+			return iter->second.open_time_;
+	}
+	return 0;
+}
+
+bool ActivityMgr::ActivityIdIsValid(const uint32 activity_id) const 
+{
+	switch(activity_id)
+	{
+	case pb::ACTIVITY_IRON_COLLECT:
+	case pb::ACTIVITY_LIMTED_TIME_SHOP:
+	case pb::ACTIVITY_MAKE_FRIENDS:
+	case pb::ACTIVITY_STAR_BOX:
+	case pb::ACTIVITY_XILIAN:
+	case pb::ACTIVITY_HERO_REWARD:
+	case pb::ACTIVITY_MONEY_TO_GOLD:
+	case pb::ACTIVITY_ADD_SOLIDER_RANK:
+	case pb::ACTIVITY_OCCUPATION_RANK:
+	case pb::ACTIVITY_COUNTRY_RANK:
+		return true;
+	default:
+		return false;
+	}
+}
+
+const ActivityPack& ActivityMgr::GetActivityPack() const
+{
+	return activity_log_pack_;
+}
+
+int ActivityMgr::GetCurServerId() const
+{
+	return cur_server_id_;
+}
+#ifdef _MMO_SERVER_
+bool ActivityMgr::IsActivityActive( const uint32 activity_id,std::pair<time_t,time_t>* pair_time_temp/* = NULL*/ )///返回一个可用的开启和结束时间
+{
+	time_t cur_time = sOS.TimeSeconds();
+	time_t open_time = GetOpenTimeById(cur_server_id_);
+	std::map<uint64,cur_activity>::const_iterator iter = activity_log_pack_.cur_activity_map_.begin();
+	for(;iter != activity_log_pack_.cur_activity_map_.end();)
+	{
+		if(iter->second.activity_id_ == activity_id)
+		{
+			std::pair<time_t,time_t> pair_time;
+			GetActivityStartAndEndTime(iter,pair_time);
+			if(pair_time_temp != NULL)
+			{
+				*pair_time_temp = pair_time;
+			}
+			if(cur_time <= pair_time.second && cur_time >= pair_time.first 
+				&& IsCurTimeBetweenOffTime(iter,cur_time,open_time))
+				return true;
+			else
+			{
+				if(cur_time > pair_time.second)
+				{
+					activity_log_pack_.cur_activity_map_.erase(iter);
+				}
+				return false;
+			}
+		}
+		else
+			++iter;
+	}
+	return false;
+}
+#endif
+
+bool ActivityMgr::IsCurTimeBetweenOffTime( std::map<uint64,cur_activity>::const_iterator &iter,time_t cur_time,time_t open_time) const
+{
+	if(iter->second.need_than_greater_time_ == 0 || iter->second.need_than_less_time_ == 0)
+	{
+		return true;
+	}
+	else
+	{
+		if(cur_time >= open_time + iter->second.need_than_greater_time_* ONE_DAY_SECOND && 
+			cur_time <= open_time + iter->second.need_than_less_time_ * ONE_DAY_SECOND)
+		{
+			return true;
+		}
+		return false;
+	}
+}
+///对齐到午夜12点
+time_t ActivityMgr::getDiffSecondFromNextDayZero( const time_t& server_open_time)
+{
+	struct tm struct_tm;
+	sOS.LocalTime(struct_tm,server_open_time);
+	if(struct_tm.tm_sec != 0)
+		struct_tm.tm_sec = 0;
+	if(struct_tm.tm_min != 0)
+		struct_tm.tm_min = 0;
+	if(struct_tm.tm_hour != 0)
+		struct_tm.tm_hour = 0;
+	time_t time_now  = ::mktime(&struct_tm);
+	time_t time_diff  = ONE_DAY_SECOND - (server_open_time - time_now);
+	return time_diff;
+}
+
+void ActivityMgr::GetActivityStartAndEndTime(std::map<uint64,cur_activity>::const_iterator &iter,std::pair<time_t,time_t>& pair_time )
+{
+	time_t open_time = GetOpenTimeById(cur_server_id_);
+	time_t endTime= 0;
+	time_t startTime = 0;
+	time_t time_diff = getDiffSecondFromNextDayZero(open_time);
+	if(iter->second.open_way_ == REGIST_WAY)
+	{
+		if(iter->second.start_date_ == 1)
+		{
+			startTime = open_time;
+			endTime = startTime + time_diff + iter->second.end_date_ * ONE_DAY_SECOND;
+		}
+		else
+		{
+			startTime = open_time + time_diff + (iter->second.start_date_ - 1 - 1 ) * ONE_DAY_SECOND;
+			endTime = startTime + (iter->second.end_date_ + 1)  * ONE_DAY_SECOND;
+		}
+	}
+	else if(iter->second.open_way_ == MANAL_AN_TIME_WAY)
+	{
+		startTime = iter->second.start_date_;
+		endTime = iter->second.end_date_;
+	}
+	pair_time.first = startTime;
+	pair_time.second = endTime;
+}
+
+
+const char* ActivityMgr::get_activity_name(const int activity_id)
+{
+	switch(activity_id)
+	{
+	case pb::ACTIVITY_IRON_COLLECT:
+		return "iron collect";
+	case pb::ACTIVITY_LIMTED_TIME_SHOP:
+		return "limited time shop";
+	case pb::ACTIVITY_MAKE_FRIENDS:
+		return "visit celebrity";
+	case pb::ACTIVITY_STAR_BOX:
+		return "star box";
+	case pb::ACTIVITY_XILIAN:
+		return "xilian activity";
+	case pb::ACTIVITY_HERO_REWARD:
+		return "hero reward";
+	case pb::ACTIVITY_MONEY_TO_GOLD:
+		return "recharge rebate";
+	case pb::ACTIVITY_COUNTRY_RANK:
+		return "country_rank";
+	case pb::ACTIVITY_ADD_SOLIDER_RANK:
+		return "add soldier rank";
+	case pb::ACTIVITY_OCCUPATION_RANK:
+		return "occupation rank";
+	default:
+		return "unknown activity";
+	}
+}
+void ActivityMgr::MarkTakeInActivity(const int activity_id,const uint64 playerId)
+{
+	activity_num_peopel_[activity_id-1].insert(playerId);
+}
+
+size_t ActivityMgr::GetActivityPeopleCount(const int activity_id)
+{
+	return activity_num_peopel_[activity_id-1].size();
+}
+
+void ActivityMgr::addToEventLog(int paramCount, ...)
+{
+	EventLogInfo evtMsg;
+	evtMsg.event_id = pb::EVENT_PLAYER_ACTIVITY;
+	evtMsg.account_id = 0;
+	evtMsg.player_id = 0;
+	va_list vlist;
+	va_start(vlist, paramCount);
+	sEventLogClient.SendEvent( evtMsg, paramCount, vlist, true);
+	va_end(vlist);
+}
+void ActivityMgr::UpdateToEventLog()
+{
+	for(int i = 1;i < pb::NR_ACTIVITY;++i)
+	{
+		std::pair<time_t,time_t> pair_time;
+		if(!IsActivityActive(i,&pair_time))
+		{
+			if(!activity_num_peopel_[i-1].empty())
+			{
+				string start( "1970-01-01 08:00:00" ),end( "1970-01-01 08:00:00" );
+				TimeT2String(pair_time.first,start);
+				TimeT2String(pair_time.second,end);
+				addToEventLog(
+					5,
+					"i",i,
+					"s",get_activity_name(i),
+					"u",GetActivityPeopleCount(i),
+					"s",start.c_str(),
+					"s",end.c_str()
+					);
+				activity_num_peopel_[i-1].clear();
+			}
+		}
+	}
+}
+

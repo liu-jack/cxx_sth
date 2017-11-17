@@ -1,0 +1,77 @@
+#ifndef _COMBAT_BUFF_
+#define _COMBAT_BUFF_
+#include "def/TypeDef.h"
+#include "ptr_container/PtrMap.h"
+
+namespace pb
+{
+	class Combat_Buff_AllInfo;
+	class GS2C_Combat_Select_Tactic;
+}
+
+namespace Combat {
+
+enum BuffType		//buff类型，与buff_type对应
+{
+	None = 0,
+	defenceup = 16,	//增益buff  //加防
+	confuse = 29,	//混乱
+	percentdamage = 30,	//百分比伤害
+	fixeddamage = 31,	//固定伤害
+};
+
+struct BuffInfo
+{
+	uint32 buffId;
+	BuffType buffTyp;	//buff类型
+	uint32 buffRange;	//buff作用排数
+	uint32 buffRemain;	//buff剩余持续作用回合数
+	uint32 buffLevel;	//buff等级
+	float  value1;
+	float  value2;
+	float  value3;
+	uint32 form;
+	uint32 to;
+	BuffInfo()
+		:buffId(0)
+		,buffTyp(None)
+		,buffRange(0)
+		,buffRemain(0)
+		,value1(0.0)
+		,value2(0.0)
+		,value3(0.0)
+		,form(0)
+		,to(0)
+	{
+	}
+};
+
+class FBuff
+{
+	typedef std::map<uint32, BuffInfo> FBuffMap;
+public:
+
+	bool HaveBuff(uint32 id) const; //根据buff id判断是否有该buff
+	bool HaveBuff(BuffType typ) const; //根据bufftype判断是否有该buff  用于检测冲突
+	void AddBuff(uint32 buffid, uint32 rangenum, uint32 form, uint32 to);
+	void DelBuff(uint32 buffid);
+
+	void RefreshByRound();		//每回合结束刷新一次
+	void RefreshByRange();		//每排兵死亡的时候刷新一次
+
+	bool IsBuffEmpty();
+
+	void ClearAllBuff();
+
+	const BuffInfo* GetBuffInfo(BuffType typ);	//根据type获得buff信息
+
+	void FillBuffInfoMsg(pb::Combat_Buff_AllInfo& msg, uint32 startrow);
+	void FillBuffInfoMsg(pb::GS2C_Combat_Select_Tactic& msg, uint32 startrow);
+
+private:
+	FBuffMap m_buff;  //<buffid,buffinfo>
+};
+
+}
+
+#endif

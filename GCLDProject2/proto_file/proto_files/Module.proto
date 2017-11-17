@@ -1,0 +1,84 @@
+package pb;
+
+message GxDB_Module
+{
+	optional uint32 module_id = 1;
+	optional uint32 gain_mode = 2; // buff_id
+	optional uint64 expire_time =3;// buff 到期时间
+	optional bool is_rebuild =4;// 是否已改造
+	optional uint64 gain_start_time =5;//收益开始计时时间
+	optional uint32 gain_value = 6;//单次收益量
+}
+
+message GxDB_Building
+{
+	optional uint32 building_id = 1;
+	optional uint32 building_lv = 2;
+	optional uint64 lvup_start_time = 3;
+	optional bool is_rebuild =4;// 是否已改造
+}
+
+message GxDB_Modules_Info
+{
+	repeated GxDB_Module            module_arr      =1;
+}
+
+message GxDB_Buildings_Info
+{
+	repeated GxDB_Building         building_arr      =1;
+}
+
+message C2GS_Building_State
+{
+	optional uint32 module_id = 1;
+}
+
+message GS2C_Building_State
+{
+	optional GxDB_Module module = 1;
+	repeated GxDB_Building building_state = 2;
+	optional uint32 remain_auto_times = 3;
+}
+
+message C2GS_Building_Level_Up
+{
+	required bool is_auto = 1;
+	optional uint32 building_id = 2;
+	optional uint32 module_id = 3;
+}
+
+message GS2C_Building_Level_Up_Begin
+{
+	message lv_up_info
+	{
+	  optional uint32 building_id = 1;
+	  optional uint64 lvup_start_time = 2;
+	}
+	optional uint32 module_id = 1;
+	optional uint32 remain_auto_times = 2;
+	repeated lv_up_info build_state = 3;
+}
+
+message GS2C_Building_Level_Up
+{
+	required uint32 building_id = 1;
+	required uint32 module_id = 2;
+	required uint32 building_lv = 3;
+}
+
+message GS2C_Building_Gold_Hammer
+{
+	repeated GS2C_Building_Level_Up building_lv_up = 1;
+}
+
+message GS2C_Module_Buy_Gain_Mode_Res
+{
+	required uint32         error_code = 1; // 错误类型  CxGS_ERROR_CODE
+	optional GxDB_Module    module_Info = 2; 
+}
+
+message GS2C_Building_Update
+{
+	required uint32 module_id = 1;
+	optional GxDB_Building    building_info = 2;
+}

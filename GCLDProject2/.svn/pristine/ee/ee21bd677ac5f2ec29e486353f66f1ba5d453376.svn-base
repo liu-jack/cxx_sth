@@ -1,0 +1,62 @@
+#pragma once
+#include "combat_define.h"
+#include <list>
+#include "def/TypeDef.h"
+class Character;
+namespace pb
+{
+	class GS2C_Combat_Select_Tactic;
+	class Combat_Damage;
+	class Combat_Reward;
+	class Combat_Buff_AllInfo;
+}
+
+namespace Combat{
+
+class CombatObj;
+class CombatGroup;
+//class Player;
+//计算战斗中应考虑玩家的科技水平
+class Calc {
+public:
+    static Calc& Instance(){ static Calc T; return T; }
+
+    //战斗过程相关的计算------------------------------------------------------
+    void Attack(CombatGroup* pGroup, CombatObj* attacker, CombatObj* defender, pb::GS2C_Combat_Select_Tactic& msg, CombatType tpy);
+	//void UseSkill(GroupLst& attacker, GroupLst& defender, bool isAllUseSkill, pb::GS2C_Combat_Select_Tactic& msg);
+	void UseSkill(CombatGroup* pGroup, GroupLst& attacker, GroupLst& defender, bool isAttakcerUseSkill, bool isDefenderUserSkill, pb::GS2C_Combat_Select_Tactic& msg, CombatType tpy);
+	bool CheckDead(CombatGroup* pGroup, CombatObj* obj, CombatObj* killer, pb::GS2C_Combat_Select_Tactic& msg, bool isKillerAtt);	//常规伤害检测
+    //bool CheckDead(GroupLst& lst);	//仅检查第一排 RefreshSoldiers
+	bool CheckDead(CombatGroup* pGroup, CombatObj* obj, CombatObj* killer, pb::Combat_Buff_AllInfo& msg, bool isKillerAtt);	//buff伤害检测
+
+	//阶段奖励结算 不写入数据库，只做通知用
+	void CalcAwardsOneStep(CombatGroup* pGroup,CombatObj& attacker,CombatObj* defender, pb::Combat_Reward* awards, CombatType typ, int step,int damageone, int damagetwo = 0);
+
+	//返回是否结束当前回合
+	bool _BuffHurt(CombatGroup* pGroup,GroupLst& attackers, GroupLst& defenders, pb::Combat_Buff_AllInfo& msg, CombatType tpy);
+
+	void RefreshSoldiers(GroupLst& lst, CombatObj* killer, pb::GS2C_Combat_Select_Tactic& msg, bool isKillerAtt);	//buff后刷新
+	void RefreshSoldiers(GroupLst& lst, CombatObj* killer, pb::Combat_Buff_AllInfo& msg, bool isKillerAtt);	//常规伤害后刷新
+	void _GetBuffs(GroupLst& attackers, GroupLst& defenders, pb::Combat_Buff_AllInfo& msg);
+	void _GetBuffs(GroupLst& attackers, GroupLst& defenders, pb::GS2C_Combat_Select_Tactic& msg);
+private:
+    float CommonRatio(TacticEnum typ1, TacticEnum typ2); //战术加成
+    float CrashRatio(TacticEnum typ1, TacticEnum typ2);
+    bool  HaveCrashAddition(TacticEnum typ1, TacticEnum typ2);
+private:
+	void AttachBuffs(GroupLst& attacker, GroupLst& defender, uint32 attidx);	//附加buff
+    void _SkillHurt(CombatGroup* pGroup,CombatObj& attacker, GroupLst& lst, int defender, pb::GS2C_Combat_Select_Tactic& msg, CombatType tpy);	//defender受伤方，1位攻击方受伤，2位防守方受伤
+    int _CalcCrashHurt(CombatObj& attacker, CombatObj& defender);
+    int _CalcCommonHurt(CombatObj& attacker, CombatObj& defender, float tacticRatio);
+
+    void _DoHurt(CombatGroup* pGroup,CombatObj& attacker, CombatObj& defender, int attackerHurt, int defenderHurt, pb::GS2C_Combat_Select_Tactic& msg, CombatType tpy, int step);
+
+	//buff造成的伤害
+
+
+    //武将战斗属性相关------------------------------------------------------------
+public:
+};
+
+}
+#define sCombatCalc Combat::Calc::Instance()

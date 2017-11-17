@@ -1,0 +1,204 @@
+#include "ActivityStarBox.h"
+#include "Table/ActivityStarBoxTableMgr.h"
+#include "Activity.pb.h"
+#include "reward/reward.h"
+#include "../object/Player.h"
+#include "CrossLogic/PlayerActivityStarBoxDB.h"
+#include "Opcode.pb.h"
+#include "BaseDefineMgr.h"
+#include "ActivityControl/ActivityMgr.h"
+using namespace pb;
+
+OpHandler(CMSG_ACTIVITY_STAR_BOX_INFO)
+{
+	GS2C_ActivityStarBoxInfo msg;
+	m_ActivityStarBoxLog->SaveTo(this,msg);
+	Send(pb::SMSG_ACTIVITY_STAR_BOX_INFO_RSP,msg);
+}
+
+
+OpHandler(CMSG_ACTIVITY_STAR_BOX_TAKE_REWARD)
+{
+#ifdef _MMO_SERVER_
+	sActivityMgr.MarkTakeInActivity(pb::ACTIVITY_STAR_BOX,GetGuid());
+#endif
+	GS2C_ActivityStarBoxReward msg;
+	uint32 curr_score = GetActivityStarBoxExp();
+	uint32 id = sActivityStarBoxMgr.GetId(this);
+	uint32 curr_level = GetActivityStarBoxLevel();
+	if(id == 0) return;
+	const ActivityStarBox* ac_box = NULL;
+	const IntPairVec* vec = NULL;
+	if(UNLIKELY(m_ActivityStarBoxLog->HasTakeReward(id)))
+	{
+		msg.set_ret(2);
+	}
+	else
+	{
+		if(m_ActivityStarBoxLog->GetLeftTimesOfNpcTakeReward(id) != 0)
+		{
+			msg.set_ret(3);
+			goto SEND;
+		}
+		ac_box = sActivityStarBoxMgr.GetActivityStarBox(id);
+		if(!ac_box) 
+		{
+			return;
+		}
+		if(curr_score < ac_box->NeedScore())
+		{
+			msg.set_ret(4);
+			goto SEND;
+		}
+		vec = &ac_box->GetRewardList();
+		
+		for(IntPairVec::const_iterator iter = vec->begin();iter != vec->end();++iter)
+		{
+			pb::StReward * reward = msg.add_reward();
+			reward->set_type(iter->first);
+			reward->set_value(iter->second);
+		}
+		msg.set_times(ac_box->RewardTimes());
+		msg.set_ret(1);
+		m_ActivityStarBoxLog->UpdateTakeRewardToDb(id);
+
+		if(m_ActivityStarBoxLog->UpdateBoxLevel(this,id))
+		{
+			if(curr_level != sActivityStarBoxMgr.GetMaxStarLevel())
+			{
+				TryDeductStarBoxExp(static_cast<int>(ac_box->NeedScore()));//升完级，扣除分数
+			}
+			uint32 after_lv_up_id = sActivityStarBoxMgr.GetId(this);
+			const ActivityStarBox* new_ac_box = sActivityStarBoxMgr.GetActivityStarBox(after_lv_up_id);
+			if(!new_ac_box) 
+			{
+				return;
+			}
+			if(new_ac_box->NextLvNeedWaitTime() != 0)
+			{
+				m_ActivityStarBoxLog->UpdateNpcIsOpened(after_lv_up_id);
+			}
+		}
+	}
+SEND:
+	msg.set_star_level(GetActivityStarBoxLevel());
+	Send(pb::SMSG_ACTIVITY_STAR_BOX_TAKE_REWARD_RSP,msg);
+	for(uint32 i = 0;i < ac_box->RewardTimes();++i)
+	{
+		sReward.Change(*this,*vec);
+	}
+	
+	ActivityStarBoxStructMap& star_box_map = m_ActivityStarBoxLog->GetActivityStarBoxStructMap();
+	PlayerActivityStarBoxDb::SendUpdateInfoToDb(*this,id,star_box_map[id],pb::DATA_UPDATE);
+}
+
+
+OpHandler(CMSG_ACTIVITY_STAR_BOX_UP_LEVEL)
+{
+	GS2C_ActivityStarBoxLevelUp msg;
+	uint32 curr_score = GetActivityStarBoxExp();
+	uint32 cur_level = GetActivityStarBoxLevel();
+	uint32 id = sActivityStarBoxMgr.GetId(this);
+	if(id == 0) return;
+	const ActivityStarBox* ac_box = sActivityStarBoxMgr.GetActivityStarBox(id);
+	if(!ac_box) 
+	{
+		return;
+	}
+	if(UNLIKELY(curr_score >= ac_box->NeedScore()))
+	{
+		msg.set_result(pb::LEVEL_UP_SCORE_FULL);
+	}
+	else
+	{
+		uint32 need_score = ac_box->NeedScore();
+		if(need_score == 0)
+		{
+			return;
+		}
+		float percent = (need_score - curr_score) / static_cast<float>(need_score);
+		int32 need_gold = int32(percent * ac_box->QuickLvUpCost());
+		if(UNLIKELY(!TryDeductCurrency(pb::IR_ACTIVITY_STAR_BOX_LEVEL_UP_COST,eSysGold,need_gold)))
+		{
+			msg.set_result(pb::LEVEL_UP_NOT_ENOUGH_GOLD);
+		}
+		else
+		{
+			msg.set_result(pb::LEVEL_UP_SUCCESS);
+			//AddValueLimitByLimit(pb::PLAYER_FIELD_ACTIVITY_STAR_BOX_LEVEL,1,sActivityStarBoxMgr.GetMaxStarLevel());
+			if(curr_score < ac_box->NeedScore())
+				AddActivityStarBoxExp(ac_box->NeedScore() - curr_score);
+		}
+	}
+	Send(pb::SMSG_ACTIVITY_STAR_BOX_UP_LEVEL_RSP,msg);
+}
+
+OpHandler(CMSG_ACTIVITY_STAR_BOX_FINISH_COUNT_DOWN)
+{
+	GS2C_ActivityStarBoxFinishCountDown msg;
+	uint32 one_hour_need_gold = GET_BASE_DEF_UINT(pb::BD_STAR_BOX_QUICK_PASS_WAIT_TIME);
+	uint32 curr_score = GetActivityStarBoxExp();
+	uint32 id = sActivityStarBoxMgr.GetId(this);
+	if(id == 0) return;
+	const ActivityStarBox* ac_box = sActivityStarBoxMgr.GetActivityStarBox(id);
+	if(!ac_box) 
+	{
+		return;
+	}
+	int32 need_gold = one_hour_need_gold * ac_box->NextLvNeedWaitTime();
+	if(UNLIKELY(!TryDeductCurrency(pb::IR_ACTIVITY_STAR_BOX_FINISH_COUNT_DOWN_COST,eSysGold,need_gold)))
+	{
+		msg.set_result(pb::COUNT_DOWN_NOT_ENOUGH_GOLD);
+	}
+	else
+	{
+		msg.set_result(pb::COUNT_DOWN_SUCCESS);
+		AddValueLimitByLimit(pb::PLAYER_FIELD_ACTIVITY_STAR_BOX_LEVEL,1,sActivityStarBoxMgr.GetMaxStarLevel());
+		TryDeductStarBoxExp(static_cast<int>(ac_box->NeedScore()));//升完级，扣除分数
+	}
+	Send(pb::SMSG_ACTIVITY_STAR_BOX_FINISH_COUNT_DOWN_RSP,msg);
+}
+
+OpHandler(CMSG_ACTIVITY_STAR_BOX_NPC_REWARD)
+{
+	GS2C_ActivityStarNpcReward msg;
+	uint32 curr_score = GetActivityStarBoxExp();
+	uint32 id = sActivityStarBoxMgr.GetId(this);
+	if(id == 0) return;
+	const ActivityStarBox* ac_box = sActivityStarBoxMgr.GetActivityStarBox(id);
+	if(!ac_box) 
+	{
+		msg.set_ret(pb::REWARD_OTHER_REASON);
+	}
+	else
+	{
+		if(LIKELY(curr_score >= ac_box->NeedScore() || m_ActivityStarBoxLog->GetLeftTimesOfNpcTakeReward(id) == 0))
+		{
+			const IntPairVec& vec = ac_box->GetRewardList();
+			sReward.Change(*this,vec);
+			for(IntPairVec::const_iterator iter = vec.begin();iter != vec.end();++iter)
+			{
+				pb::StReward * reward = msg.add_reward();
+				reward->set_type(iter->first);
+				reward->set_value(iter->second);
+			}
+			m_ActivityStarBoxLog->UpdateTakeRewardToDb(id);
+			m_ActivityStarBoxLog->UpdateNpcTakeRewardTimes(id);
+			msg.set_left_times(m_ActivityStarBoxLog->GetLeftTimesOfNpcTakeReward(id));
+
+			if(msg.left_times() == 0)
+			{
+				m_ActivityStarBoxLog->UpdateLastTakeRewardTime(id);
+			}
+			msg.set_take_reward_time(sOS.GetRealTime());
+			msg.set_ret(pb::REWRAD_SUCCESS);
+			ActivityStarBoxStructMap& star_box_map = m_ActivityStarBoxLog->GetActivityStarBoxStructMap();
+			PlayerActivityStarBoxDb::SendUpdateInfoToDb(*this,id,star_box_map[id],pb::DATA_UPDATE);
+		}
+		else
+		{
+			msg.set_ret(pb::REWARD_CANT_TAKE);
+		}
+	}
+	Send(pb::SMSG_ACTIVITY_STAR_BOX_NPC_REWARD_RSP,msg);
+}

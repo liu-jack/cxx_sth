@@ -1,0 +1,295 @@
+/************************************************************************/
+/*Add by:zhoulunhao													*/
+/*Email	:zhoulunhao@hotmail.com											*/
+/************************************************************************/
+
+#include "ExploitMgr.h"
+#include "DbTool.h"
+#include "../session/PlayerPool.h"
+#include "../object/Player.h"
+//#include "../AutomaticUpdate/AutomaticUpdate.h"
+#include "../Technology/PlayerTechnology.h"
+#include "../CrossLogic/PlayerLootLogic.h"
+
+#include "Loot/LootManager.h"
+#include "Loot/LootList.h"
+#include "item/ItemArray.h"
+#include "item/ItemEquip.h"
+#include "server_client/DbProxyServerClient.h"
+#include "quest/behavior/PlayerBehaviorCounter.h"
+#include "Technology/Table/TechnologyTableMgr.h"
+#include "Technology/PlayerTechnology.h"
+#include "reward/reward.h"
+#include "Exploit/TrickReward.h"
+#include "utility/Utility.h"
+#include "SysEvent/SysEventMgr.h"
+#include "BaseDefine.pb.h"
+#include "BaseDefineMgr.h"
+#include "def/ConstDef.h"
+void ExploitMgr::Init(){
+	uint32 occupy_value  =0, exploit_value = 0,trick_value = 0,military_power = 0;
+	const static uint32 lv_limit = GET_BASE_DEF_UINT(pb::BD_BIGGER_TO_ENTRY_FIGHT_RANK);
+	FOREACH_PLAYERPTR(PlayerId, playerPtr)
+	{
+		const string &name = playerPtr->CharName();
+		occupy_value = playerPtr->GetOccupyValue();
+		if(occupy_value != 0)
+		{
+			RankSort temp(playerPtr->GetCountryId(),occupy_value,playerPtr->GetLevel(),playerPtr->GetVipLevel(),playerPtr->GetGuid(),playerPtr->GetHeadIconId());
+			if(occupy_rank_map_.size() > MAX_VEC_NUM)
+			{
+				ranksortMap::reverse_iterator iter = exploit_rank_map_.rbegin();
+				if(iter->first< temp)
+				{
+					occupy_rank_map_.erase(iter.base());
+					occupy_rank_map_[temp] = name;
+				}
+			}
+			else
+			{
+				occupy_rank_map_[temp] = name;
+			}
+		}
+		exploit_value = playerPtr->GetExploitValue();
+		if(exploit_value != 0)
+		{
+			RankSort temp(playerPtr->GetCountryId(),exploit_value,playerPtr->GetLevel(),playerPtr->GetVipLevel(),playerPtr->GetGuid(),playerPtr->GetHeadIconId());
+			if(exploit_rank_map_.size() > MAX_VEC_NUM)
+			{
+				ranksortMap::reverse_iterator iter = exploit_rank_map_.rbegin();
+				if(iter->first<temp)
+				{
+					exploit_rank_map_.erase(iter.base());
+					exploit_rank_map_[temp] = name;
+				}
+			}
+			else
+			{
+				exploit_rank_map_[temp] = name;
+			}
+		}
+		
+		trick_value = playerPtr->GetTrickValue();
+		if(trick_value != 0)
+		{
+			RankSort temp(playerPtr->GetCountryId(),trick_value,playerPtr->GetLevel(),playerPtr->GetVipLevel(),playerPtr->GetGuid(),playerPtr->GetHeadIconId());
+			if(trick_rank_map_.size() > MAX_VEC_NUM)
+			{
+				ranksortMap::reverse_iterator iter = trick_rank_map_.rbegin();
+				if(iter->first<temp)
+				{
+					trick_rank_map_.erase(iter.base());
+					trick_rank_map_[temp] = name;
+				}
+			}
+			else
+			{
+				trick_rank_map_[temp] = name;
+			}
+		}
+		military_power = playerPtr->getMilitaryPower();
+		uint32 lv = playerPtr->GetLevel();
+		if(military_power != 0 && lv > lv_limit)
+		{
+			RankSort temp(playerPtr->GetCountryId(),military_power,playerPtr->GetLevel(),playerPtr->GetVipLevel(),playerPtr->GetGuid(),playerPtr->GetHeadIconId());
+			if(military_power_rank_map_.size() > MAX_VEC_NUM)
+			{
+				ranksortMap::reverse_iterator iter = military_power_rank_map_.rbegin();
+				if(iter->first<temp)
+				{
+					military_power_rank_map_.erase(iter.base());
+					military_power_rank_map_[temp] = name;
+				}
+			}
+			else
+			{
+				military_power_rank_map_[temp] = name;
+			}
+		}
+	}
+}
+
+void ExploitMgr::GetInit()
+{
+	FOREACH_DB_ITEM(expliot_rank,DB_ExploitRank){
+		uint32 Id = expliot_rank->id;
+		std::vector<int> vec;
+		Utility::SplitStr(expliot_rank->rank_area, vec, ',');
+		ExploitRankMap[Id] = std::make_pair(vec[0],vec[1]);
+	}
+
+	FOREACH_DB_ITEM(exploit_box_proto,DB_ExploitBoxProto){
+		uint32 id = exploit_box_proto->id;
+		ExploitBoxProto * proto = new ExploitBoxProto(*exploit_box_proto);
+		box_queue_.push_back(*exploit_box_proto);
+		m_exploitboxprotomap[ id] = proto;
+	}
+
+	FOREACH_DB_ITEM(challangerank,DB_ChallengeRank){
+		uint32 id = challangerank->id;
+		ChallengeRank* rank = new ChallengeRank(*challangerank);
+		m_challengerankmap[id] = rank;
+		TrickReward temp(id,rank->m_challengerank.victory_times,rank->m_challengerank.reward_item_id,rank->m_challengerank.reward_item_num);
+		trick_queue_.push_back(temp);
+	}
+
+
+	FOREACH_DB_ITEM(attackcityrank,DB_AttackCityRank){
+		uint32 id = attackcityrank->id;
+		AttackCityRank* rank = new AttackCityRank(*attackcityrank);
+		m_attackcityrankmap[id] = rank;
+		OccupyReward temp(id,rank->m_attackcityrank.occupy_num,rank->m_attackcityrank.reward_item_id,rank->m_attackcityrank.reward_item_num);
+		occupy_queue_.push_back(temp);
+	}
+	FOREACH_DB_ITEM(fight_rank_reward,DB_FightRankReward){
+		uint32 id = fight_rank_reward->id;
+		FightRankReward* rank = new FightRankReward(*fight_rank_reward);
+		fightrank_reward_map_[id] = rank;
+	}
+}
+
+const ExploitBoxProto* ExploitMgr::GetExploitBoxProto(uint32 Id) const{
+	return m_exploitboxprotomap.pfind(Id);
+}
+const ChallengeRank* ExploitMgr::GetChallengerank(uint32 Id) const{
+	return m_challengerankmap.pfind(Id);
+}
+const AttackCityRank* ExploitMgr::GetAttackCityRank(uint32 Id) const{
+	return m_attackcityrankmap.pfind(Id);
+}
+
+bool ExploitMgr::GetRankBoxReward(Player& player,int VictimType,LootList& lootlist,bool is_exploit)
+{
+	LootParam param;
+	param.victim_type = VictimType;
+	param.victim_id = player.GetAttrUint(pb::PLAYER_FIELD_EXPLOIT_RANK_BOX_LEVEL);
+	param.victim_lv = player.GetLevel();
+	param.player_vip_lv = player.GetVipLevel();
+	return sLootMgr.FillLootList(&player,param, lootlist,is_exploit);
+}
+
+bool ExploitMgr::GetRankReward(Player& player,int VictimType,int rank,LootList& lootlist,bool is_exploit)
+{
+	if(rank == 0) return false;
+	LootParam param;
+	param.victim_type = VictimType;
+	param.victim_id = rank;
+	param.victim_lv = player.GetLevel();
+	param.player_vip_lv = player.GetVipLevel();
+	return sLootMgr.FillLootList(&player,param,lootlist,is_exploit);
+}
+
+uint32 ExploitMgr::GetExploitRank(uint32 ExpliotRank) const
+{
+	std::map<uint32,std::pair<uint32,uint32> >::const_iterator Iter  = ExploitRankMap.begin();
+	for(;Iter != ExploitRankMap.end();++Iter){
+		std::pair<uint32,uint32> pairvalue = Iter->second;
+		if(ExpliotRank >= pairvalue.first && ExpliotRank <= pairvalue.second){
+			return Iter->first;
+		}
+	}
+	return 0;
+}
+
+
+void ExploitMgr::InitializeExploitValue()
+{
+#ifndef _SERVER_CROSS_
+	// 给军功榜奖励之后，清空数据
+	size_t rank = 1;
+	for(ranksortMap::iterator iter = exploit_rank_map_.begin();iter != exploit_rank_map_.end() && rank <= MAX_SHOW_NUM_PALYER;++iter,++rank)
+	{
+		uint64 player_id = iter->first.playerid_;
+		PlayerPtr playerPtr = sPlayerPool.GetPtrByPlayerId(player_id);
+		if(!playerPtr) continue;
+		LootList lootlist;
+		if(!GetRankReward(*playerPtr,LOOTTYPE_EXPLOIT_RANK,
+			GetExploitRank(rank),lootlist,true))
+			continue;
+		std::string items;
+		MoneyMap& moneys = lootlist.MutableMoneys();
+		ItemMap& Items = lootlist.MutableItem();
+		sReward.Change(*playerPtr,Reward::Coin_Silver,moneys[Reward::Coin_Silver] );
+		Utility::PacketItemsToString(items,Reward::Coin_Silver,moneys[Reward::Coin_Silver]);
+		uint32 percent = 0;
+		uint32 moneyCount = 0;
+		if(playerPtr->HaveTechnology(JUNGONG_ENFORCE1))
+		{
+			if(playerPtr->HaveTechnology(JUNGONG_ENFORCE3))//军功强化3JUNGONG_ENFORCE3
+			{
+				percent +=  sTechnologyTableMgr.GetTable(JUNGONG_ENFORCE3)->Value1() ;//50%
+			}
+			if(playerPtr->HaveTechnology(JUNGONG_ENFORCE4))
+			{//JUNGONG_ENFORCE4
+				percent += sTechnologyTableMgr.GetTable(JUNGONG_ENFORCE4)->Value1() ;//50%
+			}
+			moneyCount = moneys[Reward::Iron] +(uint32)(moneys[Reward::Iron] * percent / 100.0);
+			sReward.Change(*playerPtr,Reward::Iron, moneyCount);
+			Utility::PacketItemsToString(items,Reward::Iron,moneyCount);
+		}
+		if(playerPtr->HaveTechnology(JUNGONG_ENFORCE2))
+		{
+			sReward.Change(*playerPtr,Reward::PlayerExp,moneys[Reward::PlayerExp] );
+			Utility::PacketItemsToString(items,Reward::PlayerExp,moneys[Reward::PlayerExp]);
+		}
+
+		sSysEventMgr.SendJustTipsMail(player_id,EVENT_TYPE_EXPLOIT,items,rank);
+		playerPtr->SetExploitValue(0);
+		//playerPtr->SetValueInt(pb::PLAYER_FIELD_EXPLOIT_RANK_NUMBER,0);
+		playerPtr->SetValueInt(pb::PLAYER_FIELD_TAKE_EXPLOIT_BOX_STEP,0);
+		playerPtr->SetValueUint64(pb::PLAYER_FIELD_KILL_NUM,0);
+		playerPtr->SetValueInt(pb::PLAYER_FIELD_TODAY_OCCUPY_CITY,0);
+		playerPtr->SetValueInt(pb::PLAYER_FIELD_TODAY_ZHUZHENG,0);
+		playerPtr->SetValueInt(pb::PLAYER_FIELD_TODAY_ZHUGONG,0);
+		playerPtr->box_queue_ = box_queue_;
+		
+	}
+		//数据清0
+	if(!exploit_rank_map_.empty())
+		exploit_rank_map_.clear();
+#endif
+}
+
+void ExploitMgr::InitMilitaryPowerRankValue()
+{
+#ifdef _MMO_SERVER_
+	int rank = 1;
+	for(ranksortMap::iterator iter = military_power_rank_map_.begin();iter != military_power_rank_map_.end();++iter)
+	{
+		const IntPairVec *reward = GetMilitaryPowerRankRewardByRank(rank);
+		if(!reward) continue;
+		uint64 player_id = iter->first.playerid_;
+		PlayerPtr playerPtr = sPlayerPool.GetPtrByPlayerId(player_id);
+		if(!playerPtr) continue;
+		sReward.Change(*playerPtr,*reward);
+		string items;
+		Utility::PacketItemsToString(items,*reward);
+		
+		sSysEventMgr.SendJustTipsMail(player_id,EVENT_TYPE_MILITARY_POWER_RANK,items,rank);
+		++rank;
+	}
+#endif
+}
+
+uint32 ExploitMgr::__GetKillFromLevel(uint32 level) const
+{
+	for(ExploitBoxProtoMap::const_iterator iter = m_exploitboxprotomap.begin();iter != m_exploitboxprotomap.end();++iter)
+	{
+		if(level == iter->second->ExploitLevel())
+			return iter->second->KillGetExploit();
+	}
+	return 0;
+}	
+
+
+const IntPairVec* ExploitMgr::GetMilitaryPowerRankRewardByRank(const int rank)
+{
+	for(FightRankRewardMap::iterator iter = fightrank_reward_map_.begin();iter != fightrank_reward_map_.end();++iter)
+	{
+		if(rank >= iter->second->GetRankPair().first && rank <= iter->second->GetRankPair().second)
+		{
+			return &iter->second->GetRankReward();
+		}
+	}
+	return NULL;
+}

@@ -1,0 +1,244 @@
+package pb;
+import "CommomDef.proto";
+
+
+message C2GS_Enter_Map
+{
+	required uint32 map_tid 	= 1;//地图的表id
+}
+
+message C2GS_Leave_Map
+{
+	required uint32 map_tid 	= 1;//地图的表id
+}
+
+message C2GS_Auto_Attack
+{
+	repeated uint32 hero_ids 	= 1;//空闲武将列表 char_id
+	required uint32 city_id 	= 2;//目标城池id
+}
+
+
+//-----------------------------------------------------------------------武将寻路模块----------------------------------------------------------------------------//
+message C2GS_Hero_Move
+{
+	required uint32 char_id 	= 1;//武将char_id
+	required uint32 city_id 	= 2;//目标城池id
+}
+
+//SMSG_HERO_MOVE
+message GS2C_Hero_Move
+{
+	optional uint32 char_id		= 1;
+	repeated uint32 city_id		= 2;	//武将移动城池队列
+}
+
+message C2GS_HERO_STOP_MOVE
+{
+	required uint32 char_id		= 1;//武将char_id
+}
+
+message GS2C_Hero_Pos
+{
+	required uint32 char_id 	= 1;//武将char_id
+	required uint32 city_id 	= 2;//所在城池id
+	optional bool	is_jump		= 3;//是征召等瞬间移动还是按步移动
+	optional bool	is_move_shutdown = 4;//移动是否停止	false为继续移动，TRUE为寻路停止
+}
+//--------------------------------------------------------------------------------------------------------------------------------------------------------------//
+
+
+//-----------------------------------------------------------------------NPC军队模块----------------------------------------------------------------------------//
+message GS2C_NPC_Pos
+{
+	required uint32 hero_id		= 1;//npc table_id
+	required uint32 city_id		= 2;//所在城池id
+	optional uint32 unique_id	= 3;//npc索引
+	optional uint32 belongCountry = 4;
+	optional uint32 org_city_id = 5;	//原城市id
+}
+
+message GS2C_NPC_POS_LIST
+{
+	repeated GS2C_NPC_Pos pos   = 1;//npc列表
+}
+
+message GS2C_Delete_Npc_World
+{
+	optional uint32 expeid = 1;
+	optional uint32 city_id = 2;
+}
+
+message GS2C_Expedition_Army_Info		//远征军信息
+{
+	required uint32 expedition_id = 1;		//每一个远征军队伍唯一的识别id
+	required uint32 city_id 	  = 2;		//远征军所处在的城市id
+	required uint32 hero_id 	  = 3;		//npcid,一个远征军队伍只能有一种npc
+	optional uint32 org_city_id   = 4;		//原城市id
+}
+
+//--------------------------------------------------------------------------------------------------------------------------------------------------------------//
+
+
+//-----------------------------------------------------------------------屯田模块-------------------------------------------------------------------------------//
+message C2GS_Donate_City
+{
+	required uint32 city_id 	= 1;//捐赠目标城池id
+}
+
+//message C2GS_Clear_Donate_Cd
+//{
+//	required uint32 city_id		= 1;//屯田区城池id
+//}
+
+message C2GS_Train_Soldier
+{
+	required uint32 train_index = 1;//练兵令编号1、普通练兵令2、双倍练兵令3、战力练兵令4、减耗练兵令
+}
+
+//CMSG_START_TUNTIAN
+message C2GS_StartTunTian
+{
+	required uint32 heroid = 1;
+	required uint32 cityid = 2;
+}
+
+//SMSG_START_TUNTIAN
+message GS2C_StartTunTian
+{
+	required bool isTuntianSuc = 1;
+	optional uint64 startTime = 2;
+	optional uint32 heroid = 3;
+}
+
+//SMSG_TUNTIAN_REWARD
+message GS2C_TunTianReward
+{
+	required uint32 food_count = 1;//屯田暂时只有粮食奖励
+}
+
+//SMSG_TUNTIAN_DONATE_RET
+message GS2C_TunTian_Donate_Ret
+{
+	optional uint32 donateret = 1;	//0成功，1钱不够，2cd， 3其他
+	optional uint64 cdEndTime	=	2;	//全部cd结束时间
+	optional uint32 tuntianlevel = 3;
+	optional uint64 tuntianexp = 4;
+}
+
+message C2GS_Clear_Fresh_TunTian
+{
+	optional bool isClear = 1;		//是否清理屯田cd，否 则只刷新
+}
+
+message GS2C_Clear_Tuntian_CD_Ret
+{
+	optional bool isClearSucc = 1;
+	optional uint64 cdEndTime = 2;
+	optional uint32 tuntianlevel = 3;
+	optional uint64 tuntianexp = 4;
+}
+
+message hero_exp_get
+{
+	optional uint32 chatid = 1;
+	optional uint32 exp = 2;
+}
+
+message GS2C_Train_Info
+{
+	optional bool isTraining = 1;
+	repeated uint32 herosid = 2;
+	optional uint64 trainEndTime = 3;
+	optional uint32 trainType = 4;
+	repeated hero_exp_get expGet = 5;
+}
+
+//--------------------------------------------------------------------------------------------------------------------------------------------------------------//
+
+
+//-----------------------------------------------------------------------蛮族模块-------------------------------------------------------------------------------//
+message Wild_Data
+{
+	required uint32 friendliness				= 1;//亲密度
+	optional uint32 inciteAmount				= 2;//剩余发动次数，每日重置
+	optional uint32 city_id						= 3;//城池id
+	optional uint32 curBribeMoney				= 4;//当前收买的钱
+	
+}
+
+message GS2C_Wild_Data_Lst
+{
+	repeated Wild_Data wild_lst					= 1;//蛮族信息列表
+}
+
+message C2GS_Bribe_City
+{
+	required uint32 city_id 	= 1;//收买目标城池id
+}
+
+message C2GS_Incite_City
+{
+	required uint32 city_id		= 1;//发动目标城池id
+}
+//-------------------------------------------------------------------------------------------------------------------------------------------------------------//
+
+
+
+//-----------------------------------------------------------------------城池战斗信息--------------------------------------------------------------------------//
+message Struct_Army_Info
+{
+	required uint32 country		=1;//所属国家//1匈奴-虫族 2罗马-人族 3大汉-神族 4蛮族
+	required uint32 army_count 	= 2;//该国家军队数量
+}
+message GS2C_City_Fight_Info
+{
+	repeated Struct_Army_Info attacker_lst		=1;//攻方列表
+	repeated Struct_Army_Info defender_lst		=2;//守方列表
+	required uint32 city_id						=3;//城池id
+}
+
+message C2GS_Request_Fight_Lst
+{
+	required uint32 city_id		= 1;//请求城池的id
+}
+//-------------------------------------------------------------------------------------------------------------------------------------------------------------//
+/////////////////////////国战成就--------------------------------------------------------------------------------------------------------------------------//////
+message World_Achievement_Info
+{
+	optional uint32 id = 1;
+	optional uint32 type = 2;
+	optional uint32 state = 3;
+}
+
+
+message GS2C_World_Achievement_All_Info
+{
+	repeated World_Achievement_Info info = 1;
+}
+
+message C2GS_Take_World_Achievement_Reward
+{
+	optional uint32 type = 1;// 1是领城市奖励 2 是领宝箱奖励
+	optional uint32 attack_or_occupy = 2;//0 attack 1 occupy
+	optional uint32 id = 3;// 当type是1 时 Id 是城市ID，当type是2 时 Id 是table_id
+}
+
+message GS2C_Take_World_Achievement_Reward_Rsp
+{
+	optional uint32 ret = 1;///0 success 1 未完成 2 已领取
+	repeated StReward reward = 2;
+}
+
+message GxDB_World_Achievement_Info
+{
+	optional uint32 type = 1;
+	optional uint32 state = 2;
+	optional uint32 city_id = 3;
+}
+
+message GxDB_World_Achievement
+{
+	repeated GxDB_World_Achievement_Info info = 1;
+}
+////----------------------------------------------------------------------------------------------------------------------------------------/////////

@@ -1,0 +1,57 @@
+package pb;
+
+import "CommomDef.proto";
+
+
+message SubAltar
+{
+    required bool      is_level_up      =1;
+    required bool      have_reward      =2;//上次研究后是否领取了增兵奖励
+    required uint32    study_times      =3;//已经研究的次数
+    required uint64    last_study_time  =4;
+    optional uint64    take_free_time   =5; //领取免费奖励的时刻
+    optional uint32    reward_count     =6; //服务器要先算奖励结果，给client表现
+}
+message GS2C_Altar_All_Info
+{
+    optional uint32     levle       =1;
+    optional uint32     silver_coin =2; //建造时累计的银币
+    repeated SubAltar   sub_altar   =3;
+}
+message C2GS_Altar_All_Info
+{
+}
+message C2GS_Altar_Study
+{
+    required uint32             altar_lv =1;
+}
+message GS2C_Altar_Study_Reward
+{
+    required uint32             altar_lv    =1;
+    required uint32             reward_num  =2;
+}
+message C2GS_Altar_Take_Reward
+{
+    required uint32             altar_lv =1;
+}
+message C2GS_Altar_Sub_Altar_LevelUp
+{
+    required uint32     altar_lv =1;
+}
+message C2GS_Altar_Build_By_Token
+{
+    
+}
+message C2GS_Altar_Build_By_Silver
+{
+    required bool       is_fast =1;
+}
+message C2GS_Altar_LevelUp_To_Open_SubAltar
+{
+}
+message C2GS_Altar_Study_OneKey
+{
+}
+message C2GS_Altar_Take_Reward_OneKey
+{
+}

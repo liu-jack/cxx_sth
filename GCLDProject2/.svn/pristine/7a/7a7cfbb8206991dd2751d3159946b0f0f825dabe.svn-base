@@ -1,0 +1,269 @@
+#ifndef Character_h__
+#define Character_h__
+
+#include "boost/scoped_ptr.hpp"
+
+#include "memory_buffer/MemoryPool.h"
+#include "memory_buffer/ValueArray.h"
+#include "../Combat/CombatObj.h"
+#include "../buff/Buff.h"
+#include "../Combat/combat_define.h"
+
+//////////////////////////////////////////////////////////////////////////
+namespace pb
+{
+    class GS2C_CharacterCreate;
+    class GS2C_CharacterUpdate;
+	class GS2C_Dinner_Data;
+	class GS2C_Dinner_Resp;
+} 
+class CharacterProto;
+class CharacterStorage;
+class City;
+class Player;
+class ItemEquip;
+
+namespace Combat
+{
+	enum TacticEnum;
+	enum CombatType;
+}
+
+typedef uint32 CharacterId;
+
+class Character : public Combat::CombatObj
+{
+    DECLARE_OBJ_POOL(Character)
+    friend class CharacterStorage;
+
+public:
+	Player* m_player;		//所属玩家
+
+    Character(const CharacterProto& proto, CharacterStorage* pStorage, Player* player);		//创建武将
+	Character(const Character& ref);														//创建武将幻影
+    ~Character();
+
+    inline CharacterId GetID( void ) const {    return m_charId ;    }	//获取玩家武将识别下标
+    uint32 ProtoID() const;												// 卡牌识别号protoID  m_dbCharProto.index
+
+	void CopyAllFromParent(const Character& ref);			//将武将的属性复制到幻影身上
+    //////////////////////////////////////////////////////////////////////////
+public:
+	static int GetMaxLevelCanUpgrade(Player* player);		//获取武将最大可升级等级，根据玩家等级来判断
+
+    int32 GetLevel() const;									//获取武将等级
+    int32 GetCurXP() const;									//获取当前经验
+	int32 GetAttack() const;
+	int32 GetQuality() const;								//获取武将当前品质（颜色）
+
+	int32 GetSlotEquip( uint32 slot) const;					//获得对应槽位的装备
+	bool  IsAllSlotEquip() const;							//是否所有槽位都有装备
+
+	const CharacterProto& Proto() const;					//获取玩家模型属性
+
+	void    SetUnmodified();								//设置修改
+	bool    HasUpdateInfo() const;							//是否进行了修改
+
+	uint32	GetEnableTactics(uint32 geography = 0);			//通过地形获得可用的战术
+
+
+	//////////////////////////////////////////////////////////////////////////
+    int32 GetReinforce() const;								//abandon--强化星级
+    int32 GetRuneInlay() const;								//abandon--符文镶嵌情况
+
+
+    int32 GetSkillLevel( uint32 skill_index) const;			//abandon--获得技能等级
+    bool  IsSkillActive( uint32 skill_index) const;			//abandon--技能是否激活
+    
+    bool  IsRandomAttrAllZero() const;						//abandon--
+   // bool  HasGoodRandomAttr() const;						//abandon--尚未确认的属性至少有一个正值，且均非负
+    int32 GetRandomAttr( uint32 attr_idx) const;			//abandon--尚未确认训练的属性
+    int32 GetTrainingCount( uint32 training_type) const;	//abandon--培养方案 使用次数
+    int32 GetTrainedAttr( uint32 attr_idx) const;			//abandon--培养确认后的属性值
+
+	uint32 CalculateCharacterMilitaryPower() const;
+	uint32 GetCharacterMilitaryPower() const;
+public:
+    void    Rebirth();										//abandon--重生
+    bool    TryAddXP( int32 xp, bool isFromCross = false);	//尝试增加经验，如果升级则重新计算属性
+    int32   GetSumXp() const;								//abandon--获得武将全部经验
+	int32	GetSumXpLvUpTo( int toLv) const;				//abandon--获得武将升级到特定等级所需的全部经验
+    bool    TryInlayRune( uint32 slot);						//abandon--镶嵌符文
+	int32	GetlvMaxXp(const int32 level);
+
+    // 培养
+    bool    Training( uint32 training_type, uint32 addtion );//abandon--培养武将
+    bool    ConfirmTraining();								 //abandon--结束培养
+
+    // 装备
+    bool    SetSlotEquip( uint32 slot, uint32 itemId);		//设置指定槽位的装备
+
+	int  GetEquipSlot( uint32 bagSolt );					//根据道具id获得槽位
+	// 技能
+    bool    TryAddSkillLevel( uint32 skill_index);			//abandon--升级武将技能等级
+    bool    TryActiveSkill( uint32 skill_index);			//abandon--激活武将技能
+
+
+    void    GM_SetAttr( int level , int quality, int reinforce);	//GM指令设置属性
+	void GM_SetLevel(int level){ LevelUpTo(level);}
+
+protected:
+    void    LevelUpTo( int32 level);						//升级到指定等级
+	void	ExpUpTo( int32 xp );
+	void    SetLevel( int32 level);							//设置等级
+    void    SetCurXP( int32 xp);							//设置当前经验
+    void    SetQuality( int32 quality);						//abandon--设置武将等级
+    void    SetReinforce( int32 renforce);					//abandon--
+    void    SetRuneInlay( int32 runeInlay);					//abandon--
+	void	SetEnableTactic(const std::string& tacs);		//设置特殊战术
+    //////////////////////////////////////////////////////////////////////////
+public:
+    void    SaveTo( pb::GS2C_CharacterCreate& msg) const;
+    void    LoadFrom( const pb::GS2C_CharacterCreate& msg) ;
+
+    void    WriteUpdateInfoTo( pb::GS2C_CharacterUpdate& msg) const;
+    void    ApplyUpdateInfoFrom( const pb::GS2C_CharacterUpdate& msg);
+	void	SaveTo(pb::GS2C_CharacterUpdate& msg) const;
+public:
+    inline void SetId( CharacterId charId ) {    m_charId = charId ;   }		//设置charid;
+    const ValueArray& Values() const;											//获得value值
+    ValueArray& MutableValues();												//获得可修改的value值
+
+    //////////////////////////////////////////////////////////////////////////
+	void    NotifyStorageModified();											//设置改变了属性
+	void CalculateAttr(const uint32 siege_army_id = 0);														//非战斗状态计算基础属性
+
+private:
+    void    ClearRune();												//abandon--
+    //bool    IsAllInlayed() const;										//abandon--
+    static bool  IsRuneInlayed(int32 inlayInfo , uint32 slot);			//abandon--
+    static float GenerateTrainingFactor( uint32 training_type, uint32 addtion );//abandon--
+    static int GenerateTrainingCount( uint32 training_type);			//abandon--
+    static int GetTrainingValue( float maxValue, float factor);			//abandon--
+
+//slg武将相关------------------------------------------------------------
+public:
+    //世界地图移动相关
+    uint32 GetCurCity(){ return m_curCityId; }				//获得武将当前所在城市
+    uint32 GetCountryId();									//获得武将所属国家
+    void _Move();											//武将移动函数
+    bool FlyTo(uint32 cityId, bool is_jump = true);			//武将移动到目标城市
+    bool SetMap(CMap* p);									//abandon--设置武将所在地图（多个地图）
+	bool CharacterMoved();									//abandon--武将是否移动了
+	void initPath();										//重置武将移动路径
+
+	void _AutoCountryWarMove();								//武将自动国战移动
+
+    bool RecoverFullSoldier();								//恢复满兵力
+	//bool CleanAllSoldiers();
+
+    //CombatObj里的virtual func
+	void    ClearCombatStatus();							//清理战斗状态并重新计算属性
+	void	InitCombatDataSecond(uint32 geography = 0);		//初次进入战斗初始化
+    void    OnDead(CombatObj* killer);						//武将死亡
+	void    MoveTo(uint32 cityId);							//按步移动到指定城池
+    uint64  GetPlayerId();									//获得所属玩家的id
+    const string& GetPlayerName();							//获得所属玩家的名字
+    uint32  GetTableId(){ return ProtoID(); }				//获得武将编号protoid，非charid
+    float   SkillRatio();									//获得武将技能伤害系数
+    uint8   SkillRange();									//获得技能伤害排数
+	uint32 GetSolderColNum();								//获得士兵方阵数
+	uint32 GetSolderRowNum();								//获得士兵排数
+////----------------------------------
+	uint32 GetPlayerSolderRowNum();							//获得士兵排数
+/////------------------------------
+	void SetCurSolderNum(int num);							//设置当前士兵总数（血量）
+	void    InitCombatData();								//初始化所有战斗属性
+	uint32 GetMaxRow();										//获得最大行数
+	void reCalcPower();										//重新计算战力相关属性
+	void ReFreshCombatData(const uint32 siege_army_id= 0);								//刷新武将属性
+	bool   IsFullHp();										//是满血量
+	int GetMaxHp() const;											//获得最大血量
+	int GetZhaoMuNeedCost() const;							//获得招募需要消耗的资源
+	uint32 NeedHp();										//恢复满血所需要的hp
+	uint32 RecoverHp(uint32 solders);						//恢复一定量的hp
+	virtual int GetTotalFightPercent();
+	virtual int GetTotalSkillPercent(const Combat::CombatType type,const uint32 obj_type = 0);
+	virtual int GetTotalExpPercent(Combat::CombatType type );
+	virtual int GetTotalReduceCostHP() ;
+	virtual int GetTotalDoubleKill() ;
+	virtual int GetTotalDeSkillPercent() ;
+	virtual uint32 GetType() const;
+	virtual void AddSkillPercentBySeigeArmySpecificId(int add_percent, int enemyType = 0);
+	//地牢逃跑
+    int EscapeFromDungeon();								//返回逃跑时长
+    void SetDungeonOwner(uint64 playerId);					//设置被谁捕获
+
+	bool isInPrison();										//是否被捕获
+	bool CharIsIdle();//武将是否空闲
+	bool GetIsTunTian();
+	void SetIsTunTian(bool is_tuntian);
+
+    //幻影
+    Character* CreateShadow() const;						//创建幻影
+	//bool IsShadow(){ return m_IsShadow; }					//是否是幻影
+
+	static void DeleteShadow(Character* p);					//删除幻影
+	static void _DeleteShadow(); //服务器本帧结束时调用
+private:
+	void FreshAttr(const uint32 siege_army_id = 0);										//战斗中刷新属性  科技ID
+public:
+
+	uint32 SkillID();										//技能id
+	bool NewAutoTactic(Combat::CombatType cTyp = Combat::Country, Combat::TacticEnum tTyp = Combat::Attack);	//选择战术
+
+	//自动国战移动
+	void AutoMoveTo(uint32 desCity);
+
+public:
+    bool _ExitCity(City& city);								//离开城池
+    bool _EnterCity(City& city,bool is_jump = true);		//进入城池
+    void _ReEnterCurCity();									//重启时重新进入当前城池
+	bool _GetHeroCanMove() { return m_canMove; }			//武将是否能移动
+
+public:
+	void _SetEscapeTime(uint64 time) { m_escapeTime = time; }
+	uint64 _GetEscapeTime() { return m_escapeTime; }
+
+	void SetIsInAutoCountryWar(bool value) { m_isInAutoCountryWar = value; }
+	bool GetIsInAutoCountryWar() { return m_isInAutoCountryWar; }
+
+	void GetNextCityId(uint32& cityid);
+
+private:
+    uint32  m_curCityId;
+    bool    m_IsShadow;
+
+    std::queue<uint32> m_path; //路线城市
+	static std::vector<Character*>  m_deleteShadow;
+
+    uint64  m_DungeonOwner;
+	uint32	m_CurSoliderColNum;
+	//uint32  m_CurSoliderRowNum;
+
+	uint64  m_lastMoveTime;		//ms
+	bool    m_canMove;
+//slg武将相关------------------------------------------------------------
+
+private:
+    uint32                      m_charId;
+    const CharacterProto&       m_proto;
+    CharacterStorage*           m_pStorage;
+    ValueArray                  m_values;		//最后一位为经验加成
+	IntPairVec					m_enableTacs;
+	bool						m_hasShodowTactic;		//幻影是否已经选择
+	Combat::TacticEnum			m_shadowTactic;	//幻影的战术选择，选择之后不能变
+
+	bool						m_isReloadMove; //标识武将是否移动
+	bool						m_isTuntian;//是否屯田
+
+	uint64						m_escapeTime;
+
+	bool						m_isInAutoCountryWar;
+};
+
+
+
+
+
+#endif // Character_h__

@@ -1,0 +1,649 @@
+package pb;
+
+import "CommomDef.proto";
+
+message Msg_CombatProperty
+{
+    optional uint32 tong            =1; //统
+    optional uint32 yong            =2; //勇
+    optional uint32 attack          =3; //攻击
+    optional uint32 defence         =4; //防御
+    optional uint32 skillAttack     =5; //破阵，增加战法攻击力
+    optional uint32 skillDefence    =6; //无懈，增加战法防御力
+    optional uint32 attackEx        =7; //穿刺，攻击时附加伤害
+    optional uint32 defenceEx       =8; //格挡，被攻击降低伤害
+    optional uint32 rowSoldierMaxCnt =9; //单排带兵总数
+}
+message Msg_CombatObj
+{
+    required uint32 tableId         =1;  //武将ID或NPC ID
+    optional uint64 player_id       =2; //npc，这个无效
+    optional string player_name     =3; //npc，为空
+    optional uint32 soldierLv       =4;
+    repeated uint32 soldierCnt      =5;	//武将带兵血量，如[1300,1300,1300,1300]表示4排兵的血量
+    optional Msg_CombatProperty stPro   =6;
+    optional int32  fightPercent    =7;
+    optional int32  skillPercent    =8;
+    optional int32  expPercent      =9;
+    optional uint32 crashAddition   =10; //地形相关的冲撞加成
+    optional uint32 level           =11;
+    optional uint32 country         =12;//1匈奴-虫族 2罗马-人族 3大汉-神族 4蛮族
+	optional uint32 indexInCombat   =13;
+	optional bool	isShadow		=14;
+	optional bool	isReinforce = 15;
+	optional bool   isFakeChar = 16;
+}
+enum Msg_ECombatTactic
+{
+    Attack      =0;     //攻击
+    Defence     =1;     //防御
+    Charge      =2;     //冲锋
+    AttackEx    =3;     //强化攻击
+    DefenceEx   =4;     //强化防御
+    ChargeEx    =5;     //强化冲锋
+    SkillTactic =6;     //技能
+}
+
+enum Msg_Records_Combat_Gains
+{
+	CombatPlayerExp	= 0;
+	CombatDead	= 1;
+	CombatKills	= 2;
+	CombatExploit	= 3;
+	CombatInfoNum	= 4;
+}
+
+enum Msg_return_common
+{
+	SUCCESS			= 0;	//成功
+	GROUP_ID_ERR 	= 1;
+	HERO_ERR 		= 2;
+	OTHER_ERR		= 3;
+	HERO_FIGHTING	= 4;
+	CITY_NOT_FOUND1	= 5;
+	CITY_FAR_AWAY	= 6;
+	CITY_NOT_FOUND2	= 7;
+	CITY_STATE_ERR 	= 8;
+	
+	//突击错误：
+	RUSH_LEGAL		= 9;
+	
+	//撤退错误：
+	ESCAPE_LEGEL	= 10;
+	
+	//增兵错误：
+	NO_ENOUGH_COSTS = 11;
+	
+	//征召错误：
+	NO_HERO_HERE	= 12;
+	NO_CALL_COSTS	= 13;
+	
+	HERO_IN_CITY	= 14;
+	HERO_BUSY		= 15;
+	REQUEST_LEGAL	= 16;
+	
+	//请求能否战斗
+	LEVEL_ILLIGAL	= 17;	//等级不合法  （官职战为20级）
+	AIDE_CANT_FIGHT	= 18;	//是侍从不能打
+	IS_IN_FIGNTING	= 19;	//战斗中不能打
+	CALL_DOWN	= 20;	//已经使用过该征召
+
+	CROSS_CALL_OFFICE_ERR = 21;	//征召令需要官员大于等于子爵
+
+	NO_ENOUGH_TROOPS = 22;	//官员令不足
+
+	RUSH_IN_CD	= 23;	//突击在cd中
+
+	SERVER_BUSY	= 24;	//服务器繁忙
+}
+
+//SMSG_COMBAT_PRE_BATTLE
+message GS2C_Combat_Pre_Begin
+{
+	required uint32 group_id    			=1;   //战斗组id
+
+	repeated Msg_CombatObj attack_lst  	    =2;
+	repeated Msg_CombatObj defence_lst  	=3;
+	optional uint32    combat_type  		=4;
+	optional uint32    attack_cnt           =5;		//武将数量
+	optional uint32    defence_cnt          =6;		//武将数量
+	optional uint32	   terrainTyp			=7;
+	optional bool	   isAutoCombat		= 8;
+}
+
+//请求战斗组信息
+message C2GS_Combat_Begin
+{
+    required uint32 group_id    =1;   //战斗组id
+	repeated Msg_CombatObj attack_lst  	    =2;		//武将出战顺序
+}
+
+//下发起始战斗组信息
+message GS2C_Combat_Begin //起始只发排头上阵的那几个
+{
+    required uint32 group_id    			=1;   //战斗组id
+
+    repeated Msg_CombatObj attack_lst  	    =2;
+    repeated Msg_CombatObj defence_lst  	=3;
+    optional uint32    combat_type  		=4;
+    optional uint32    attack_cnt           =5;		//武将数量
+    optional uint32    defence_cnt          =6;		//武将数量
+	optional uint64		choose_time			=7;		//选择技能截止时间,两者取其一，与over_time互斥  
+													//attention！！！！ 时间定义修改了，变成了操作截止时间，
+													//如果客户端处理为0说明操作时间结束，进入动画显示时间，旁观可用
+	optional uint64		over_time 			= 8;	//动画结束时间，即一回合结束时间
+	
+	repeated Msg_CombatObj attack_all_list	= 9;
+	repeated Msg_CombatObj defence_all_list = 10;
+
+	optional uint32 attTacticEnableStr = 11;		//所有可选技能
+	optional uint32 defTacticEnableStr = 12;
+	
+	optional bool canAttSelectTactic =  13;		//技能面板能否点击（被混乱）
+	optional bool canDefSelectTactic = 14;
+	
+	optional uint32 terrainTyp	= 15;		//场地类型
+
+	optional uint64 roundCount = 16;
+	optional bool isAutoCombat = 17;
+
+	optional uint32 attShadowNum = 18;
+	optional uint32 defShadowNum = 19;
+}
+
+//请求后续武将列表
+message C2GS_Combat_Next_Lst
+{
+	required uint32 group_id		 =1;   //战斗组id
+	required uint32 indexInCombat 		= 2;//从第几个开始请求
+	required bool 	is_attacker 		= 3;//是否为攻方
+}
+
+//回复后续武将列表
+message GS2C_Combat_Next_Lst
+{
+	repeated Msg_CombatObj attack_all_list		= 1;//可选的攻方列表，长度走base_define
+	repeated Msg_CombatObj defence_all_list 	= 2;//可选的守方列表，长度走base_define
+	optional uint32 group_id			= 3;
+}
+
+message GS2C_Combat_Next_Obj //边打边发后面的武将
+{
+    required uint32 group_id        =1;   //战斗组id
+    optional Msg_CombatObj attack   =2;
+    optional Msg_CombatObj defence  =3;
+}
+
+//有新人加入战斗，仅提示用
+message GS2C_Combat_Add_Obj
+{
+    required uint32 group_id        =1; //战斗组id
+    required uint32 tableId         =2;
+    optional uint64 player_id       =3; //npc，这个无效
+    optional string player_name     =4; //npc，为空
+    required bool   is_attacker     =5;
+	optional bool	is_shadow		=6;
+	optional uint32 country_id		=7;
+	optional uint32 indexInCombat   =8;
+	optional uint32 listLengh	=9;
+}
+
+//有人撤出战斗
+message GS2C_Combat_Del_Obj
+{
+    required uint32             group_id =1;   //战斗组id
+    repeated PairValueUint64    attack   =2;   //<playerId, isShadow>
+    repeated PairValueUint64    defence  =3;
+	optional uint32 indexInCombat   =4;
+	optional uint32 listLengh	=5;
+}
+
+//上报自己选择的操作(战术或技能)
+message C2GS_Combat_Select_Tactic
+{
+    required uint32 group_id    =1;   //战斗组id
+    required bool   is_attacker =2;
+    required uint32 hero_id     =3;
+    required Msg_ECombatTactic type =4;
+    required uint64 roundCount = 5;
+}
+
+message Combat_Reward
+{
+	optional uint32 period = 1;		//阶段,1:技能 2:冲撞 3:平砍	与伤害阶段对应
+	optional uint32 group = 2;		//1为攻方，2为守方	获得奖励方
+	optional uint32 exp = 3;
+	optional uint32 coin = 4;
+}
+
+/*message Combat_Seque
+{
+	required uint32 attack_hp = 1;		//攻击方剩余血量
+	required uint32 defence_hp = 2;		//防守方剩余血量
+}*/
+
+/*message Combat_buff
+{
+	optional uint32 buffid = 1;
+	optional uint32 shui = 2;
+	optional uint32 hang = 3;
+	optional uint32 shengyuhuihe = 4;
+}*/
+
+message Combat_Damage
+{
+	optional uint32 period = 1;		//伤害阶段,1:技能 2:冲撞 3:平砍  与经验阶段对应
+	optional uint32 group = 2;		//1为攻方，2为守方		受伤方
+	optional uint32 range = 3;		//伤害排索引
+	optional uint32 type = 4;		//伤害来源,1:技能伤害 2:冲撞 3:平砍 4...（其他伤害来源，如持续性伤害，由表配置）
+	optional uint32 damage = 5;		//伤害值
+	optional uint32 restBlood = 6;	//当前排剩余血量
+}
+
+message extra_awards
+{
+	optional uint32 awardsid = 1;
+	optional uint32 awardsnum = 2;
+}
+//下发选择的操作，自动选择，或别人的
+message GS2C_Combat_Select_Tactic
+{
+	required Msg_ECombatTactic  attack_type     =1;
+	required Msg_ECombatTactic  defence_type    =2;
+
+	//若是技能，还附带是否成功
+	optional bool is_attack_skill_success   =3;
+	optional bool is_defence_skill_success  =4;
+	repeated Combat_Damage damages = 5;		//伤害数据
+	repeated Combat_Reward rewards = 6;		//结算数据
+	optional uint64 over_time = 7;			//回合结束时间
+	optional uint32	attackerNum		=8;
+	optional uint32 defenderNum		=9;
+	optional uint32 attSkillID = 10;
+	optional uint32 defSkillID = 11;
+	
+	repeated Combat_Buff_Remain buffsRemain = 12;
+
+	optional uint64 roundCount = 13;
+
+	repeated extra_awards att_extra_awards = 14;
+	repeated extra_awards def_extra_awards = 15;
+	
+	optional uint32 group_id		= 16;
+
+	optional uint32 attShadowNum = 17;
+	optional uint32 defShadowNum = 18;
+}
+
+message Combat_Buff_Remain
+{
+	optional uint32 groupfrom = 1;		//释放方
+	optional uint32 groupto = 2;		//1为攻方，2为守方		承受方
+	optional uint32 range = 3;		//buff排索引
+	optional uint32 buffID = 4;
+}
+
+message Combat_Buff_AllInfo
+{
+	repeated Combat_Damage damages = 1;
+	repeated Combat_Reward rewards = 2;
+	repeated Combat_Buff_Remain buffremians = 3;
+	repeated extra_awards att_extra_awards = 4;
+	repeated extra_awards def_extra_awards = 5;
+}
+
+
+//服务器通知玩家动画结束  CMSG_COMBAT_ANI_FINISHED
+message C2GS_Combat_Ani_Finished
+{
+	required uint32 groupid = 1;
+	required uint64 roundCount	= 2;	//回合数
+}
+
+
+//SMSG_COMBAT_NEW_ROUND
+message GS2C_Combat_New_Round
+{
+	optional uint64 choose_time = 1;			//玩家选择技能截止时间
+	
+	optional uint32 attTacticEnableStr = 2;		//所有可选技能
+	optional uint32 defTacticEnableStr = 3;
+	
+	optional bool canAttSelectTactic = 4;		//技能面板能否点击（被混乱）
+	optional bool canDefSelectTactic = 5;
+	
+	optional Combat_Buff_AllInfo buffinfo = 6;
+	optional uint64 roundCount	= 7;			//回合数
+
+	optional uint32 group_id		= 8;
+}
+
+
+//下发选择的操作，自动选择，或别人的
+message GS2C_Combat_Select_Tactic_Single
+{
+    required Msg_ECombatTactic  type     =1;
+    optional bool is_attacker        =2;
+	optional uint32	attackerNum		=3;
+	optional uint32 defenderNum		=4;
+	optional uint64 roundCount = 5;
+
+	
+	optional uint32 group_id		= 6;
+}
+
+//退出观战
+message C2GS_Combat_Unwatch
+{
+    required uint32 group_id    =1;   //战斗组id
+    optional bool is_in_cross = 2;	//是否是跨服的战斗组
+}
+
+//战斗结束，下发统计数据
+message GS2C_Combat_End
+{
+    required bool        is_attack_win  =1;
+    optional uint32      statisticExp   =2; //统计：战斗获得的总经验
+    optional uint32      statisticMoney =3; //统计：战斗获得的总银币
+    optional uint32      statisticDead  =4;
+    optional uint32      statisticKill  =5;
+    repeated StReward    rewards        =6;
+    
+	optional uint32 group_id		= 7;
+	
+    repeated StReward    Extrewards        =8;
+}
+
+//武将死亡通告    abandon
+message GS2C_Combat_Hero_Dead
+{
+    required uint64 player_id   =1;
+    required uint32 hero_id     =2;
+    
+	optional uint32 group_id		= 3;
+}
+
+//诱敌
+message C2GS_Combat_Attract_Enemy
+{
+    required uint32 group_id    =1;
+    required bool is_attacker   =2; //是否进攻方
+}
+//诱敌结果，也会发给被诱敌的玩家
+message GS2C_Combat_Attract_Enemy
+{
+	required bool is_success		=1;	 //是否成功
+    optional uint32 group_id        =2;  //新战斗组id
+    optional uint64 player_id       =3;  //单挑的对手
+    optional uint32 hero_table_id   =4;  //单挑的武将
+	optional uint64	costs			=5;	 //花费
+	optional uint64 my_player_id 	=6;  //自己的id
+	optional uint32	my_hero_id		=7;	 //自己的武将
+
+	
+	optional uint32 old_group_id		= 8;
+}
+
+//突进
+message C2GS_Combat_Rush
+{
+    required uint32 group_id    =1;
+    required bool   is_attacker =2; //是否进攻方
+    required uint32 city_id     =3;
+    required uint32 hero_id     =4;
+}
+
+message GS2C_Rush_Result
+{
+	optional Msg_return_common result = 1;
+	
+	optional uint32 group_id		= 2;
+	optional uint64 rush_cd_end_time	= 3;
+}
+
+//撤退
+message C2GS_Combat_Runaway
+{
+    required uint32 group_id    =1;
+    required bool   is_attacker =2; //是否进攻方
+    required uint32 city_id     =3;
+    required uint32 hero_id     =4;
+}
+
+message GS2C_Combat_Runaway
+{
+	optional Msg_return_common result = 1;
+	
+	optional uint32 group_id		= 2;
+}
+//增兵
+message C2GS_Combat_Add_Soldier
+{
+    required uint32 group_id    =1;
+    required bool is_attacker   =2; //是否进攻方
+    required uint32 times       =3; //增兵倍数
+	required uint32	hero_id 	=4;	//指定的英雄
+	optional uint32 curCityId	=5;	//请求增兵的所在城池
+}
+
+message GS2C_Combat_Add_Soldier
+{
+	optional Msg_return_common result = 1;
+	optional uint32 addExp = 2;
+	optional uint32 group_id		= 3;
+}
+
+//征召
+message C2GS_Combat_Call_Up
+{
+    required uint32 city_id     =1;
+}
+
+message GS2C_Combat_Call_Up
+{
+	optional Msg_return_common result = 1;
+}
+
+message C2GS_Combat_Call_Request
+{
+	repeated uint32 hero_id 	= 1;
+	optional uint32 destCityID	= 2;
+}
+
+message GS2C_Combat_Call_Request
+{
+	optional Msg_return_common result = 1;
+	optional uint64 call_up_down_id = 2;		//成功才填充
+}
+
+//帅旗加速，服务器瞬间算完20轮战斗，客户端会收到很多死亡消息
+message C2GS_Combat_Speed_Up
+{
+    required uint32 group_id     =1;
+    required uint32 city_id      =2;
+}
+
+message GS2C_Combat_Speed_Up
+{
+    required uint32 group_id     =1;
+}
+
+//----------------------------------------------------------------------自动战斗-----------------------------------------
+message C2GS_Auto_Combat
+{
+	required bool useAuto 			= 2;
+}
+
+message GS2C_Auto_Combat
+{
+	required bool useAuto 			= 1;//当前自动选择
+	optional bool isSetSuccess		= 2;//请求是否成功
+}
+
+message C2GS_Quick_Combat
+{
+	optional uint32 group_id		= 1;
+}
+
+message GS2C_Quick_Combat
+{
+	optional bool ret			= 1;
+	optional uint32 group_id		= 2;
+}
+//---------------------------------------------------------------------------------------------------------------------------
+message C2GS_Combat_Hero_Status
+{
+	required uint32		hero_tid	=1;
+	optional bool		isFakeChar	=2;
+}
+
+
+
+//client更新武将战斗状态
+message GS2C_Combat_Hero_Status
+{
+	required uint32		hero_tid        =1;
+	optional bool		is_in_combat    =2;
+	optional bool		is_fighting     =3;
+	optional bool		is_dead         =4;
+	optional uint32		combat_type     =5;
+	optional uint32		group_id		=6;
+	optional bool		is_in_attract	=7;
+	optional uint32		cityId		=8;
+	optional bool		isFakeChar	=9;
+}
+
+
+message GxDB_Combat_Crusade
+{
+	required uint32 level_id = 1;
+	required uint32 stage_state = 2;	//0表示章节未通关，1表示章节已通关
+	required uint32 rewards_state = 3;   //二进制顺序排序,0:未领取 1:已领取
+	required uint32 reset_lefttimes = 4;	//重置剩余次数
+	required uint32 add_lefttimes = 5;	//增兵剩余次数
+	optional uint32	is_Crusade_over = 6;	//能否继续打 0表示没有结束，1表示结束
+	repeated PairValue charTimeList = 7;
+}
+
+//远征消息
+message GS2C_Combat_Crusade
+{
+	required uint32 level_id = 1;
+	required uint32 stage_state = 2;	//0表示章节未通关，1表示章节已通关
+	required uint64 rewards_state = 3;   //二进制顺序排序,0:未领取 1:已领取
+	required uint32 reset_lefttimes = 4;	//重置剩余次数
+	required uint32 add_lefttimes = 5;	//增兵剩余次数
+	optional uint32	is_Crusade_over = 6;	//能否继续打 0表示没有结束，1表示结束
+	repeated PairValue charTimeList = 7; //招募武将的剩余次数 first  武将槽位Id.second 剩余次数
+}
+
+
+
+message Crusade_HeroInfo
+{
+	required uint32 hero_id = 1;
+	required uint32 lefttime = 2;
+}
+
+message GS2C_Combat_Crusade_Pre_Begin
+{
+	repeated Crusade_HeroInfo hero_info = 1;
+}
+
+//请求远征战斗：同副本关卡战斗
+
+//远征增加幻影
+message C2GS_Combat_Crusade_Add_Hero
+{
+	required uint32 	group_id  =1;
+	required uint32		hero_id	  =2;
+}
+////领取远征奖励
+message GS2C_Crusade_Take_Reward_Rsp
+{
+	required bool ret = 1; 	//返回值
+	repeated StReward reward = 2;//奖励 在Commomdef.proto中定义
+}
+
+////远征中回复次数
+message C2GS_Combat_Crusade_Recover_Times
+{
+	repeated PairValue values = 1; //第一个字段是heroid,第二个是次数
+}
+
+
+
+message GS2C_Combat_Crusade_Add_Hero
+{
+	required bool 		bSuccess    =1;
+	required uint32		hero_id	  	=2;
+	required uint32		lefttime	=3;
+	required uint32		alllefttime = 4;
+}
+
+
+//请求尝试发起战斗
+//------------------------------Combat_type---------------------------
+//Country,    //国战
+//Fuben,      //副本战
+//Fog,        //迷雾战
+//Ore,        //矿战
+//Script,     //剧本
+//Crusade,    //远征
+//Official,   //官战
+//Monster,    //蛮族战斗
+//Activity_Tournament,    //比武活动
+//Youdi = 101,      //诱敌战,客户端单用的类型，新增类型要加这个之前
+//MAX_COMBAT_TYPE,
+	
+message C2GS_Combat_Try
+{
+    required uint32 combat_type  			=1;   	//战斗类型
+	optional uint32 assist_arg 				=2;		//辅助参数 		如：官职战，表示官职id		国战表示 战斗组id
+}
+
+//下发尝试发起战斗结果
+message GS2C_Combat_Try 
+{
+    required uint32 result	    			=1;   //结果 1-成功 0-失败
+	optional uint32 combat_type  			=2;   //战斗类型
+	optional uint32 assist_arg 				=3;	  //辅助参数 
+	optional Msg_return_common errcode		=4;	 //返回类型
+	
+	optional uint32 group_id		= 5;
+}
+
+message C2GS_Onekey_Recover_HP
+{
+	repeated uint32 heroid = 1;
+}
+
+message C2GS_REQUEST_TERR
+{
+	required uint32 group_id    =1;   //战斗组id
+}
+
+message GS2C_REQUEST_TERR_RET
+{
+	optional uint32 isGroupExist = 1;	//战斗组是否存在
+	optional uint32 terrainTyp = 2;		//场地类型
+}
+
+message C2GS_GetMyShadowNum
+{
+	optional uint32 group_id = 1;
+	optional bool isattack = 2;
+}
+
+message GS2C_GetMyShadowNum
+{
+	optional uint32 shadownum = 1;
+}
+
+message GS2C_Add_Reinforce
+{
+	optional bool isatt = 1;
+	optional uint32 afteridx = 2;
+	optional Msg_CombatObj obj = 3;
+	optional uint32 group_id = 4;
+}

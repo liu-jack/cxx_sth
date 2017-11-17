@@ -1,0 +1,140 @@
+/************************************************************************/
+/*Add by:zhoulunhao													*/
+/*Email	:zhoulunhao@hotmail.com											*/
+/************************************************************************/
+#include "../object/Player.h"
+#include "reward/reward.h"
+#include "Activity.pb.h"
+#include "Table/ActivityHeroRewardTableMgr.h"
+#include "Opcode.pb.h"
+#include "memory_buffer/NetPack.h"
+#include "ActivityControl/ActivityMgr.h"
+#include "BaseDefine.pb.h"
+#include "CrossLogic/PlayerGeneralRewardDB.h"
+#include "ActivityHeroReward/ActivityHeroRewardLog.h"
+#include "item/ItemManager.h"
+using namespace pb;
+
+#ifdef _MMO_SERVER_
+OpHandler(CMSG_OPEN_REWARD_BOX)
+{
+	C2GS_Open_Hero_Reward_Box msg; pack >> msg;
+	GS2C_Open_Hero_Reward_Box_Rsp sendmsg;
+	uint32 box_num = getHeroRewardBoxNum();
+	uint32 cost = msg.cirital() == GET_BASE_DEF_UINT(pb::BD_ACTIVITY_GENERAL_REWARD_TWICE) ? GET_BASE_DEF_UINT(pb::BD_ACTIVITY_GENERAL_REWARD_TWICE_COST) : GET_BASE_DEF_UINT(pb::BD_ACTIVITY_GENERAL_REWARD_QUINTUPLE_COST);
+	if(box_num > 0)
+	{
+		if(!TryDeductCurrency(pb::IR_GENERAL_REWRAD_OPEN_BOX_COST,eSysGold,cost))
+		{
+			sendmsg.set_ret(2);
+		}
+		else
+		{
+			sendmsg.set_ret(0);
+			IntPairVec& vec = sActivityGeneralRewardMgr.getRewardBoxItem();
+			pb::StReward* reward = sendmsg.add_rewrad();
+			for(IntPairVec::iterator iter = vec.begin();iter != vec.end();++iter)
+			{
+				reward->set_type(iter->first);
+				reward->set_value(iter->second * msg.cirital());
+				sReward.Change(*this,reward->type(),reward->value());
+			}
+			AddValue(pb::PLAYER_FIELD_HERO_REWARD_BOX,-1);
+		}
+	}
+	else
+	{
+		sendmsg.set_ret(1);
+	}
+	Send(pb::SMSG_OPEN_REWARD_BOX_RSP,sendmsg);
+}
+
+OpHandler(CMSG_GIVE_HERO_REWARD)
+{
+	sActivityMgr.MarkTakeInActivity(pb::ACTIVITY_HERO_REWARD,GetGuid());
+	C2GS_Reward_Hero msg; pack >> msg;
+	GS2C_Reward_Hero_Rsp sendmsg;
+	const ActivityGeneralRewardProto* reward_proto = sActivityGeneralRewardMgr.getActivityGeneralRewardProto(msg.troops_id());
+	if(reward_proto)
+	{
+		if(Character *character = m_characterStorage->MutableCharacter(msg.char_id()))
+		{
+			const IntPairVec& vec_cost = reward_proto->Cost();
+			int32 beef = GetCurrency(eBeef);
+			int32 wine = GetCurrency(eWine);
+			int32 diff = 0;
+			for(IntPairVec::const_iterator iter = vec_cost.begin();iter != vec_cost.end();++iter)
+			{
+				if(!sReward.Change(*this,iter->first,-iter->second))
+				{
+					const LogicItemProto* item_proto = sItemMgr.Find(iter->first);
+					if(item_proto)
+					{
+						if(iter->first == Reward::Beef)
+						{
+							diff = iter->second - beef;
+						}
+						else if(iter->first == Reward::Wine)
+						{
+							diff = iter->second - wine;
+						}
+						if(!TryDeductCurrency(pb::IR_GENERAL_COST,eSysGold,diff * item_proto->Value1()))
+						{
+							sendmsg.set_ret(4);//钻石不足
+							goto SEND;
+						}
+						else
+						{
+							if(iter->first == Reward::Beef && beef > 0)
+							{
+								SetValueInt(pb::PLAYER_FIELD_BEEF,0);
+							}
+							else if(iter->first == Reward::Wine && wine > 0)
+							{
+								SetValueInt(pb::PLAYER_FIELD_WINE,0);
+							}
+						}
+					}
+				}
+			}
+			int critical = System::RandWeight(reward_proto->RewardCriticalWeight());
+			int32 character_exp = reward_proto->RewardTroopsExp() * critical;
+			character->TryAddXP(character_exp);
+			sendmsg.set_critical(critical);
+			sendmsg.set_char_exp(character->GetCurXP());
+			sendmsg.set_char_level(character->GetLevel());
+			sendmsg.set_char_cur_xp_max(character->GetlvMaxXp(character->GetLevel()));
+			sendmsg.set_char_id(msg.char_id());
+			if(m_ActivityHeroRewardLog->getIsFirstReward(msg.char_id()))//第一次犒赏
+			{
+				AddValue(pb::PLAYER_FIELD_HERO_REWARD_BOX,reward_proto->RewardBoxFirst());
+				m_ActivityHeroRewardLog->setHasFirstReward(msg.char_id(),false);
+				GeneralRewardDB::SendUpdateInfoToDb(*this,msg.char_id(),m_ActivityHeroRewardLog->getIsFirstReward(msg.char_id()),pb::DATA_UPDATE);
+			}
+			m_ActivityHeroRewardLog->SyncCharId();
+			setCurrRewardCharId(msg.char_id());
+			m_ActivityHeroRewardLog->SaveTo(this,*sendmsg.mutable_next_char_info());
+			sendmsg.set_ret(0);
+		}
+		else
+		{
+			sendmsg.set_ret(2);
+		}
+	}
+	else
+	{
+		sendmsg.set_ret(1);
+	}
+SEND:
+	Send(pb::SMSG_GIVE_HERO_REWARD_RSP,sendmsg);
+}
+
+OpHandler(CMSG_REWARD_HERO_ALL_INFO)
+{
+	GS2C_Reward_Hero_Info msg;
+	m_ActivityHeroRewardLog->SaveTo(this,msg);
+	Send(pb::SMSG_REWARD_HERO_ALL_INFO_RSP,msg);
+}
+
+
+#endif

@@ -1,0 +1,176 @@
+#include "CombatBuff.h"
+#include "SkillDataMgr.h"
+#include "BuffFight.h"
+#include "Logger.h"
+#include "Combat.pb.h"
+
+using namespace Combat;
+
+bool FBuff::HaveBuff(uint32 id) const
+{
+	if(m_buff.size()<=0) return false;
+
+	FBuffMap::const_iterator it = m_buff.find(id);
+	if(it == m_buff.end())
+		return true;
+
+	return false;
+}
+
+bool FBuff::HaveBuff(BuffType typ) const
+{
+	if(m_buff.size()<=0) return false;
+
+	for(FBuffMap::const_iterator it = m_buff.begin(); it != m_buff.end(); ++it)
+	{
+		if(it->second.buffTyp == typ)
+			return true;
+	}
+	return false;
+}
+
+void FBuff::AddBuff(uint32 buffid, uint32 rangenum, uint32 form, uint32 to)
+{
+	BuffInfo buffinfo;
+	buffinfo.buffTyp = (BuffType)sSkillDataMgr.GetBuffType(buffid);
+	buffinfo.buffRemain = sSkillDataMgr.GetBuffLastRoundsCount(buffid);
+	buffinfo.buffRange = rangenum;
+	buffinfo.buffLevel = sSkillDataMgr.GetBuffLevel(buffid);
+	buffinfo.value1 = sSkillDataMgr.GetBuffValue1(buffid);
+	buffinfo.value2 = sSkillDataMgr.GetBuffValue2(buffid);
+	buffinfo.value3 = sSkillDataMgr.GetBuffValue3(buffid);
+	buffinfo.form = form;
+	buffinfo.to = to;
+	buffinfo.buffId = buffid;
+
+	if(buffinfo.buffTyp == 0)		//没找到该buff
+	{
+		NLOG("cant find buff");
+		return;
+	}
+
+	for(FBuffMap::iterator it = m_buff.begin(); it != m_buff.end(); ++it)
+	{
+		if((it->second.buffTyp == buffinfo.buffTyp) || (it->second.buffId == buffid))
+		{
+			if(it->second.buffLevel > buffinfo.buffLevel) return;
+
+			m_buff.erase(it);
+			m_buff[buffid] = buffinfo;
+			return;
+		}
+	}
+	m_buff[buffid] = buffinfo;
+}
+
+void FBuff::DelBuff(uint32 buffid)
+{
+	m_buff.erase(buffid);
+}
+
+bool FBuff::IsBuffEmpty()
+{
+	return m_buff.empty();
+}
+
+//回合结束刷新
+void FBuff::RefreshByRound()
+{
+	if(m_buff.empty())
+		return;
+
+	for(FBuffMap::iterator it = m_buff.begin(); it != m_buff.end();)
+	{
+		if(it->second.buffRemain <= 0)		//永久
+		{
+			it++;
+			continue;
+		}
+		else
+		{
+			it->second.buffRemain--;
+			if(it->second.buffRemain == 0)
+			{
+				m_buff.erase(it++);
+				continue;;
+			}
+		}
+		it++;
+	}
+}
+
+void FBuff::RefreshByRange()
+{
+	if(m_buff.empty())
+		return;
+
+	for(FBuffMap::iterator it = m_buff.begin(); it != m_buff.end();)
+	{
+		it->second.buffRange--;
+		if(it->second.buffRange<=0)
+			m_buff.erase(it++);
+		else
+			it++;
+	}
+}
+
+void FBuff::ClearAllBuff()
+{
+	if(!m_buff.empty())
+	{
+		m_buff.clear();
+	}
+}
+
+const BuffInfo* FBuff::GetBuffInfo(BuffType typ)
+{
+	if(m_buff.empty())
+		return NULL;
+
+	for(FBuffMap::iterator it = m_buff.begin(); it != m_buff.end(); it++)
+	{
+		if(it->second.buffTyp == percentdamage)
+			return &(it->second);
+	}
+	return NULL;
+}
+
+void FBuff::FillBuffInfoMsg(pb::Combat_Buff_AllInfo& msg, uint32 startrow)
+{
+	NLOG("FBuff::FillBuffInfoMsg1");
+	for(FBuffMap::iterator it = m_buff.begin(); it != m_buff.end(); it++)
+	{
+		int buffRange = it->second.buffRange;
+		NLOG("buffRange=%d",buffRange);
+		for(int i=0; i<buffRange; i++)
+		{
+			pb::Combat_Buff_Remain* buffone = msg.add_buffremians();
+			buffone->set_groupfrom(it->second.form);
+			buffone->set_groupto(it->second.to);
+			buffone->set_range(startrow+i);
+			buffone->set_buffid(it->second.buffId);
+		}
+
+	}
+	
+}
+
+void FBuff::FillBuffInfoMsg(pb::GS2C_Combat_Select_Tactic& msg, uint32 startrow)
+{
+	NLOG("FBuff::FillBuffInfoMsg2");
+	for(FBuffMap::iterator it = m_buff.begin(); it != m_buff.end(); it++)
+	{
+		int buffRange = it->second.buffRange;
+		NLOG("buffRange=%d",buffRange);
+		for(int i=0; i<buffRange; i++)
+		{
+			pb::Combat_Buff_Remain* buffone = msg.add_buffsremain();
+			buffone->set_groupfrom(it->second.form);
+			buffone->set_groupto(it->second.to);
+			buffone->set_range(startrow+i);
+			buffone->set_buffid(it->second.buffId);
+		}
+
+	}
+
+}

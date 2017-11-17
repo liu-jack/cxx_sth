@@ -1,0 +1,71 @@
+
+
+#ifndef		__Exploitboxproto__h
+#define		__Exploitboxproto__h
+#include "def/TypeDef.h"
+#include "game_data/datastruct/struct_exploit.h"
+class ExploitBoxProto
+{
+public:
+	friend class ExploitMgr;
+	ExploitBoxProto(const DB_ExploitBoxProto& exploitbocproto);
+	uint32 ID() const;
+	uint32 ExploitLevel() const;
+	bool MatchExploitRequire(uint32 lv);
+	uint32 RewardBoxNum() const;
+	uint32 RewardExBoxNum() const;
+	uint32 GetNeedExploitValue() const;
+	uint32 KillGetExploit() const;
+
+public:
+	const DB_ExploitBoxProto& m_exploitboxproto;
+};
+
+class ChallengeRank{
+public:
+	friend class ExploitMgr;
+	ChallengeRank(const DB_ChallengeRank& challangeRank);
+
+	uint32 ID() const;
+	bool MatchVictoryTimes(uint32 need_times) const;
+	const uint32 RewardItemId() const;
+	const uint32 RewardItemnNum() const;
+	const uint32 TitleId() const;
+	const uint32 TitleQuilty() const;
+	const std::string Comment() const;
+	uint32 get_victory_times() const;
+private:
+	const DB_ChallengeRank& m_challengerank;
+};
+
+
+class AttackCityRank{
+public:
+	friend class ExploitMgr;
+	AttackCityRank(const DB_AttackCityRank& attackcityrank);
+	uint32 ID() const;
+	uint32 Level() const;
+	uint32 AttackCityNumReq() const;
+	const uint32 RewardItemId() const;
+	const uint32 RewardItemnNum() const;
+	const uint32 TitleId() const;
+	const uint32 TitleQuilty() const;
+	const std::string Comment() const;
+
+private:
+	const DB_AttackCityRank& m_attackcityrank;
+};
+
+class FightRankReward{
+public:
+	FightRankReward(const DB_FightRankReward& db);
+	uint32 Id() const;
+	const IntPairVec& GetRankReward() const;
+	const IntPair& GetRankPair() const;
+private:
+	const DB_FightRankReward& db_;
+	IntPairVec reward_;
+	IntPair rank_area_;
+};
+
+#endif

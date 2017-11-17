@@ -1,0 +1,494 @@
+package pb;
+
+enum PLAYER_32_BIT_FLAGS_TYPE
+{
+//                                                =-1$;//-1不对这个进行操作
+	PLAYER_FLAG_IS_NEW                                =0x1;
+	PLAYER_FLAG_HAD_FIRST_PAY                         =0x2;
+	PLAYER_FLAG_HAD_HARVEST                           =0x4;//抢收，每天可以征收一次
+	PLAYER_FLAG_HAD_SUPPORT                           =0x8;//拥戴，每天获得5次超级征收次数
+	PLAYER_FLAG_HAD_DEEP                              =0x10;//深掘,每天可以领取一颗随机宝石
+	PLAYER_FLAG_FIRST_REFRESH_EQUIP_SHOP              =0x20;//玩家第一次刷新装备商店
+	PLAYER_GET_AUTO_BUILD                             =0x40;//特权永久自动建造
+	PLAYER_GET_TROOPS_ODER_EVERYDAY                   =0x80;//特权每日赠送征兵令
+	PLAYER_OPEN_ADVANCED_RES_FUBEN                    =0x100;//特权开启高级资源副本
+	PLAYER_UP_KILL_ENEMY_HORNOR                       =0x200;//特权杀功勋提升100%
+	PLAYER_UP_RES_CAPCITY                             =0x400;//特权资源储量提升100%
+	PLAYER_UP_WORD_MAP_MOVE_SPEED                     =0x800;//特权世界移动速度提升
+	PLAYER_UP_COUNTRY_WAR_TIME                        =0x1000;//特权自动国战时间延长至60分钟
+	PLAYER_CAN_FAR_TRIGE_PERSONAL_EVENT               =0x2000;//特权个人事件可以直接点击触发
+	PLAYER_FLAG_HAD_TAKE_FIRST_PAY_REWARD             =0x4000;//是否已领取首充奖励
+	PLAYER_FLAG_QUEST_GET_EXPLOIT_ACTIVE              =0x8000;//MAIN获得功勋任务是否激活
+	PLAYER_NO_SHOP_COOL_DOWN_TIME                     =0x10000;//特权装备刷新清除cd功能
+	PLAYER_CRUSADE_ADD_HERO_TIMES                     =0x20000;//特权远征次数增加
+	PLAYER_FLAG_BRANCH_QUEST_GET_EXPLOIT_ACTIVE       =0x40000;//分支获得功勋任务是否激活
+	PLAYER_CONGRATULATE_SHENQI_80                     =0x80000;
+	PLAYER_CONGRATULATE_SHENQI_100                    =0x100000;
+	PLAYER_CONGRATULATE_SHENQI_120                    =0x200000;
+	PLAYER_CONGRATULATE_SHENQI_150                    =0x400000;
+}
+
+enum PLAYER_VALUE_TYPE
+{
+	PLAYER_VALUE_TYPE_32_BIT_FLAGS                    =0;
+	PLAYER_VALUE_TYPE_32_BIT_FIELD                    =1;
+	PLAYER_VALUE_TYPE_64_BIT_FIELD                    =2;
+	PLAYER_VALUE_TYPE_FLOAT_FIELD                     =3;
+	PLAYER_VALUE_TYPE_STR_FIELD                       =4;
+	PLAYER_VALUE_TYPE_STR_DATA                        =5;
+}
+
+// 增加枚举请务必在最后增加，该顺序影响到PlayerTable::GetIndexUint32Ptr
+enum PLAYER_32_BIT_FIELD
+{
+	PLAYER_FIELD_CONTINUOUSLY_LOGIN_DAY               =0;
+	PLAYER_FIELD_FLAGS                                =1;//PLAYER_32_BIT_FLAGS_TYPE
+	PLAYER_FIELD_HEAD_ICON_ID                         =2;
+	PLAYER_FIELD_GUIDE_PROCESS                        =3;
+	PLAYER_FIELD_LOCKREASON                           =4;
+
+	PLAYER_FIELD_LEVEL                                =5;//等级
+	PLAYER_FIELD_VIP_LEVEL                            =6;//vip等级
+	PLAYER_FIELD_COIN                                 =7;//银币
+	PLAYER_FIELD_SYS_GOLD                             =8;//金币
+	PLAYER_FIELD_IRON                                 =9;//铁矿
+	PLAYER_FIELD_FOOD                                 =10;//粮食
+	PLAYER_FIELD_WOOD                                 =11;//木材
+	PLAYER_FIELD_HORNOR                               =12;//荣耀值
+	PLAYER_FIELD_BUILDING_HORNOR                      =13;//建筑荣耀值
+	PLAYER_FIELD_TRAINING                             =14;
+	PLAYER_FIELD_TROOPSNUM                            =15;//增兵次数
+	PLAYER_FIELD_FREECOLLECTNUM                       =16;
+	PLAYER_FIELD_SUPERCOLLECTNUM                      =17;
+	PLAYER_FIELD_TROOPSODER                           =18;//征兵令数量
+	PLAYER_FIELD_GOLDHAMMER                           =19;
+	PLAYER_FIELD_COUPON                               =20;
+	PLAYER_FIELD_MARKETBUYNUM                         =21;
+	PLAYER_FIELD_FREEPURIFY                           =22;
+	PLAYER_FIELD_EXTRMEPURIFY                         =23;
+	PLAYER_FIELD_GODSTONEPURIFY                       =24;
+	PLAYER_FIELD_CASH_GOLD                            =25;
+	PLAYER_FIELD_CUR_XP                               =26;
+	PLAYER_FIELD_CUR_VIP_XP                           =27;
+	PLAYER_FIELD_DAILY_QUEST_SCORE                    =28;//每日任务积分，每天清零
+	PlAYER_FIELD_AUTO_HAMMER                          =29;
+
+	PLAYER_FIELD_LOGIN_7_DAY_REWARD_TAKE_COUNT        =30;
+	PLAYER_FIELD_LOGIN_MONTLY_REWARD_TAKE_COUNT       =31;
+	PlAYER_FIELD_PRE_BATTLE_ID                        =32;
+	PlAYER_FIELD_PALACE_LOW_OFFICE_ID                 =33;//皇城低阶官职
+	PLAYER_FIELD_PANZER_ID                            =34;
+	PLAYER_FIELD_BAG_CAPACITY                         =35;
+	PLAYER_FIELD_IS_REGIST_CROSS_SERVER               =36;
+	PLAYER_FIELD_IS_IN_CROSS_SERVER                   =37;
+	PlAYER_FIELD_IS_AUTO_INCREASE_TROOPS              =38;
+
+	PLAYER_FIELD_BUY_LABOUR_TIMES                     =39;
+	PLAYER_FIELD_LABOUR_NUM                           =40;
+	PLAYER_FIELD_CUR_REBUILD_ID                       =41;
+	PLAYER_FIELD_IS_BEGIN_REBUILD                     =42;
+	PLAYER_FIELD_CUR_PALACE_REBUILD_ROUND             =43;
+	PLAYER_FIELD_CUR_ROUND_INVEST1                    =44;
+	PLAYER_FIELD_CUR_ROUND_INVEST2                    =45;
+	PLAYER_FIELD_CUR_ROUND_INVEST3                    =46;
+	PLYAER_FIELD_HEROS_EXPUP_PERCENT                  =47;//武将经验加成
+
+	PLAYER_FIELD_EXPLOIT_RANK_VALUE                   =48;//功勋榜-功勋值
+	PLAYER_FIELD_MILITARY_POWER_VALUE                 =49;//总的战力值
+	PLAYER_FIELD_EXPLOIT_RANK_NORMAL_BOX              =50;//功勋榜-普通宝箱剩余数量
+	PLAYER_FIELD_EXPLOIT_RANK_ADVANCE_BOX             =51;//功勋榜-高级宝箱剩余数量
+	PLAYER_FIELD_EXPLOIT_RANK_BOX_LEVEL               =52;//功勋榜-宝箱的科技等级
+	PLAYER_FIELD_TRICK_RANK_VALUE                     =53;//诱敌榜-获胜次数
+	PLAYER_FIELD_OCCUPY_RANK_VALUE                    =54;//攻城榜-占领城池数
+	PLAYER_FIELD_SUM_DINNER_NUMBER                    =55;//宴会上限
+	PLAYER_FIELD_DINNER_NUMBER                        =56;//宴会次数
+	PLAYER_FIELD_TRAINING_FIGHT                       =57;//战力练兵令
+	PLAYER_FIELD_TRAINING_DOUBLE                      =58;//翻倍练兵令
+	PLAYER_FIELD_TRAINING_REDUCE                      =59;//减耗练兵令
+
+	PLAYER_FIELD_DRAFT_ORDER_LIMIT                    =60;//征兵令上限
+	PLAYER_FIELD_NORMAL_EXPLOIT_BOX_LIMIT             =61;//普通宝箱上限
+	PLAYER_FIELD_ADVANCE_EXPLOT_BOX_LIMIT             =62;//高级宝箱上限
+	PLAYER_FLIELD_TROOPS_ORDER_LIMIT                  =63;//增兵次数上限
+	PLAYER_FIELD_TRICKREWARD_STEP                     =64;//诱敌榜的领奖步骤
+	PLAYER_FIELD_OCCUPYREWARD_STEP                    =65;//攻城榜的领奖步骤
+	PLAYER_FIELD_IS_ADVANCE_BOX                       =66;//是否开启高级宝箱
+	PLAYER_FIELD_CARD_SLOT_COUNT                      =67;//武将槽位数量
+	PLAYER_FIELD_CREATESHADOW_NUM                     =68;//创建幻影数量
+	PLAYER_FIELD_TODAY_ADD_XP                         =69;//当天的国战经验
+	PLAYER_FIELD_TAKE_VIP_REWARD_FLAG                 =70;//领取vip等级奖励记录
+	PLAYER_FIELD_TAKE_EXPLOIT_BOX_STEP                =71;//领取宝箱的stepId防止服务器重启多发宝箱
+	PLAYER_FIELD_TAKE_DAILY_QUEST_REWARD_FLAG         =72;//领取每日任务的奖励记录
+	PLAYER_FIELD_GROW_UP_QUEST_EXPLOIT_VALUE          =73;//成长任务功勋值
+	PLAYER_FIELD_XILIAN_COUNT                         =74;//成长任务洗练次数
+	PLAYER_FIELD_CHAR_ROW_NUM                         =75;//武将带几排兵
+	PLAYER_FIELD_CONTUINE_SIGNUP_DAY                  =76;//签到天数
+	PLAYER_FIELD_RETROACTIVE_DAY                      =77;//补签天数
+	PLAYER_FIELD_SIGN_EXTRA_REWARD_FLAG               =78;//额外奖励领取标志
+	PLAYER_FIELD_ACTIVITY_STAR_BOX_LEVEL              =79;//异星宝箱等级
+	PLAYER_FIELD_USE_FREE_QUICK_COMBAT_TIMES          =80;//使用免费快速战斗次数
+	PLAYER_FIELD_OPEN_FOG_COUNT                       =81;//迷雾关数量
+	PLAYER_FIELD_TAKE_FOG_REWARD_FLAG                 =82;//是否领取迷雾关奖励
+	PLAYER_FIELD_ACTIVITY_XILIAN_COUNT                =83;//洗练活动次数（免费洗练和至尊洗练）
+	PLAYER_FIELD_TAKE_XILIAN_REWARD_FLAG              =84;//是否领取洗练奖励
+	PLAYER_FIELD_IRON_COLLECT_TIMES                   =85;//铁矿征收次数
+	PLAYER_FIELD_IRON_COLLECT_REWARD_FLAG             =86;//铁矿征收的奖励领取情况
+	PLAYER_FIELD_IRON_COLLECT_TEN                     =87;//铁矿征收十次
+	PLAYER_FIELD_XILIAN_TEN_TIMES                     =88;//洗炼活动每十次奖励
+	PLAYER_FIELD_PEOPLE_LOYAL                         =89;//民忠
+	PLAYER_FIELD_ZHENGWU_TIMES                        =90;//政务次数
+	PLAYER_FIELD_RENOWN                               =91;//声望
+	PLAYER_FIELD_STARCRYSTAL                          =92;//星耀晶
+	PLAYER_FIELD_BOARD                                =93;//集成板
+	PLAYER_FIELD_GENE_CODE                            =94;//基因码
+	PLAYER_FIELD_VISIT_FAMOUS                         =95;//结交名仕领奖状况
+	PLAYER_FIELD_LIMITED_SHOP_FLAG                    =96;//限时商店的购买情况
+	PLAYER_FIELD_BEEF                                 =97;//牛肉
+	PLAYER_FIELD_WINE                                 =98;//美酒
+	PLAYER_FIELD_HERO_REWARD_BOX                      =99;//犒赏保箱
+	PLAYER_FIELD_ACTIVITY_GOLD_NUM                    =100;//活动冲钻石
+	PLAYER_FIELD_ACTIVITY_GOLD_TAKE_FLAG              =101;//活动领取的flag
+	PLAYER_FIELD_BRANCH_QUEST_EXPLOIT                 =102;//分支任务的功勋值
+	PLAYER_FIELD_WORLD_FIGHT_TAKE_REWARD_FLAG         =103;//国战成就的领取宝箱情况
+	PLAYER_FIELD_CURR_REWARD_CHAR_ID                  =104;//当前犒赏的武将ID
+	PLAYER_FIELD_LOGIN_DAYS                           =105;//登录天数
+	PLAYER_FIELD_TODAY_CONGRATULATE_TIMES             =106;//当天恭贺次数
+	PLAYER_FIELD_MAIN_QUEST_GET_EXPLOIT               =107;///主线任务获取功勋
+	PLAYER_FIELD_TODAY_OCCUPY_CITY                    =108;//今日攻城
+	PLAYER_FIELD_TODAY_ZHUZHENG                       =109;//今日助阵
+	PLAYER_FIELD_TODAY_ZHUGONG                        =110;//今日助攻
+	PLAYER_FIELD_TODAY_CONTINUE_OCCPUY_CITY           =111;//今日连城数量
+	PLAYER_FIELD_ACTIVITY_OCCUPY_CITY_NUM             =112;//战场活动个人的攻城数
+	PLAYER_FIELD_ACTIVITY_ADD_SOLDIER                 =113;//战场活动个人的增兵数
+////////////////////////////////////////////////////////////
+
+	PLAYER_FIELD_32_BIT_COUNT                         =114;
+}
+
+// 增加枚举请务必在最后增加，该顺序影响到PlayerTable::GetIndexUint64Ptr
+enum PLAYER_64_BIT_FIELD
+{
+	PLAYER_FIELD_PLAYER_ID                            =0;
+	PLAYER_FIELD_GUILD_ID                             =1;
+	PLAYER_FIELD_LAST_LOGIN_TIME                      =2;
+	PLAYER_FIELD_REGIST_TIME                          =3;
+	PLAYER_FIELD_NEXT_RECOVER_HORNOR_TIME             =4;
+	PLAYER_FIELD_NEXT_RECOVER_MARKET_BUY_NUM_TIME     =5;
+	PLAYER_FIELD_NEXT_RECOVER_FREE_PURIFY_TIME        =6;
+	PLAYER_FIELD_NEXT_RECOVER_DAILY_QUEST_SCORE_TIME  =7;
+	PLAYER_FIELD_NEXT_RECOVER_SMITHY_BUY_NUM_TIME     =8;
+	PLAYER_FIELD_LOGIN_7_DAY_REWARD_TAKE_TIME         =9;
+	PLAYER_FIELD_LOGIN_MONTLY_REWARD_TAKE_TIME        =10;
+	PLAYER_FIELD_CUR_REBUILD_END_TIME                 =11;
+	PLAYER_FIELD_PALACE_TAKE_SALARY_TIME              =12;//官职，领取俸禄时间
+	PLAYER_FIELD_LOCK_TIME                            =13;//封号到时间
+	PLAYER_FIELD_KILL_NUM                             =14;//杀敌数
+	PLAYER_FIELD_ENTER_WORLD_TIME                     =15;//进入世界的时间
+	PLAYER_FIELD_BUY_MONTH_CARD_NORMAL                =16;//买普通月卡的时间
+	PLAYER_FIELD_BUY_MONTH_CARD_ADVANCE               =17;//买高级月卡的时间
+	PLAYER_FIELD_TAKE_MONTH_CARD_NORMAL               =18;//领取普通月卡奖励的时间
+	PLAYER_FIELD_TAKE_MONTH_CARD_ADVANCE              =19;//领取高级月卡奖励的时间
+	PLAYER_FIELD_CONGRATULATE_ACTIVE_TIME             =20;//恭贺开始时间
+
+
+	PLAYER_FIELD_64_BIT_COUNT                         =21;
+}
+
+enum PLAYER_FLOAT_FIELD
+{
+	PLAYER_FIELD_FLOAT_COUNT                          =0;
+}
+
+enum PLAYER_STR_FIELD
+{
+	PLAYER_FIELD_NAME                                 =0;
+	PALYER_FIELD_GUILD_NAME                           =1;
+	PLAYER_FIELD_SDK_NAME                             =2;
+	PLAYER_FIELD_STR_COUNT                            =3;
+}
+
+enum PLAYER_STR_DATA
+{
+	PLAYER_FIELD_HEAD_ICON_IDS                        =0;//玩家已获得的头像id
+	PLAYER_FIELD_BUFF_IDS                             =1;//玩家已获得的Buffid
+	PLAYER_FIELD_STR_DATA_COUNT                       =2;
+}
+
+enum CHARACTER_FIELD
+{
+	CHAR_FIELD_LEVEL                                  =0;//当前等级
+	CHAR_FIELD_CUR_XP                                 =1;//当前经验
+	CHAR_FIELD_WEAPON                                 =2;
+	CHAR_FIELD_HORSE                                  =3;
+	CHAR_FIELD_CHEST                                  =4;
+	CHAR_FIELD_BOOK                                   =5;
+	CHAR_FIELD_JADE                                   =6;
+	CHAR_FIELD_FLAG                                   =7;
+	CHAR_FIELD_HOLY                                   =8;
+	CHAR_FIELD_ARMY                                   =9;
+	CHAR_FIELD_SUIT                                   =10;
+	CHAR_FIELD_TROOPS                                 =11;
+	CHAR_FIELD_ATTACK                                 =12;
+	CHAR_FIELD_DEFENSE                                =13;
+	CHAR_FIELD_PUNCTURE                               =14;
+	CHAR_FIELD_PARRY                                  =15;
+	CHAR_FIELD_BROKEN_ARRAY                           =16;
+	CHAR_FIELD_IMPECCABLE                             =17;
+	CHAR_FIELD_TONG                                   =18;
+	CHAR_FIELD_YONG                                   =19;
+	CHAR_FIELD_CUR_TROOPS                             =20;
+	CHAR_FIELD_MILITARY_POWER                         =21;//战力
+
+	CHAR_FIELD_JX_LUCK_VALUE                          =22;
+	CHAR_FIELD_JX_TROOPS                              =23;
+	CHAR_FIELD_JX_ATTACK                              =24;
+	CHAR_FIELD_JX_DEFENSE                             =25;
+}
+
+enum EQUIP_SLOT{
+	EQUIP_SLOT_WEAPON                                 =0;
+	EQUIP_SLOT_HORSE                                  =1;
+	EQUIP_SLOT_CHEST                                  =2;
+	EQUIP_SLOT_BOOK                                   =3;
+	EQUIP_SLOT_JADE                                   =4;
+	EQUIP_SLOT_FLAG                                   =5;
+	EQUIP_SLOT_HOLY                                   =6;
+	EQUIP_SLOT_ARMY                                   =7;
+	EQUIP_SLOT_COUNT                                  =8;
+}
+
+enum PLAYER_COUNTRY{
+	COUNTRY_NONE                                      =0;
+	COUNTRY_WORM                                      =1;//虫族
+	COUNTRY_MAN                                       =2;//人族
+	COUNTRY_GOD                                       =3;//神族
+	COUNTRY_BULLYING                                  =4;//蛮族
+}
+
+enum CxGS_ERROR_CODE
+{
+	ErrCommonSuccess                                  =0;//9000
+	ErrCommonFail                                     =1;//9001
+
+
+	ErrInvalidProto                                   =2;//9002游戏数据出错
+	ErrInvalidParam                                   =3;//9003
+
+	ErrNotEnoughCoin                                  =4;//9004
+	ErrNotEnoughCurr                                  =5;//9005
+	ErrNotEnoughItem                                  =6;//9006
+
+	ErrNotEnoughSpace                                 =7;//9007背包不够空间（现有背包无限空间，不会出现）
+	ErrInvalidItemId                                  =8;//9008
+	ErrItemCantBeUsed                                 =9;//9009
+	ErrItemCantBeEquip                                =10;//9010
+	ErrItemLevelLimited                               =11;//9011
+	ErrCantFindItemUpgradeData                        =12;//9012
+
+
+	ErrCharCantUpgrade                                =13;//9013
+	ErrInvalidCharacterId                             =14;//9014客户端操作的charid不存在
+	ErrCharCantUpgradeQuality                         =15;//9015
+	ErrCharUpQualityMaterialNotMatch                  =16;//9016
+
+	ErrCharCantInlay                                  =17;//9017
+
+	ErrGMInvalidParam                                 =18;//9018
+	ErrGMInvalidCommand                               =19;//9019
+
+	ErrQuestNotExist                                  =20;//9020
+	ErrQuestNotActive                                 =21;//9021
+	ErrQuestNotFinish                                 =22;//9022
+	ErrHaveNotTraining                                =23;//9023
+
+	ErrDidNotHaveFreeChanceToLottery                  =24;//9024
+
+	ErrNameAlreadyExist                               =25;//9025
+
+	ErrIsBeUseUp                                      =26;//9026
+
+	ErrStageLevelNotOpenNow                           =27;//9027
+	ErrStageLock                                      =28;//9028
+	ErrStageLevelLock                                 =29;//9029
+	ErrStageLevelFightCountLimit                      =30;//9030
+
+	ErrTimeNotMatch                                   =31;//9031
+	ErrNowBonusHasTake                                =32;//9032
+
+	ErrSellProgramNotActive                           =33;//9033
+
+	ErrIAPRewardExpire                                =34;//9034
+	ErrPrebattleIdNotMatch                            =35;//9035
+
+	ErrNotFreeTime                                    =36;//9036
+
+	ErrPlayerLevelNotEnough                           =37;//9037
+
+	ErrNotYetActiveHidenSkill                         =38;//9038
+
+	ErrAlreadyExist                                   =39;//9039
+
+	ErrNotUnlock                                      =40;//9040
+
+	ErrNotEnoughFood                                  =41;//9041
+	ErrNotEnoughGold                                  =42;//9042
+	ErrNotEnoughCashGold                              =43;//9043
+	ErrNotEnoughIron                                  =44;//9044
+	ErrNotEnoughWood                                  =45;//9045
+	ErrNotEnoughToopsOder                             =46;//9046
+
+	ErrNotEnoughLabour                                =47;//9047
+	ErrRechMaxTimes                                   =48;//9048
+
+	ErrAlreadyBegin                                   =49;//9049
+	ErrAlreadyInvest                                  =50;//9050
+
+	ErrTodayAlreadyGet                                =51;//9051
+
+	ErrFunctionMaking                                 =52;//9052
+	ErrRechBagCapacity                                =53;//9053
+	ErrCharInBattle                                   =54;//9054
+	ErrNotBuyTimes                                    =55;//9055
+	ErrBeShutUp                                       =56;//9056
+	ErrAccountBeForbid                                =57;//9057
+	ErrRechGemMaxLevel                                =58;//9058宝石等级达到最大了
+	ErrChannel                                        =59;//9059渠道不对
+	ErrGiftCodeNotExist                               =60;//9060兑换码不存在
+	ErrGiftCodeExpier                                 =61;//9061兑换码已过期
+	ErrGiftCodeNoActive                               =62;//9062兑换码未生效
+	ErrGiftCodeInValid                                =63;//9063兑换码已失效
+	ErrAlreadyTake                                    =64;//9064已领取
+	ErrHeroInDungeon                                  =65;//9065武将被捕获状态
+	ErrNeedVipToAutoBuild                             =66;//9066达到vip1可永久使用自动建造
+	ErrTypeCount                                      =67;//这为个数，别写这后面
+
+	ErrLvNotMatch                                     =68;
+	ErrVipLvNotMatch                                  =69;
+	ErrQuestHasFinished                               =70;//任务已经完成
+	ErrNoTechnology                                   =71;//没有学科技
+
+	ErrCrossHeroBusy                                  =72;//跨服的武将在战斗中或者没有在主城
+	ErrNeedVipPrivilege                               =73;
+}
+
+enum EVENT_LOGIN_FAILD_ENUM
+{
+	EVENT_VERSION_CHECK_FAIL                          =1;
+	EVENT_SDK_ACCOUNT_CHECK_FAIL                      =2;
+	EVENT_SELF_ACCOUNT_CHECK_NOT_ACCOUNT_INFO         =3;
+	EVENT_SELF_ACCOUNT_CHECK_PASSWORD_ERROR           =4;
+	EVENT_SELF_ACCOUNT_REGISTER_ACCOUTN_IS_EMPTY      =5;
+	EVENT_SELF_ACCOUNT_REGISTER_IS_HAD_REGISTER       =6;
+	EVENT_SELF_ACCOUNT_REGISTER_PWD_IS_EMPTY          =7;
+	EVENT_SELF_ACCOUNT_REGISTER_WRITE_DB_ERROR        =8;
+
+	EVENT_GET_SERVER_LIST_NOT_ACCOUNT_INFO            =9;
+	EVENT_GET_SELECT_SERVER_NOT_ACCOUNT_INFO          =10;
+	EVENT_GET_SELECT_SERVER_NOT_FIND_SERVER_ID        =11;
+
+
+
+}
+
+enum EVENT_ID
+{
+//                                                =-1$;//-1不对这个进行操作
+	EVENT_USER_ACCT_LOGIN_START                       =1001;
+	EVENT_USER_ACCT_LOGIN_OK                          =1002;
+	EVENT_USER_ACCT_LOGIN_FAILED                      =1003;
+	EVENT_USER_ACCT_LOGOUT                            =1004;
+	EVENT_USER_ACCT_KICKED_OUT                        =1005;
+
+	EVENT_PLAYER_CREATE                               =1006;
+	EVENT_PLAYER_LOGIN                                =1007;
+	EVENT_PLAYER_LOGIN_FAILED                         =1010;
+
+	EVENT_PLAYER_PAY_START                            =2001;
+	EVENT_PLAYER_PAY_OK                               =2002;
+	EVENT_PLAYER_PAY_FAILED                           =2003;
+
+	EVENT_PALYER_ITEM_SYS                             =3001;
+	EVENT_PLAYER_MONEY_SYS                            =3002;
+
+	EVENT_PLAYER_BEHAVIOR_STAGE                       =4001;//完成关卡
+	EVENT_PLAYER_BEHAVIOR_LEVELUP                     =4002;//玩家升级
+	EVENT_PLAYER_BEHAVIOR_VIPLEVELUP                  =4003;//vip升级
+	EVENT_PLAYER_TAKE_GIFT_BAG                        =4004;//领取礼包
+	EVENT_PLAYER_ARMY_LV_UP                           =4005;//武将升级
+	EVENT_PLAYER_EQUIP_PURIFY                         =4006;//装备洗练
+	EVENT_PLAYER_GODSTONE_PURIFY                      =4007;//神石洗练
+	EVENT_PLAYER_CALL_PHANTOM                         =4008;//召幻影
+	EVENT_PLAYER_ACTIVITY                             =4009;//活动参与
+	EVENT_PLAYER_COUNTRY_TASK                         =4010;//国战任务
+}
+
+enum ITEM_REASON
+{
+//                                                =-1$;//-1不对这个进行操作
+	IR_GM_GET                                         =100;//
+	IR_VENDOR_GET                                     =101;//装备商店
+	IR_QUEST_REWARDS_GET                              =102;//任务奖励
+	IR_ITEM_COMPOUND_GET                              =103;//合成
+	IR_OPERATION_REWARD_GET                           =104;//奖励
+	IR_LOTTO_GET                                      =105;//掉落
+	IR_IAP_REWARD_GET                                 =106;//充值奖励
+	IR_IAP_GET                                        =107;//充值
+	IR_MAIL_GET                                       =108;//邮件
+	IR_CYCLE_GET                                      =109;//重复周期
+	IR_OPEN_BOX_GET                                   =110;//宝箱
+	IR_STAGE_LEVEL_LOOT_GET                           =111;//关卡掉落
+	IR_RUN_DECOMPOSE_GET                              =112;//宝石分解
+	IR_PVP_RANK_REWARD_GET                            =113;//排行榜
+	IR_ITEM_USE_GET                                   =114;//使用物品
+	IR_MOUDLE_INCREASE_GET                            =115;//建筑产出
+	IR_ITEM_SELL_GET                                  =116;//出售物品
+	IR_PLAYER_REBUILD_EFFECT_GET                      =117;//重建产出
+	IR_PLAYER_CREAT_INIT_GET                          =118;//初始化
+	IR_VIP_REWARD_GET                                 =119;//会员奖励
+	IR_SIGN_UP_BASE_REWARD_GET                        =120;//签名奖励
+	IR_BAG_RECH_CAPACITY_GET                          =121;//自动出售
+	IR_QUEST_REWARD_GET                               =122;//任务奖励
+
+
+///////////////////////////////////////////////////////
+	IR_LOTTO_COST                                     =300;//掉落消耗
+	IR_CHARACTER_UPGRADE_SKILL_COST                   =301;//升级技能
+	IR_CHARACTER_UPGRADE_LV_COST                      =302;//武将升级
+	IR_ITEM_USED_COST                                 =303;//物品使用
+	IR_CYCLE_COST                                     =304;//周期消耗
+	IR_EQUIP_UPGRADE_LV_COST                          =305;//装备升级
+	IR_ITEM_COMPOUND_COST                             =306;//物品合成
+	IR_GM_COST                                        =307;//
+	IR_VENDOR_COST                                    =308;//装备购买
+	IR_VENDOR_REFRESH_COST                            =309;//商店刷新
+	IR_PLAYER_CHANGE_NAME_COST                        =310;//改名
+	IR_PLAYER_BUY_HEAD_ICON_COST                      =311;//改头像
+	IR_CHARACTER_INCREASE_HP_COST                     =312;//自动增兵
+	IR_PLAYER_BUYBUFF_COST                            =313;//购买加成
+	IR_PLAYER_BUY_ITEM_COST                           =314;//购买物品
+	IR_PLAYER_BUY_BACK_ITEM_COST                      =315;//回购物品
+	IR_PLAYER_REBUILD_COST                            =316;//重建消耗
+	IR_PLAYER_ZHAOMU_CHARACTER_COST                   =317;//招募消耗
+	IR_BUILDING_LV_UP_COST                            =318;//建筑升级
+	IR_EESET_TIME_COST                                =319;//重置消耗
+	IR_TRAIN_CHAR_COST                                =320;//练兵消耗
+	IR_CLEAR_TONDENCD_COST                            =321;//屯田CD
+	IR_INSTANT_ESCAPE_COST                            =322;//地牢逃跑
+	IR_INVEST_CLEAR_CD_COST                           =323;//地牢CD
+	IR_ITEM_EXPIRY_COST                               =324;//物品过期
+	IR_ACTIVITY_STAR_BOX_LEVEL_UP_COST                =325;//活动宝箱升级
+	IR_ACTIVITY_STAR_BOX_FINISH_COUNT_DOWN_COST       =326;//完成活动
+	IR_ACTIVITY_XILIAN_COST                           =327;//洗炼消耗
+	IR_QUICK_FIGHT_COST                               =328;//快速战斗
+	IR_CROSS_HAMMER_COST                              =329;//加速锤
+	IR_CROSS_KILL_TROOP_COST                          =330;//
+	IR_RUN_DECOMPOSE_COST                             =331;//
+	IR_MINZHONG_COST                                  =332;//
+	IR_CELEBRITY_COST                                 =333;//
+	IR_LIMITED_TIME_SHOP_BUY_COST                     =334;//
+	IR_GENERAL_REWRAD_OPEN_BOX_COST                   =335;//
+	IR_GENERAL_COST                                   =336;
+	IR_RECOMMEND_COUNTRY_GET                          =337;//推荐国家
+	IR_AUTO_COUNTRY_WAR_COST                          =338;
+	IR_SEIGE_ARMY_FORCE_COST                          =339;
+}

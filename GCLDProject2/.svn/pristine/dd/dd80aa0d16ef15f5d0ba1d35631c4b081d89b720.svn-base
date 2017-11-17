@@ -1,0 +1,22 @@
+/************************************************************************/
+/*Add by:zhoulunhao													*/
+/*Email	:zhoulunhao@hotmail.com											*/
+/************************************************************************/
+
+#include "PlayerZhengWuDB.h"
+#include "../server_client/DbProxyServerClient.h"
+#include "ServerOpcode.pb.h"
+#include "../GovernmentAffairs/GovAffairsLog.h"
+#include "../object/Player.h"
+#include "Activity.pb.h"
+
+using namespace pb;
+
+void PlayerZhengWuDb::SendUpdateInfoToDb(Player& player)
+{
+#ifdef _MMO_SERVER_
+	pb::GxDB_GovAffairsInfo msg;
+	player.m_GovAffairsLog->saveTo(msg);
+	sDbProxyClient.SendPlayerPack(player, SG2D_ZHENGWU_UPDATE, msg);
+#endif
+}

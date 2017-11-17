@@ -1,0 +1,29 @@
+
+
+
+#include "PlayerCongratulateDB.h"
+#include "Rank.pb.h"
+#include "../server_client/DbProxyServerClient.h"
+#include "ServerOpcode.pb.h"
+#include "../object/Player.h"
+#include "../Congratulate/CongratulateRewardLog.h"
+
+void CongratulateLogDB::SendInfoToSelfCongratulateDb(Player& player, CongratulateLog& log,const uint32 table_id)
+{
+	pb::GxDB_CongratulateInfo msg;
+	log.SaveTo(table_id,msg);
+	sDbProxyClient.SendPlayerPack(player, pb::SG2D_CONGRATULATE_UPDATE, msg);
+}
+
+void CongratulateLogDB::SendInfoToCongratulateBeenDb(Player& player, const pb::C2GS_Congratulate_Accept& msg)
+{
+	pb::GxDB_CongratulateBeenCongratulateInfo sendmsg;
+	sendmsg.set_congratulate_type(msg.congratulate_type());
+	sendmsg.set_rank(msg.rank());
+	sendmsg.set_suit_id(msg.suit_id());
+	sendmsg.set_table_id(msg.table_id());
+	sendmsg.set_operate_type(msg.operate_type());
+	sendmsg.set_to_player_id(::strtoul(msg.to_player_id().c_str(),NULL,10));
+	sendmsg.set_active_time(::strtoul(msg.active_time().c_str(),NULL,10));
+	sDbProxyClient.SendPlayerPack(player, pb::SG2D_CONGRATULATE_BEEN_CON_UPTATE, sendmsg);
+}

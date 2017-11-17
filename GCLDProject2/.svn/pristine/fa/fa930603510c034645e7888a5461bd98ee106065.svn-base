@@ -1,0 +1,86 @@
+#ifndef PLAYER_DATA_CACHA_CONTAINER_H__
+#define PLAYER_DATA_CACHA_CONTAINER_H__
+
+#include "def/TypeDef.h"
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// 玩家数据缓存多键值容器定义
+#include <boost/multi_index_container.hpp>
+#include <boost/multi_index/identity.hpp>
+#include <boost/multi_index/tag.hpp>
+
+#include <boost/multi_index/member.hpp>
+#include <boost/multi_index/mem_fun.hpp>
+
+#include <boost/multi_index/hashed_index.hpp>
+#include <boost/multi_index/ordered_index.hpp>
+#include <boost/multi_index/random_access_index.hpp>
+
+struct OfflineData
+{
+public:
+	OfflineData( void )
+	{
+		memset( this, 0, sizeof( OfflineData ) ) ;
+	}
+
+	OfflineData( uint64 id, time_t time ) : playerId( id ), offlineTime( time ) {}
+
+public:
+	uint64 playerId ;
+	time_t offlineTime ;
+} ;
+
+
+struct ById {} ;
+struct ByTime {} ;
+
+// 命名空间别名
+namespace bm =boost::multi_index ;
+
+typedef bm::ordered_unique< bm::tag<ById>,       bm::member< OfflineData, uint64, &OfflineData::playerId > >    OrderById ;
+typedef bm::ordered_non_unique< bm::tag<ByTime>, bm::member< OfflineData, time_t, &OfflineData::offlineTime > > OrderByTime ;
+
+
+// 类型别名
+typedef bm::multi_index_container< OfflineData, bm::indexed_by< OrderById, OrderByTime > > MKPlayerOfflineTable;
+
+// 迭代器别名
+typedef MKPlayerOfflineTable::iterator       MKPlayerDataTableItr ;
+typedef MKPlayerOfflineTable::const_iterator MKPlayerDataTableCItr ;
+
+typedef MKPlayerOfflineTable::reverse_iterator       MKPlayerDataTableRItr ;
+typedef MKPlayerOfflineTable::const_reverse_iterator MKPlayerDataTableCRItr ;
+
+// by id
+typedef MKPlayerOfflineTable::index<ById>::type TableByPlayerId;
+
+typedef TableByPlayerId::iterator       TableByPlayerIdItr ;
+typedef TableByPlayerId::const_iterator TableByPlayerIdCItr ;
+
+typedef TableByPlayerId::reverse_iterator       TableByPlayerIdRItr ;
+typedef TableByPlayerId::const_reverse_iterator TableByPlayerIdCRItr ;
+
+
+// by time
+typedef MKPlayerOfflineTable::index<ByTime>::type TableByPlayerTime;
+
+typedef TableByPlayerTime::iterator       TableByPlayerTimeItr ;
+typedef TableByPlayerTime::const_iterator TableByPlayerTimeCItr ;
+
+typedef TableByPlayerTime::reverse_iterator       TableByPlayerTimeRItr ;
+typedef TableByPlayerTime::const_reverse_iterator TableByPlayerTimeCRItr ;
+
+
+
+
+class PlayerData ;
+
+typedef uint64 PlayerId ;
+typedef boost::shared_ptr< PlayerData >     PlayerDataPtr ;
+
+typedef std::map< PlayerId, PlayerDataPtr > PlayerDataMap ;
+typedef PlayerDataMap::iterator             PlayerDataMapItr ;
+
+
+#endif

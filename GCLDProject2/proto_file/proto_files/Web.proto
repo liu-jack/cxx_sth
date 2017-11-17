@@ -1,0 +1,271 @@
+
+package pb;
+
+
+//SDK协议
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// get server list
+enum Language
+{
+	sc    =0;
+	en    =1;
+	th    =2;
+	ve    =3;
+	tc    =4;
+}
+
+message GetGameServerList
+{
+	optional Language lang =1 ;
+}
+
+message GameServerInfo
+{
+	optional uint32 id   =1;
+	optional string name =2;
+}
+
+message GameServerList
+{
+	repeated GameServerInfo infos =1 ;
+}
+
+// get role list
+message WebGetPlayerList
+{
+	optional uint32 server_id =1 ;
+	optional string user_id   =2 ;
+}
+
+message WebPlayerInfo
+{
+	optional string role_id         =1 ;
+	optional string role_name       =2 ;
+	optional string prefession_name =3 ;
+}
+
+message WebGetPlayerListRet
+{
+	repeated WebPlayerInfo player_info =1 ;
+}
+
+// 充值
+// 付款方式 1 Google Play 2 Apple Store 3 第三方 4 游戏官网充值(Web)
+
+enum WebPayCurrentType
+{
+	WEB_PAY_USD =0 ;
+	WEB_PAY_RMB =1 ;
+}
+
+enum SdkChannelType
+{
+    SDK_NONE  = 0;
+	SDK_CAOHUA   =1 ;
+	SDK_UC   =2;
+	SDK_HUAWEI   =3;
+	SDK_JINLI   =4;
+	SDK_360   =5;
+	SDK_MEIZU  =6;
+	SDK_XIAOMI  =7;
+	SDK_OPPO  =8;
+	SDK_VIVO  =9;
+	SDK_YINGYOUBAO =10;
+	SDK_ALL =11 ;
+}
+
+enum PlatformType
+{
+	WINDOWS       =0 ;
+	ANDROID       =1 ;
+	IOS           =2 ;
+	THIRD_PARTY   =3 ;
+	WEB_PAGE      =4 ;
+	ALL_PLATFORM  =5 ;
+}
+
+message WebPay
+{
+	optional string               order_id    =1 ;
+	optional SdkChannelType    channel     =2 ;
+	optional PlatformType   platform    =3 ;
+	optional WebPayCurrentType    currency    =4 ;
+	optional float                money       =5 ;//以元为单位
+	optional string               sdk_account =6 ;
+	optional string               role_id     =7 ;
+	optional uint32               server_id   =8 ;
+	optional float                present     =9 ;
+	optional string               product_id  =10 ;
+}
+
+
+enum WebPayResult
+{
+	WEB_PAY_RERSULT_OK          =0 ;
+	CAN_NOT_FIND_ACCOUNT        =1 ;
+	CAN_NOT_FIND_ROLE           =2 ;
+	CHANNEL_PLATFORM_ID_ERROR   =3 ;
+	CAN_NOT_FIND_SERVER         =4 ;
+	CAN_NOT_FIND_MONEY_TYPE     =5 ;
+	CAN_NOT_FIND_ITEM_TYPE      =6 ;
+	CAN_MONEY_NOT_ENOUGH        =7 ;
+}
+
+
+message WebPayRet
+{
+	optional WebPayResult result    =1 ;
+	optional string       order_id  =2 ;
+	optional string       error_msg =3 ;
+}
+
+message WebPayToDatabase
+{
+	optional string               order_id          =1;
+	optional uint32               currency          =2; // Web.proto 定义 WebPayCurrentType
+	optional float                present           =3;
+	optional uint64               player_id         =4;
+	optional string               sdk_account       =5;
+	optional float               money             =6; //以元为单位
+	optional SdkChannelType    channel			=7;
+	optional PlatformType   platform    =8 ;
+}
+
+
+message WebPayToDatabaseRet
+{
+	optional bool                 is_ok             =1;
+	optional string               order_id          =2;
+	optional bool                 is_online         =3;
+	optional GXDB_PayOrder        order_record      =4; // 在线时返回订单
+	optional uint64               player_id         =5;
+	optional string               error_msg         =6;
+	optional SdkChannelType    channel			=7;	
+	optional WebPayResult result                    =8;
+	optional float               money             =9; //以元为单位
+	optional PlatformType   platform    =10 ;
+}
+
+
+message GXDB_PayOrder
+{
+    optional bool       is_new      = 1;
+    optional string     product_id = 2;
+    optional uint32     vip_xp      = 3;
+    optional uint32     crystal_final = 4;
+}
+
+
+message Sdk_PayResult
+{
+	optional WebPayRet result = 1;
+	optional WebPay    payInfo = 2;
+}
+
+//后台协议
+//////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////
+message ServerCode
+{
+	optional int32 id   =1;
+	optional int32 code =2;
+}
+
+message ServerResponse
+{
+	optional int32 code =1;
+	repeated ServerCode reg =2;
+}
+
+message ServersMail
+{
+	optional string  sid          =1;
+	optional int32   online   	  =2;
+	optional string  channel  	  =3;
+	optional int32   moldid   	  =4;
+	optional string  title  	  =5;
+	optional string  content  	  =6;
+	optional string  mail_award   =7;
+	optional int32   alv    	  =8;
+	optional int32   blv   		  =9;
+	optional int32   avip   	  =10;
+	optional int32   bvip   	  =11;
+}
+
+
+message PlayerMail
+{
+	optional int32    sid         =1;
+	optional string   to   		  =2;
+	optional int32    moldid   	  =3;
+	optional string   title  	  =4;
+	optional string   content  	  =5;
+	optional string   mail_award  =6;
+}
+
+
+message PlayerForbid
+{
+	optional int32    sid          =1;
+	optional string   lordId   	  =2;
+	optional int32    forbidId     =3;
+	optional int32    time	  	  =4;
+}
+
+
+message SetPlayerVip
+{
+	optional int32   sid          =1;
+	optional string   lordId   	  =2;
+	optional int32   typeValue    =3;
+}
+
+
+message ReCreateOder
+{
+	optional int32   sid          =1;
+	optional string   lordId   	  =2;
+	optional int32   money		  =3;
+	optional string  oredrId  	  =4;
+	optional string  platNo  	  =5;
+	optional string  platId       =6;
+}
+
+message ServersNotice
+{
+	optional string   sid         =1;
+	optional string   notice   	  =2;
+}
+
+message HotResReload
+{
+	optional string   sid         =1;
+	optional string   type   	  =2;
+}
+
+message OnlinePlayerCount
+{
+	optional int32   sid      =1;
+}
+
+message serverInfo
+{
+	optional int32   sid      =1;
+	optional string   info 	  =2;
+}
+
+message CreateGiftCode
+{
+	optional int32    operate      =1;//  1.新增礼包类型 2，新增兑换码，每次批次号需要不同，数量最好不要超过10000 ，3.新增礼包类型，同时新增兑换码，每次批次号需要不同
+	optional int32    giftId  	   =2;// 礼包类型id
+	optional string   giftName    =3;//礼包名字
+	optional string   beginTime   =4;// 可以兑换开始时间
+	optional string   endTime  	  =5;//结束时间
+	optional string   gift         =6;//兑换的道具，和发邮件里面一样的格式。物品id|物品数量|描述,物品id|物品数量|描述,.......
+	optional int32    reuse  	   =7;//0.每个码只能被使用一次,1.同一个类型可以被同一个玩家多次使用，同一个码只能使用一次,2.同一个兑换码可以被多个玩家使用，每个玩家只能使用一次
+	optional int32    count  	   =8;// 生成数量
+	optional string   platNo       =9;//那些渠道可以领取格式: 94|502|510|514|517
+	optional string   mark  	  =10;//操作记录唯一标识（32位字符串）
+}
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+

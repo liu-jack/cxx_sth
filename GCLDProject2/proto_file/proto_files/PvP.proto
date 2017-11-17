@@ -1,0 +1,182 @@
+package pb;
+import "Social.proto";
+import "InterServer.proto";
+
+enum ArenaResult
+{
+	PVP_ARENA_RESULT_SUCCESS               =0 ; // 成功
+	PVP_ARENA_RESULT_HAD_ENTRY             =1 ; // 已经进入了
+	PVP_ARENA_RESULT_DB_DISCONNECT         =2 ; // 数据库断开连接
+	PVP_ARENA_RESULT_CAN_NOT_FIND_PLAYER   =3 ;
+	PVP_ARENA_RESULT_OTHER_ERROR           =4 ; // 其他错误
+	PVP_ARENA_RESULT_FIGHT_MARK_ERROR      =5 ; // not use
+	PVP_ARENA_RESULT_SELF_IS_FIGHTING      =6 ;
+	PVP_ARENA_RESULT_TARGET_IS_FIGHTING    =7 ;
+	PVP_ARENA_RESULT_TARGET_RANK_IS_CHANGE =8 ;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// 申请加入竞技场
+message PvPEntryArena
+{
+	optional uint64 player_id  =1 ; // 客户端不需要写入，服务器自动设定
+	optional uint64 account_id =2 ;
+}
+
+message PvPEntryArenaRet
+{
+	optional ArenaResult result =1 ;
+	optional uint32      rank   =2 ;
+}
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// 获取第 N 个排名的信息
+message PvPGetArenaPlayerInfo
+{
+	repeated uint32 rank =1 ;
+}
+
+message ArenaAttackListPlayerInfo
+{
+	optional uint32            rank        =1 ;
+	optional MsgPlayerBaseData player_info =2 ;
+}
+
+message PvPGetArenaPlayerInfoRet
+{
+	optional ArenaResult               result =1 ;
+	repeated ArenaAttackListPlayerInfo infos  =2 ;
+}
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// 获取排行榜信息
+message PvPGetRankingList
+{
+	optional uint32 beg_rank =1 ;
+	optional uint32 end_rank =2 ;
+}
+
+message RankingInfo
+{
+	optional uint32            rank =1 ;
+	optional MsgPlayerBaseData info =2 ;
+}
+
+message PvPGetRankingListRet
+{
+	optional ArenaResult       result =1 ;
+	repeated RankingInfo       infos  =2 ;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// 战斗信息
+message PvPArenaFinghtInfo
+{
+	// 客户端设置
+	optional bool   is_win             =1 ; // 是否胜利
+	optional uint64 target_id          =2 ; // 挑战的玩家Id
+	optional uint32 target_rank        =3 ; // 挑战的玩家排名
+	
+	// 服务器设置
+	optional uint64 time               =4 ; // 挑战的时间
+	optional uint32 self_level         =5 ; // 挑战的玩家等级
+	optional string self_name          =6 ; // 挑战的玩家名字
+	optional uint64 self_id            =7 ; // 自己的id
+	optional uint32 self_rank          =8 ; // 自己的排名
+	optional uint32 self_fight_value   =9 ; // 战力
+	optional uint32 self_char_proto_id =10; // 队长角色
+	optional uint32 self_vip_level     =11; // vip 等级
+}
+
+message PvPArenaFinghtInfoRet
+{
+	optional ArenaResult result           =1 ;
+	optional bool        is_win           =2 ; // 是否胜利
+	optional uint32      get_coin_count   =3 ; // 获得的硬币
+	optional uint32      new_rank         =4 ;
+	optional uint32      new_history_rank =5 ;
+	
+	optional uint64      target_id        =6 ; // 挑战的玩家Id
+	optional uint32      target_rank      =7 ; // 挑战的玩家排名	
+}
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// 战斗信息
+message PvPArenaFightRecordInfo
+{
+	// 客户端设置
+	// 无
+	
+	
+	// 服务器设置
+	optional uint32 rank      =1 ;
+	optional uint64 palyer_id =2 ;
+}
+
+message PvPArenaFightRecordInfoRet
+{
+	optional ArenaResult result  =1 ;
+	
+	// 格式： 是否胜利，挑战者id，挑战者排名，挑战者等级，挑战者名称，挑战时间( time() 返回的秒数 ), 挑战者战力，挑战者队长id, 排名变化( 0:无变化 负数:降低 整数:提高 )， vip等级
+	// 例如： true,89898989,3,88,my_god, 18981222223, 999, 33, 0
+	repeated string      records =2 ; 
+}
+
+message SG2D_PvPCreatePlayer
+{
+	optional uint64            craete_id   =1;
+	optional uint32            rank        =2;
+	optional SG2D_CreatePlayer create_info =3;
+}
+
+
+message SG2D_PvPCreatePlayerRet
+{
+	optional bool   result    =1;
+	optional uint64 create_id =2;
+	optional uint64 player_id =3;	
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// 获取奖励排名列表
+message SG2D_PvPGetRank
+{
+	optional uint32 beg_rank =1 ;
+	optional uint32 end_rank =2 ;
+	optional uint32 mail_id  =3 ;
+}
+
+message SG2D_PvPGetRankList
+{
+	repeated SG2D_PvPGetRank ranks =1 ;
+}
+
+message SG2D_PvPGetRankRet
+{
+	optional uint32 mail_id    =1 ;	
+	repeated uint64 player_ids =2 ;
+}
+
+message SG2D_PvPGetRankListRet
+{
+	repeated SG2D_PvPGetRankRet ranks =1 ;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+message PvpMarkFight
+{
+	optional uint32 rank      =1 ;
+	optional uint64 player_id =2 ;
+}
+
+message PvpMarkFightRet
+{
+	optional ArenaResult               result =1 ;
+	optional ArenaAttackListPlayerInfo infos  =2 ;
+}
+
+

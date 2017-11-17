@@ -1,0 +1,39 @@
+// PlayerNetPackOpcodes.h
+
+HandleOpcode(CMSG_ENTER_MAP);
+HandleOpcode(CMSG_LEAVE_MAP);
+
+HandleOpcode(CMSG_TAKE_SUPPLY_REWARD);
+HandleOpcode(CMSG_REQUEST_SUPPLY_REWARD);
+HandleOpcode(CMSG_REQUEST_ALL_EVENT);
+HandleOpcode(CMSG_TAKE_EVENT_AWARD);
+
+// 蛮族：捐赠、发动入侵
+HandleOpcode(CMSG_MONSTER_CITY_DONATE);
+HandleOpcode(CMSG_MONSTER_CITY_CLEAR_DONATE_CD);
+HandleOpcode(CMSG_MONSTER_CITY_START_INVADE);
+HandleOpcode(CMSG_MONSTER_CITY_INFO);
+
+
+// 国家升级：蛮族试练
+HandleOpcode(CMSG_OPEN_MONSTER_SHILIAN);
+HandleOpcode(CMSG_LEVEL_UP_COUNTRY);
+HandleOpcode(CMSG_TAKE_MONSTER_REWARD);
+HandleOpcode(CMSG_MONSTER_SHILIAN_RANK_INFO);
+
+//迷雾
+HandleOpcode(CMSG_REQUEST_FOG_INFO);
+HandleOpcode(CMSG_ENTER_FOG_STAGE);
+HandleOpcode(CMSG_TAKE_FOG_REWARD);
+HandleOpcode(CMSG_OPEN_FOG_INFO);
+
+//屯田
+HandleOpcode(CMSG_START_TUNTIAN);
+HandleOpcode(CMSG_DONATE_CITY);
+HandleOpcode(CMSG_TUNTIAN_CLEAR);
+HandleOpcode(CMSG_TRAIN_SOLDIER);
+HandleOpcode(CMSG_TRAIN_END);
+HandleOpcode(CMSG_TRAIN_INSTANT);
+
+///结交名仕
+HandleOpcode(CMSG_CELEBRITY_TAKE_REWARD_OR_USE_ITEM);

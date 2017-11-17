@@ -1,0 +1,134 @@
+package pb;
+import "CommomDef.proto";
+
+message GxDB_ItemInfo
+{
+	optional uint32   proto_id      = 1;  // 物品原型ID
+	optional uint32   count         = 2;  // 物品数量	
+    optional bool     is_new        = 3;
+	optional bool     is_sold 		= 4;
+	optional int64  repo_end_time   = 5;//回购到期时间
+}
+
+message GxDB_EquipInfo
+{
+    optional uint32    equip_to_charid  = 1;
+	repeated PairValue skill_attrs		= 2;
+}
+
+message GS2C_SlotItem
+{
+    optional bool           is_deleted = 1;
+    required uint32         slot    = 2;  // 用作联合主键， 可复用    
+    optional GxDB_ItemInfo  item    = 3;
+	optional GxDB_EquipInfo equip   = 4;
+	
+}
+
+message GS2C_Bag
+{
+    repeated GS2C_SlotItem items = 1;
+}
+
+////////////////////////////////////////////////////////////
+message C2GS_ItemUp
+{
+    required uint32 item_slot_id = 1;
+    optional Uint32List ids = 2;
+}
+
+message GS2C_ItemUse
+{
+    optional uint32 err_code = 1;
+    optional uint32 item_id = 2;  // item compose result;
+    optional bool   is_card = 4;  // item compose result;
+    optional GS2C_LootList loot_list = 3;   // box item
+}
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////
+// 商店
+message GS2C_ItemSellRecord
+{
+    optional uint32 sell_id     = 1; // sell_program_items主键。
+    optional uint32 sell_count  = 2;
+}
+
+message GS2C_SellRecordList
+{
+    repeated GS2C_ItemSellRecord  sell_records = 1;    
+}
+
+
+message GS2C_SellProgramInfo
+{
+    optional uint32 program_id      = 1;
+    optional int64  record_valid_time   = 2;
+    optional GS2C_SellRecordList records = 3;
+}
+
+message GS2C_SellRandomProgram
+{
+    optional uint32 victim_type                 = 1;
+    optional uint32 program_id                  = 2;
+    optional int64  auto_refresh_time           = 3;
+    optional uint32 today_manual_refresh_count  = 4;
+    optional int64  last_manual_refresh_time    = 5;
+}
+
+message GS2C_AllSellData
+{
+    repeated GS2C_SellProgramInfo    sell_program_infos  = 1;
+    repeated GS2C_SellRandomProgram  random_programs     = 2;
+    repeated GS2C_ItemSellRecord     sell_records        = 3;// 数据库带过来的时候才有
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////
+///
+///  loot
+
+
+message GS2C_LootRecord
+{
+    optional uint64 loot_type_id     = 1; 
+    optional uint32 roll_success_count = 2;
+    optional uint32 roll_count = 3;
+}
+
+message GS2C_AllLootRecord
+{
+    repeated GS2C_LootRecord records = 1;
+}
+
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////
+///
+///  lottery 
+
+message GS2C_LotteryFreeRecord
+{
+    optional uint32 lottery_type        = 1;
+    optional uint32 remain_free_count   = 2;
+    optional int64  next_free_lottery_time = 3;
+}
+
+message GS2C_AllLotteryInfo
+{
+    repeated GS2C_LotteryFreeRecord free_records = 1;
+}
+
+message GS2C_LootResult
+{
+    optional uint32 err_code            = 1;
+    optional GS2C_LootList loot_list    = 2;
+}
+
+message GS2C_LootShopEquipResult
+{
+    optional uint32 err_code            = 1;
+    optional GS2C_Bag loot_list    = 2;
+}
+
+

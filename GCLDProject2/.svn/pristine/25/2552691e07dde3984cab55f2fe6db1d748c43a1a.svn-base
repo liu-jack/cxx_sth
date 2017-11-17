@@ -1,0 +1,98 @@
+#pragma once
+#include "struct_base.h"
+
+#pragma pack(push,1)
+
+
+struct DB_FubenProto
+{
+    INIT_GAMEDATA(DB_FubenProto)
+    static const bool HasIndex()
+    {
+        return true;
+    }
+    const uint32 GetKey() const
+    {
+        return id;
+    }
+    static const char* GetKeyName()
+    {
+        return "id";
+    }
+    static const char* GetTableName()
+    {
+        return "stage_proto";
+    }
+    static const char* GetFormat()
+    {
+        return 	"ususs" "iuusu";
+    }
+
+    uint32          id;
+    string          comment;
+    uint32          name_string_id;
+    string          file;
+    string          back_groud_resource;
+
+    uint32          type;
+    uint32          lv_req;
+    uint32          stage_description_id;
+    string          stage_unlock_hero; // <heorId, 关卡名>
+    uint32          stage_unlock_description;
+};
+struct DB_FubenStage
+{
+    INIT_GAMEDATA(DB_FubenStage)
+    static const bool HasIndex()
+    {
+        return true;
+    }
+    const uint32 GetKey() const
+    {
+        return id;
+    }
+    static const char* GetKeyName()
+    {
+        return "id";
+    }
+    static const char* GetTableName()
+    {
+        return "stage_level";
+    }
+    static const char* GetFormat()
+    {
+        return 	"usuus" "uusii" "uuuuuuu" "uusufusu";
+    }
+
+    uint32      id;
+    string      comment;
+    uint32      name_id;
+    uint32      description_id;
+    string      file;
+
+    uint32      type;
+    uint32      fuben_id; //所属章节
+    string      level_display;
+    int         stage_posx;
+    int         stage_posy;
+
+    uint32      landform;
+    uint32      reward_exp;
+    uint32      reward_curr_type;
+    uint32      reward_curr_value;
+    uint32      cost_type;
+	uint32      cost_ratio;
+	uint32      cost_value;
+
+    uint32      lv_req;
+    uint32      pre_stage;
+    string      stage_monsters; // 1|30,2|30,3|30
+    uint32      reward_item_id;
+    float       reward_item_rate;
+    uint32      unlocke_hero;
+	string		reward_list;
+	uint32		max_cost_diamond;
+};
+
+
+#pragma pack(pop)

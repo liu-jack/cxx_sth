@@ -1,0 +1,200 @@
+#include "PlayerPool.h"
+#include "../object/Player.h"
+#include "Opcode.pb.h"
+
+PlayerPool::PlayerPool()
+:m_offlines(0)
+{
+
+}
+
+PlayerPool::~PlayerPool()
+{
+	RemoveAllAccounts();
+}
+
+void PlayerPool::Put(PlayerPtr& player)
+{
+	m_playerIndex.insert( player );
+}
+
+void PlayerPool::RemoveAllAccounts()
+{
+	m_playerIndex.clear();
+
+	/*PV &bySlot = m_playerIndex.get<MPI>() ;
+	for ( PVItr itr = bySlot.begin(); itr != bySlot.end();)
+	{
+		PlayerWeakPtr curPtrPlayer = *itr;
+		curPtrPlayer
+		itr++;
+		bySlot.erase( curPtrPlayer->GetGuid());
+		int ncount = curPtrPlayer.use_count();
+	}*/
+}
+
+PlayerPtr PlayerPool::GetPtrByPlayerId(uint64 playerId)
+{
+	const PV &bySlot = m_playerIndex.get<MPI>() ;
+	PVItr itr = bySlot.find( playerId ) ;
+	if( itr != bySlot.end() )
+	{
+		return *itr ;
+	}
+	else
+	{
+		return PlayerPtr();
+	}
+}
+
+void PlayerPool::RemoveByPlayerId( uint64 playerId )
+{
+	PV &bySlot = m_playerIndex.get<MPI>() ;
+	PVItr itr = bySlot.find( playerId ) ;
+	if( itr != bySlot.end() )
+	{
+		PlayerPtr curPtrPlayer = *itr;
+		bySlot.erase( itr );
+		curPtrPlayer.reset();
+	}
+}
+
+uint32 PlayerPool::GetPlayerCount()
+{
+	int nCount = 0;
+	const PV& bySlot = m_playerIndex.get<MPI>() ;
+	//return bySlot.size_();
+	for ( PVItr itr = bySlot.begin(); itr != bySlot.end(); ++itr)
+	{
+		nCount++;
+	}
+	return nCount;
+}
+
+bool PlayerPool::IsInCachePool( uint64 playerId )
+{
+	const PV &bySlot = m_playerIndex.get<MPI>() ;
+	PVItr itr = bySlot.find( playerId ) ;
+	return  itr != bySlot.end();
+}
+
+void PlayerPool::DoUpdatePer_Hour_Zero()
+{
+	const PV& bySlot = m_playerIndex.get<MPI>() ;
+	for ( PVItr itr = bySlot.begin(); itr != bySlot.end(); ++itr)
+	{
+		((PlayerPtr)(*itr))->DoUpdatePer_Hour_Zero();
+	}
+}
+
+
+void PlayerPool::DoUpdatePer_Day_Zero()
+{
+	const PV& bySlot = m_playerIndex.get<MPI>() ;
+	for ( PVItr itr = bySlot.begin(); itr != bySlot.end(); ++itr)
+	{
+		((PlayerPtr)(*itr))->DoUpdatePer_Day_Zero();
+	}
+}
+
+void PlayerPool::DoUpdatePer_FourHour_Zero()
+{
+	const PV& bySlot = m_playerIndex.get<MPI>() ;
+	for ( PVItr itr = bySlot.begin(); itr != bySlot.end(); ++itr)
+	{
+		((PlayerPtr)(*itr))->DoUpdatePer_FourHour_Zero();
+	}
+}
+
+void PlayerPool::UpdateOffLinePlayer( uint64 nowTimeMS, int64 diffMS )
+{
+	uint32 ofps = 0;
+	const OV &byId =m_playerIndex.get<MOL>() ;
+	RangeOVItr rangPlats = byId.equal_range( false );
+	for (OVItr iter = rangPlats.first;  iter != rangPlats.second; ++iter)
+	{
+		((PlayerPtr)(*iter))->Update(nowTimeMS,diffMS);
+		ofps++;
+	}
+	if (ofps != m_offlines)
+	{
+		m_offlines = ofps;
+	}
+}
+
+Player* PlayerPool::GetByPlayerId(uint64 playerId)
+{
+    PlayerPtr curPlay = GetPtrByPlayerId(playerId);
+	if (curPlay.get())
+	{
+		return curPlay.get();
+	}
+	else
+	{
+		return NULL;
+	}
+}
+
+void PlayerPool::BroadcastMsgByPlatformId(const int opCode, const ::google::protobuf::Message &msg, uint32 platformid )
+{
+	const FV &byId =m_playerIndex.get<MFI>() ;
+	RangeFVItr rangPlats = byId.equal_range( platformid );
+	for (FVItr iter = rangPlats.first;  iter != rangPlats.second; ++iter)
+	{
+		PlayerPtr curPtrPlayer = *iter;
+		curPtrPlayer->Send(opCode,msg);
+	}
+}
+
+void PlayerPool::BroadcastMsgToAllPlayerByCountry(const int opCode, const ::google::protobuf::Message &msg, uint32 countryid,const uint64 self_player_id /*= 0*/,const uint64 timeNow /*= 0*/)
+{
+	const OY &byId =m_playerIndex.get<MCY>() ;
+	RangeOYItr rangPlats = byId.equal_range( countryid );
+	for (OYItr iter = rangPlats.first;  iter != rangPlats.second; ++iter)
+	{
+		PlayerPtr curPtrPlayer = *iter;
+		if(opCode == pb::SMSG_ACHIEVE_CONGRATULATE)
+		{
+			if(curPtrPlayer->GetGuid() != self_player_id)
+			{
+				curPtrPlayer->SendCongratulateBeenConMsg(dynamic_cast<const pb::GS2C_Achieve_Congratulate&>(msg).info());
+				curPtrPlayer->Set24HoursToPlayerPastedFunc(timeNow);
+				curPtrPlayer->Send(opCode,msg);
+			}
+		}
+		else
+		{
+			curPtrPlayer->Send(opCode,msg);
+		}
+	}
+}
+
+void PlayerPool::BroadcastMsgToAll(const int opCode, const ::google::protobuf::Message &msg)
+{
+	const PV& bySlot = m_playerIndex.get<MPI>() ;
+	for ( PVItr itr = bySlot.begin(); itr != bySlot.end(); ++itr)
+	{
+		PlayerPtr curPtrPlayer = *itr;
+		curPtrPlayer->Send(opCode,msg);
+	}
+}
+
+void PlayerPool::DoUpdatePer_Minute_Zero(std::vector<int>& vec)
+{
+	const PV& bySlot = m_playerIndex.get<MPI>() ;
+	for ( PVItr itr = bySlot.begin(); itr != bySlot.end(); ++itr)
+	{
+		((PlayerPtr)(*itr))->AutoGiveCountryOccupyCityAward(vec);
+	}
+}
+
+#ifdef _SERVER_CROSS_
+void PlayerPool::Update( uint64 nowTimeMS, int64 diffMS )
+{
+	const PV& bySlot = m_playerIndex.get<MPI>() ;
+	for ( PVItr itr = bySlot.begin(); itr != bySlot.end(); ++itr)
+	{
+		((PlayerPtr)(*itr))->Update(nowTimeMS,diffMS);
+	}
+}
+#endif

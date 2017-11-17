@@ -1,0 +1,128 @@
+#include "SkillDataMgr.h"
+#include "DbTool.h"
+#include "datastruct/struct_skill_slg.h"
+
+void SkillDataMgr::Init()
+{
+	FOREACH_DB_ITEM(ptr1, DB_SkillSlg)
+	{
+		m_skillSlgMap[ptr1->id] = new SkillSlg(*ptr1);
+	}
+
+	FOREACH_DB_ITEM(ptr2, DB_Buff_Fight)
+	{
+		m_buffFightMap[ptr2->id] = new BuffFight(*ptr2);
+	}
+}
+
+int SkillDataMgr::GetObjSkillMaxTimes(uint32 skillID)
+{
+	SkillSlg* it = m_skillSlgMap.pfind(skillID);
+	if(it)
+	{
+		return (it->GetReleaseTimes());
+	}
+	return 0;
+}
+
+int SkillDataMgr::GetObjSkillRange(uint32 skillID)
+{
+	SkillSlg* it = m_skillSlgMap.pfind(skillID);
+	if(it)
+	{
+		return (it->GetAttactRange());
+	}
+	return 0;
+}
+
+float SkillDataMgr::GetDamageFactor(uint32 skillID)
+{
+	SkillSlg* it = m_skillSlgMap.pfind(skillID);
+	if(it)
+	{
+		return (it->GetDamageFactor());
+	}
+	return 0;
+}
+
+int SkillDataMgr::GetBuffIDBySkill(uint32 skillID)
+{
+	SkillSlg* it = m_skillSlgMap.pfind(skillID);
+	if(it)
+	{
+		return (it->GetAdditionBuffID());
+	}
+	return 0;
+}
+
+int SkillDataMgr::GetBuffType(uint32 buffid)
+{
+	BuffFight* it = m_buffFightMap.pfind(buffid);
+	if(it)
+		return it->GetBuffType();
+
+	return 0;
+}
+
+int SkillDataMgr::GetBuffLastRoundsCount(uint32 buffid)
+{
+	BuffFight* it = m_buffFightMap.pfind(buffid);
+	if(it)
+		return it->GetLastRoundsCount();
+
+	return 0;
+}
+
+int SkillDataMgr::GetBuffTarget(uint32 buffid)
+{
+	BuffFight* it = m_buffFightMap.pfind(buffid);
+	if(it)
+		return it->GetBuffTarget();
+
+	return 0;
+}
+
+int SkillDataMgr::GetBuffRows(uint32 buffid)
+{
+	BuffFight* it = m_buffFightMap.pfind(buffid);
+	if(it)
+		return it->GetRows();
+
+	return 0;
+}
+
+int SkillDataMgr::GetBuffLevel(uint32 buffid)
+{
+	BuffFight* it = m_buffFightMap.pfind(buffid);
+	if(it)
+		return it->GetLevel();
+
+	return 0;
+}
+
+float SkillDataMgr::GetBuffValue1(uint32 buffid)
+{
+	BuffFight* it = m_buffFightMap.pfind(buffid);
+	if(it)
+		return it->GetValue1();
+
+	return 0.0;
+}
+
+float SkillDataMgr::GetBuffValue2(uint32 buffid)
+{
+	BuffFight* it = m_buffFightMap.pfind(buffid);
+	if(it)
+		return it->GetValue2();
+
+	return 0.0;
+}
+
+float SkillDataMgr::GetBuffValue3(uint32 buffid)
+{
+	BuffFight* it = m_buffFightMap.pfind(buffid);
+	if(it)
+		return it->GetValue3();
+
+	return 0.0;
+}

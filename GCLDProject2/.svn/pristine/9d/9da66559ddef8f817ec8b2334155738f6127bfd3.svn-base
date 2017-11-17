@@ -1,0 +1,236 @@
+#include <fstream>
+#include <string>
+
+#include "CenterServerClient.h"
+#include "Logger.h"
+#include "OS.h"
+
+#include "../LoginServer.h"
+#include "../LoginServerHttpClients.h"
+#include "../session/GameServerSession.h"
+
+#include "def/MmoAssert.h"
+#include "memory_buffer/NetPack.h"
+
+#include "Opcode.pb.h"
+#include "ServerOpcode.pb.h"
+#include "InterServer.pb.h"
+#include "../data/LoginDataMgr.h"
+
+
+CenterServerClient::HandlerArray CenterServerClient::s_handlers =RegisteHandlers() ;
+
+
+CenterServerClient::HandlerArray CenterServerClient::RegisteHandlers( void )
+{
+	HandlerArray handlers( pb::SERVER_OPCODE_COUNT ) ;
+
+	handlers[ pb::S_PONG ]                        =&CenterServerClient::HandlePong ;
+	handlers[ pb::SL2C_REGISTER_RET ]             =&CenterServerClient::HandleRegisterRet ;
+	handlers[ pb::SC2L_BROADCAST ]                =&CenterServerClient::HandleCenterBroadcast ;
+	handlers[ pb::SC2L_ADD_EVENT_LOG_SERVER ]     =&CenterServerClient::HandleGetEventLogServersRet ;
+	handlers[ pb::SL2C_GET_EVENT_LOG_SERVER_RET ] =&CenterServerClient::HandleGetEventLogServersRet ;
+
+	return handlers ;
+}
+
+
+CenterServerClient::CenterServerClient( void )
+{
+	SetClientType( PACKET_TYPE_SERVER_LOGIN ) ;
+	SetDstServerType( PACKET_TYPE_SERVER_CENTER ) ;
+
+	SetPingDiffMS( sLoginSvr.Config().GetInt( "CenterServer.ping_time_ms", 5000 ) ) ;
+	SetReConnectDiffMS( sLoginSvr.Config().GetInt( "Self.reconnect_diff_time_ms", 5000 ) ) ;
+	SetConnectNow() ;
+}
+
+CenterServerClient::~CenterServerClient( void )
+{
+}
+
+
+
+void CenterServerClient::ClientUpdate( uint64 nowTimeMS, int64 diffMS )
+{
+
+}
+
+bool CenterServerClient::HandlePacket( NetPack &packet )
+{
+	size_t opCode = packet.GetOpcode() ;
+
+	if( opCode >= s_handlers.size() )
+	{
+		ASSERT( false ) ;
+		return false ;
+	}
+
+	NetPackHandler packetFun = s_handlers[ opCode ] ;
+	if( packetFun )
+	{
+		(this->*packetFun)( packet ) ;
+		return true ;
+	}
+
+	return false ;
+}
+
+void CenterServerClient::ClientConnect( void )
+{
+	SendRegisterInfo() ;
+}
+
+void CenterServerClient::SendPing( void )
+{
+	ServerClient::SendPing( pb::S_PING ) ;
+}
+
+
+void CenterServerClient::SendRegisterInfo( void )
+{
+	pb::SL2C_RegisterInfo msg ;
+
+	msg.set_ip( sLoginSvr.GetIP() ) ;
+	msg.set_port( sLoginSvr.GetPort() ) ;
+
+	Send( pb::SL2C_REGISTER, msg ) ;
+}
+
+
+
+void CenterServerClient::HandlePong( NetPack &packet )
+{
+	ServerClient::HandlePong( packet ) ;
+}
+
+
+
+void CenterServerClient::HandleRegisterRet( NetPack &packet )
+{
+	pb::SL2C_RegisterInfoRet retInfo ;
+	packet >> retInfo ;
+
+	switch( retInfo.result() )
+	{
+	case pb::SERVER_REGISTER_OK:
+		{
+			sLoginSvr.SetRegionId( retInfo.region_id() ) ;
+
+			// 连接 web 服务器
+			sHttpClients.SetWebUrl( retInfo.web_url() ) ;
+
+			sLoginSvr.GetConfigServerList() ;
+
+			sLoginSvr.GetVersionChannel() ;
+
+			sLoginSvr.GetTesterAccountIds() ;
+
+			// Get event log server
+			NetPack getEventServer( pb::SL2C_GET_EVENT_LOG_SERVER ) ;
+			Send( getEventServer ) ;
+
+			NLOG( "%s regiter %s,(%s:%s) success !", GetClientName(), GetServerName(), GetIP(), GetPort() ) ;
+		} break ;
+
+	default:
+		{
+			NLOG( "%s regiter %s,(%s:%s) fail ! : %s .",GetClientName(), GetServerName(), GetIP(), GetPort(), pb::RegisterResult_Name( retInfo.result() ).c_str() ) ;
+		}
+	}
+}
+
+
+void CenterServerClient::HandleCenterBroadcast( NetPack &packet )
+{
+	pb::BroadcastHeader header ;
+	packet >> header ;
+
+	switch( header.type() )
+	{
+	case pb::UPDATE_GAME_SERVER_PERFORMANCE_INFO:
+		{
+			pb::SG2C2L_UpdatePerformanceInfo body ;
+			packet >> body ;
+
+			GameServerSession *pGameSession =sLoginSvr.GetGameServerSessoin( SessionPairId( body.server_id(), body.region_id() ) ) ;
+			if( NULL == pGameSession )
+			{
+				ELOG( "CenterServerClient::HandleCenterBroadcast() can not find %d, %d", body.server_id(), body.region_id() ) ;
+				break ;
+			}
+
+			pGameSession->SetPlayerCount( body.player_count() ) ;
+			pGameSession->SetLogicalUpdateMS( body.logical_update_ms() ) ;
+
+			ConfigServerInfo &info =sLoginSvr.GetOrCreateConfigServerInfo( pGameSession->GetPairId() ) ;
+			ASSERT( info.m_pGameSession != NULL && info.m_pGameSession == pGameSession ) ;
+			if( info.m_pGameSession == pGameSession )
+			{
+				info.UpdateState() ;
+
+				SessionPairIdSet& pairSet = sLoginSvr.GetCombinServerSet(pGameSession->GetPairId());
+				for (SessionPairIdSet::iterator iterSet = pairSet.begin(); iterSet != pairSet.end(); ++iterSet)
+				{
+					const SessionPairId& curPair = (*iterSet);
+					if(sLoginSvr.IsInComfigMap(curPair))
+					{
+						ConfigServerInfo& curSconfig = sLoginSvr.GetOrCreateConfigServerInfo(curPair);
+						if(curSconfig.m_pGameSession == NULL)
+						{
+							curSconfig.m_pGameSession = pGameSession;
+						}
+						curSconfig.UpdateState();
+					}
+				}
+			}
+
+		} break ;
+	case pb::UPDATE_GAME_SERVER_LOCKED_ACCOUNT_INFO:
+		{
+			pb::SG2L_UpdatePlayerLockType body ;
+			packet >> body ;
+			sDataMgr.LockAccount(body.account_id(),body.account_name(),(uint32)body.locktype(),body.lock_time());
+		}
+		break;
+	case pb::UPDATE_GAME_SERVER_LIST_INFO:
+		{
+			pb::SW2C2L_UpdateServerInfo upServerList;
+			packet >> upServerList ;
+			sLoginSvr.GetConfigServerList();
+		}
+		break;
+	case pb::UPDATE_GAME_SERVER_VERSION_INFO:
+		{
+			pb::SW2C2L_UpdateServerInfo upServerList;
+			packet >> upServerList ;
+			sLoginSvr.GetVersionChannel() ;
+		}
+		break;
+	case pb::UPDATE_GAME_SERVER_TESTER_ACCOUNT_IDS:
+		{
+			pb::SW2C2L_UpdateServerInfo upServerList;
+			packet >> upServerList ;
+			sLoginSvr.GetTesterAccountIds() ;
+		}
+		break;
+	default:
+		ELOG( "CenterServerClient::HandleCenterBroadcast() receive not define broadcast type %d", header.type() ) ;
+		ASSERT( false ) ;
+		return ;
+	}
+}
+
+
+void CenterServerClient::HandleGetEventLogServersRet( NetPack &packet )
+{
+	pb::GetEventLogServersRet info ;
+	packet >> info ;
+
+	const pb::Address &address =info.addresses() ;
+
+	if( !sLoginSvr.AddOneEventLogServer( address.ip(), address.port() ) )
+	{
+		WLOG( "Event server had connect ?  %s, %s setting faild ??", address.ip().c_str(), address.port().c_str() ) ;
+	}
+}

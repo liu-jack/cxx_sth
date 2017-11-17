@@ -1,0 +1,9 @@
+package pb;
+
+import "CommomDef.proto";
+
+
+message GS2C_Buff_All_Info
+{
+    repeated PairTime buff     =1;
+}

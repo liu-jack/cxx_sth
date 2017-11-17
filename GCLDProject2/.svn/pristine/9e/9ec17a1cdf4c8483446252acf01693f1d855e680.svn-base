@@ -1,0 +1,21 @@
+
+#include "Account.h"
+
+#include "Login.pb.h"
+#include "InterServer.pb.h"
+
+void AccountInfo::ReadFrom( const pb::CRegisterAccount &info )
+{
+	account       =info.account() ;
+	password      =info.password() ;
+	deviceId      =info.device_id() ;
+	phoneNumber   =info.phone_number() ;
+	channelId     =info.channel_id() ;
+	platformId    =info.platform_id() ;
+	accountType   =info.type();
+}
+
+bool AccountInfo::IsForbiden() const
+{
+	return lockReason == (uint32)pb::ACCOUNT_LOCK_TYPE_LOCKED;
+}

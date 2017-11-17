@@ -1,0 +1,31 @@
+#include "PlayerActivityStarBoxDB.h"
+#include "../object/Player.h"
+#include "ActivityStarBox/ActivityStarBox.h"
+#include "ServerOpcode.pb.h"
+#include "../server_client/DbProxyServerClient.h"
+#include "Activity.pb.h"
+
+using namespace pb;
+
+void PlayerActivityStarBoxDb::SendUpdateInfoToDb( Player& player,const uint32 table_id,const ActivityStarBoxStruct &ref,uint32 operate_type )
+{
+#ifdef _MMO_SERVER_
+	pb::GxDB_ActivityStarBoxInfo msg;
+	msg.set_is_take_reward(ref.is_take_reward);
+	msg.set_left_times(ref.npc_left_reward_times);
+	msg.set_table_id(table_id);
+	msg.set_last_take_reward_time(ref.last_take_rewrd_time);
+	msg.set_npc_is_opened(ref.npc_is_opened);
+	msg.set_operate_type(operate_type);
+	sDbProxyClient.SendPlayerPack(player, SG2D_ACTIVITY_STAR_BOX_UPDATE, msg);
+#endif
+}
+
+void PlayerActivityStarBoxDb::SendDeleteInfoToDb(uint32 operate_type)
+{
+#ifdef _MMO_SERVER_
+	pb::GxDB_ActivityStarDelete msg;
+	msg.set_operate_type(operate_type);
+	sDbProxyClient.Send(SG2D_ACTIVITY_STAR_BOX_DELETE, msg);
+#endif
+}

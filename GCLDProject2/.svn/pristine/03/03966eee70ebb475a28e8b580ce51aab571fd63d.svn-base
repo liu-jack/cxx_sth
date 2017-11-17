@@ -1,0 +1,66 @@
+
+/************************************************************************/
+/*Add by:zhoulunhao													*/
+/*Email	:zhoulunhao@hotmail.com											*/
+/************************************************************************/
+#include "TechnologyTableMgr.h"
+#include "DbTool.h"
+#include "utility/Utility.h"
+#include "datastruct/struct_science.h"
+
+
+TecTable::TecTable(const DB_Science& db)
+    : m_db(db)
+{
+    Utility::SplitStr2(m_db.every_star_cost, m_StarCost);
+    Utility::SplitStr2(m_db.attr_reward, m_AttrReward);
+    Utility::SplitStr(m_db.unlock_trigger_id, m_Trigger, ',');
+}
+uint32 TecTable::Id() const {
+    return m_db.id;
+}
+uint32 TecTable::NeedStarCnt() const {
+    return m_db.invest_need_star;
+}
+uint32 TecTable::NeedTimeSec() const {
+    return m_db.study_need_time;
+}
+uint32 TecTable::Value1() const {
+    return m_db.value1;
+}
+uint32 TecTable::Value2() const {
+    return m_db.value2;
+}
+uint32 TecTable::Value3() const {
+    return m_db.value3;
+}
+
+uint32 TecTable::TypeId() const
+{
+	return m_db.type_id;
+}
+void TechnologyTableMgr::Init()
+{
+    FOREACH_DB_ITEM(ptr1, DB_Science)
+    {
+        m_TechnologyMap[ptr1->type_id] = new TecTable(*ptr1);
+    }
+}
+const TecTable* TechnologyTableMgr::GetTable(uint32 id) {
+    return m_TechnologyMap.pfind(id);
+}
+
+const uint32 TechnologyTableMgr::GetTableSize()
+{
+	return m_TechnologyMap.size();
+}
+
+const TechnologyMap& TechnologyTableMgr::GetTechnologyMap() const
+{
+	return m_TechnologyMap;
+}
+
+bool TechnologyTableMgr::IsTechIdValid(const uint32 tech_id)
+{
+	return m_TechnologyMap.find(tech_id) != m_TechnologyMap.end();
+}

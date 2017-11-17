@@ -1,0 +1,110 @@
+/************************************************************************/
+/*Add by:zhoulunhao													*/
+/*Email	:zhoulunhao@hotmail.com											*/
+/************************************************************************/
+
+#include "GovAffairsLog.h"
+#include "BaseDefine.pb.h"
+#include "Trigger/trigger.h"
+#include "Activity.pb.h"
+#include "Opcode.pb.h"
+
+const static uint32 ZHENGWU = 45;
+GovAffairsLog::GovAffairsLog()
+{
+	m_left_update_time = GET_BASE_DEF_UINT(pb::BD_ARMY_GOV_REGAIN_TIME)* 60;
+	m_LeftAddTimes = 0;
+}
+
+uint64 GovAffairsLog::UpdateZhengWuTimes(Player* player)
+{
+	if(player == NULL)
+		return 0;
+	uint64 timeNow = sOS.TimeSeconds();
+	if(player->GetCurrency(eZhengWu) < GET_BASE_DEF_INT(pb::BD_ARMY_GOV_MAX_TIME))
+	{
+		if(timeNow > m_left_update_time + m_LeftAddTimes)
+		{
+			if(sTrigger.Check(player,sFunctionOpen.GetTriggerId(ZHENGWU)))
+			{
+				m_LeftAddTimes = timeNow;
+				player->AddCurrency(pb::IR_CYCLE_GET,eZhengWu,1);
+			}
+		}
+	}
+	return m_left_update_time * 1000;
+}
+
+void GovAffairsLog::loadFrom(const pb::GxDB_GovAffairsInfo& msg)
+{
+	struct_gov_affair_.left_id = msg.left_id();
+	struct_gov_affair_.right_id = msg.right_id();
+	struct_gov_affair_.cost_diamond = msg.cost_diamond();
+	struct_gov_affair_.image_name = msg.image_name();
+	struct_gov_affair_.left_reward_count  = msg.left_reward_count();
+	struct_gov_affair_.left_reward_type = msg.left_reward_type();
+	struct_gov_affair_.title_id = msg.title_id();
+	struct_gov_affair_.right_reward_count = msg.right_reward_count();
+	struct_gov_affair_.right_reward_type = msg.right_reward_type();
+}
+
+void GovAffairsLog::loadFrom(const pb::GS2C_Show_Dialog& msg)
+{
+	struct_gov_affair_.left_id = msg.left_id();
+	struct_gov_affair_.right_id = msg.right_id();
+	struct_gov_affair_.cost_diamond = msg.right_reward().cost_diamond();
+	struct_gov_affair_.image_name = msg.image_name();
+	struct_gov_affair_.left_reward_count  = msg.left_reward().reward_count();
+	struct_gov_affair_.left_reward_type = msg.left_reward().reward_type();
+	struct_gov_affair_.title_id = msg.title_id();
+	struct_gov_affair_.right_reward_count = msg.right_reward().reward_count();
+	struct_gov_affair_.right_reward_type = msg.right_reward().reward_type();
+}
+
+void GovAffairsLog::reset()
+{
+	struct_gov_affair_.left_id = 0;
+	struct_gov_affair_.right_id = 0;
+	struct_gov_affair_.cost_diamond = 0;
+	struct_gov_affair_.image_name.clear();
+	struct_gov_affair_.left_reward_count  = 0;
+	struct_gov_affair_.left_reward_type = 0;
+	struct_gov_affair_.title_id = 0;
+	struct_gov_affair_.right_reward_count = 0;
+	struct_gov_affair_.right_reward_type = 0;
+}
+
+void GovAffairsLog::SendZhengWuInfo(Player* player)
+{
+	pb::GS2C_Show_Dialog msg;
+	saveTo(msg);
+	player->Send(pb::SMSG_ZHENGWU_SEND_INIT_MESSAGE,msg);
+}
+
+void GovAffairsLog::saveTo(pb::GxDB_GovAffairsInfo& msg)
+{
+	msg.set_cost_diamond(struct_gov_affair_.cost_diamond);
+	msg.set_left_id(struct_gov_affair_.left_id);
+	msg.set_left_reward_count(struct_gov_affair_.left_reward_count);
+	msg.set_left_reward_type(struct_gov_affair_.left_reward_type);
+	msg.set_right_id(struct_gov_affair_.right_id);
+	msg.set_right_reward_count(struct_gov_affair_.right_reward_count);
+	msg.set_right_reward_type(struct_gov_affair_.right_reward_type);
+	msg.set_title_id(struct_gov_affair_.title_id);
+	msg.set_image_name(struct_gov_affair_.image_name);
+}
+
+void GovAffairsLog::saveTo(pb::GS2C_Show_Dialog& msg)
+{
+	pb::ZhengWuReward * right_reward = msg.mutable_right_reward();
+	right_reward->set_cost_diamond(struct_gov_affair_.cost_diamond);
+	msg.set_left_id(struct_gov_affair_.left_id);
+	right_reward->set_reward_count(struct_gov_affair_.right_reward_count);
+	right_reward->set_reward_type(struct_gov_affair_.right_reward_type);
+	msg.set_right_id(struct_gov_affair_.right_id);
+	pb::ZhengWuReward* left_reward = msg.mutable_left_reward();
+	left_reward->set_reward_count(struct_gov_affair_.left_reward_count);
+	left_reward->set_reward_type(struct_gov_affair_.left_reward_type);
+	msg.set_title_id(struct_gov_affair_.title_id);
+	msg.set_image_name(struct_gov_affair_.image_name);
+}

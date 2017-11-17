@@ -1,0 +1,51 @@
+
+/************************************************************************/
+/*Add by:zhoulunhao													*/
+/*Email	:zhoulunhao@hotmail.com											*/
+/************************************************************************/
+#include "object/Player.h"
+#include "WannaBeStronger/WannaBeStrongerLog.h"
+#include "Quest.pb.h"
+
+WannaBeStrongerLog::WannaBeStrongerLog()
+{
+
+}
+
+void WannaBeStrongerLog::SaveTo(Player& player,pb::GS2C_WannaBeStrongerAllInfo& msg) const
+{
+	for(WannaBeStrongerInfoMap::const_iterator iter = wanna_be_stronger_map_.begin();iter != wanna_be_stronger_map_.end();++iter)
+	{
+		pb::WannaBeStrongerInfo* info = msg.add_info();
+		info->set_group_id(iter->first);
+		info->set_is_achieve(iter->second.is_achieve_);
+		info->set_is_take_reward(iter->second.is_take_reward_);
+		for(WannaBeStrongBaseInfoMap::const_iterator iter1= iter->second.wanna_be_strong_base_info_.begin();iter1 != iter->second.wanna_be_strong_base_info_.end();++iter1)
+		{
+			pb::WannaBeStrongerBaseInfo* base_info = info->add_base_info();
+			base_info->set_goal_id(iter1->first);
+			base_info->set_cur_value(iter1->second.cur_value_);
+			base_info->set_need_value(iter1->second.need_value_);
+		}
+	}
+}
+
+
+void WannaBeStrongerLog::LoadFrom(Player& player,const pb::GxDB_WannaBeStrongerInfoAllInfo& msg)
+{
+	for(int i = 0;i < msg.info_size();++i)
+	{
+		const pb::GxDB_WannaBeStrongerInfo &info = msg.info(i);
+		wanna_be_stronger_map_[info.group_id()] = WannaBeStrongerInfo(info);
+	}
+}
+
+void WannaBeStrongerLog::UpdateWannaBeStrongerData(Player& player,const uint32 type,const uint32 value)
+{
+
+}
+
+void WannaBeStrongerLog::SendWannaBeStrongerInfoToClient(Player& player,const uint32 id)
+{
+
+}

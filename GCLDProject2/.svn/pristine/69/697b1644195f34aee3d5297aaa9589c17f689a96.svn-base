@@ -1,0 +1,71 @@
+
+
+/************************************************************************/
+/*Add by:zhoulunhao													*/
+/*Email	:zhoulunhao@hotmail.com											*/
+/************************************************************************/
+#ifndef INCLUDE_WANNA_BE_STRONGER_LOG___H
+#define INCLUDE_WANNA_BE_STRONGER_LOG___H
+
+#include "def/TypeDef.h"
+
+
+namespace pb
+{
+	class GS2C_WannaBeStrongerAllInfo;
+	class GxDB_WannaBeStrongerInfoAllInfo;
+	class GxDB_WannaBeStrongerInfo;
+	class WannaBeStrongerBaseInfo;
+}
+class Player;
+enum WANNA_BE_STRONGER_TYPE
+{
+	WANNA_BE_S_TYPE_CHARACTER_ZHAO_MU = 1,
+	WANNA_BE_S_TYPE_UNLOCK_CHARACTER,
+	WANNA_BE_S_TYPE_EQUIP_QUAILTY,
+	WANNA_BE_S_TYPE_SHENQI_LEVEL,
+	WANNA_BE_S_TYPE_EQUIP_MIJI,
+};
+struct WannaBeStrongBaseInfo
+{
+	uint32 cur_value_;//当前的值  M 
+	uint32 need_value_;//需要完成的值 N
+	WannaBeStrongBaseInfo()
+		:cur_value_(0),need_value_(0){}
+	WannaBeStrongBaseInfo(uint32 cur_value,uint32 need_value)
+		:cur_value_(cur_value),need_value_(need_value){}
+};
+ 
+typedef std::map<uint32,WannaBeStrongBaseInfo> WannaBeStrongBaseInfoMap;
+struct WannaBeStrongerInfo
+{
+	bool is_achieve_;
+	bool is_take_reward_;
+	WannaBeStrongBaseInfoMap wanna_be_strong_base_info_;
+	explicit WannaBeStrongerInfo()
+		:is_achieve_(false),is_take_reward_(false),wanna_be_strong_base_info_(){}
+	WannaBeStrongerInfo(const pb::GxDB_WannaBeStrongerInfo& info)
+		:is_achieve_(info.is_achieve()),is_take_reward_(info.is_take_reward())
+	{
+		for(int i = 0;i < info.base_info_size();++i)
+		{
+			const pb::WannaBeStrongerBaseInfo& base_info = info.base_info(i);
+			wanna_be_strong_base_info_[base_info.goal_id()] = WannaBeStrongBaseInfo(base_info.cur_value(),base_info.need_value());
+		}
+	}
+
+};
+typedef std::map<uint32,WannaBeStrongerInfo> WannaBeStrongerInfoMap;
+class WannaBeStrongerLog
+{
+	WannaBeStrongerInfoMap wanna_be_stronger_map_;
+public:
+	WannaBeStrongerLog();
+	void SaveTo(Player& player,pb::GS2C_WannaBeStrongerAllInfo& msg) const;
+	void LoadFrom(Player& player,const pb::GxDB_WannaBeStrongerInfoAllInfo& msg);
+	void UpdateWannaBeStrongerData(Player& player,const uint32 type,const uint32 value);
+	void SendWannaBeStrongerInfoToClient(Player& player,const uint32 id);
+};
+
+
+#endif ////INCLUDE_WANNA_BE_STRONGER_LOG___H

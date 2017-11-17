@@ -1,0 +1,111 @@
+#include "PlayerData.h"
+
+// PlayerData.cpp 部分实现
+
+#include "data/DbProxyDataMgr.h"
+#include "utility/MsgTool.h"
+#include "data/MapLogicTable.h"
+#include "MapLogic.pb.h"
+#include "boost/typeof/typeof.hpp"
+
+
+
+bool PlayerData::save_map_logic_record()
+{
+    m_MapLogicTable.SaveMod();
+    m_MapLogicCityEventTable.SaveMod();
+	m_FogRecMap.SaveMod();
+	m_PersonalECTable.SaveMod();
+    return true;
+}
+
+void PlayerData::WritePlayerMapLogic(pb::GS2C_MapLogic_Init& msg)
+{
+    if (m_MapLogicTable)
+    {
+        m_MapLogicTable->SaveTo(msg);
+    }
+    for (BOOST_AUTO(it, m_MapLogicCityEventTable.Begin()); it != m_MapLogicCityEventTable.End(); ++it)
+    {
+        MsgTool::SaveToRepeatField(it->second, msg.mutable_event_info());
+    }
+	for (BOOST_AUTO(ite, m_FogRecMap.Begin()); ite != m_FogRecMap.End(); ++ite)
+	{
+		MsgTool::SaveToRepeatField(ite->second, msg.mutable_fog_lst());
+	}
+
+	if(m_PersonalECTable)
+	{
+		m_PersonalECTable->SaveTo(*msg.mutable_personalec());
+	}
+
+}
+Msg_Realize(SG2D_MAP_LOGIC_BASE, GS2C_MapLogic_Init)
+{
+    if (m_MapLogicTable)
+    {
+        m_MapLogicTable->LoadFrom(msg);
+        SetIsDirty(DIRTY_MAP_LOGIC);
+    }
+    else
+    {
+        MapLogicTable cell;
+        cell.player_id = GetPlayerId();
+        cell.LoadFrom(msg);
+        m_MapLogicTable.SetAndAddToCache(&cell);
+    }
+}
+
+Msg_Realize(SG2D_MAP_FOG_REC, GS2C_FOG_INFO_Lst)
+{
+	for(int i=0; i<msg.fog_lst_size(); i++)
+	{
+		const Struct_FOG_INFO& info = msg.fog_lst(i);
+		if(FogRecMap* pCell = m_FogRecMap.GetElement(info.uniqueid()))
+		{
+			pCell->LoadFrom(info);
+			SetIsDirty(DIRTY_MAP_LOGIC);
+			m_FogRecMap.SetModifiedID(info.uniqueid());
+		}
+		else
+		{
+			FogRecMap Cell;
+			Cell.player_id = GetPlayerId();
+			Cell.LoadFrom(info);
+			m_FogRecMap.AddAndAddToCache(&Cell);
+		}
+	}
+}
+
+Msg_Realize(SG2D_MAP_LOGIC_UPDATE_CITY_EVENT, CityEvent)
+{
+    if (MapLogicCityEventTable* pCell = m_MapLogicCityEventTable.GetElement(msg.event_id()))
+    {
+        SetIsDirty(DIRTY_MAP_LOGIC);
+        pCell->LoadFrom(msg);
+        m_MapLogicCityEventTable.SetModifiedID(msg.event_id());
+    }
+    else
+    {
+        MapLogicCityEventTable cell;
+        cell.player_id = GetPlayerId();
+        cell.LoadFrom(msg);
+        m_MapLogicCityEventTable.AddAndAddToCache(&cell);
+    }
+}
+
+Msg_Realize(SG2D_UpdatePersonalEC, SG2D_PersonalEC)
+{
+	if (m_PersonalECTable)
+	{
+		m_PersonalECTable->LoadFrom(msg);
+		SetIsDirty(DIRTY_MAP_LOGIC);
+	}
+	else
+	{
+		PersonalECTable cell;
+		cell.player_id = GetPlayerId();
+		cell.LoadFrom(msg);
+		m_PersonalECTable.SetAndAddToCache(&cell);
+	}
+}

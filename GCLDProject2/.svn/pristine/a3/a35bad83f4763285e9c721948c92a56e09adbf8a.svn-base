@@ -1,0 +1,316 @@
+#include "PlayerData.h"
+
+// PlayerData.cpp 部分实现
+
+//////////////////////////////////////////////////////////////////////////
+
+#include <boost/bind.hpp>
+#include <boost/function.hpp>
+#include <boost/typeof/typeof.hpp>
+#include "data/DbProxyDataMgr.h"
+
+#include "Mail.pb.h"
+#include "InterServer.pb.h"
+//#include "data/GlobalData.h"
+
+const time_t MAIL_EXPIRED_TIME = 604800; //7天
+const int MAILBOX_MAIL_COUNT_LIMIT = 20;
+const int MAILBOX_RECEIVE_MAIL_LIMIT = 40;
+
+namespace
+{
+    inline bool IsMailExpired( const PlayerMailTable* curMail)
+    {
+		return (curMail->send_time + MAIL_EXPIRED_TIME) < ::time( NULL );
+    }
+
+}
+
+bool PlayerData::save_mod_mail()
+{
+	m_PlayerMailTable.SaveMod();
+	return true;
+}
+
+void PlayerData::SaveMailInfoToMsg( PlayerMailTable* mailTable, pb::Mail_UserMailInfo* mailinfo )
+{
+    mailTable->SaveTo( *mailinfo);
+	if (mailTable->mail_type == pb::MAIL_PLATFROM || mailTable->mail_type == pb::MAIL_PLATGIFT)//事件类型：1，后台邮件, 2事件邮件
+    {
+		PlatfromMailTable* platMail = sDataMgr.GetTable<PlatfromMailTable>()->GetEntryByKey(mailTable->mail_id);
+        if (platMail)
+        {
+            platMail->SaveTo(*mailinfo);
+        }
+    }
+}
+
+
+bool PlayerData::AddMailAsync(const pb::SG2G_Mail_SendMail& newMail)
+{
+   
+	if(GetLastLoginTime() + MAIL_NOLOGIN_CANT_RECEIVE_TIME < ::time( NULL))
+	{
+		return false;
+	}
+	/*if (newMail.mail_type() == pb::MAIL_PLATFROM || newMail.mail_type() == pb::MAIL_PLATGIFT)
+	{
+		CachePtrMap< uint64, PlayerMailTable>::Iter  tempMailIter = m_PlayerMailTable.Begin();
+		for (;tempMailIter != m_PlayerMailTable.End(); ++tempMailIter)
+		{
+			PlayerMailTable* curTable = tempMailIter->second;
+			if (curTable->mail_id == newMail.mail_id())
+			{
+				return false;
+			}
+		}
+	}*/
+	PlayerMailTable newPlayerMail;
+	newPlayerMail.id = 0;
+	newPlayerMail.player_id = m_playerId;
+	newPlayerMail.mail_id = newMail.mail_id();
+	newPlayerMail.mail_type = newMail.mail_type();
+	newPlayerMail.mail_state =0;//邮件状态0初始状态，1已收新邮件，2已读，3已读并已领附件
+	newPlayerMail.send_time = ::time( NULL);
+	newPlayerMail.items = newMail.items();
+	if(newMail.mail_type() == pb::MAIL_JUST_TIPS)
+	{
+		newPlayerMail.is_take = 1;
+	}
+	else
+	{
+		if (newMail.items().length() > 1)
+		{
+			newPlayerMail.is_take = 0;
+		}
+		else
+		{
+			newPlayerMail.is_take = 1;
+		}
+	}
+	if ( m_PlayerMailTable.AddAndAddToCache(&newPlayerMail))
+	{
+		return true;
+	}
+
+	return true;
+}
+
+bool PlayerData::GetPlayerMailUpdate(pb::GS2C_Mail_MailList& mailUpdate)
+{
+	std::vector<PlayerMailTable*> vecAllCacheMails;
+	std::vector<PlayerMailTable*> vecToDelCacheMails;
+
+	for ( BOOST_AUTO( miter , m_PlayerMailTable.Begin()); miter != m_PlayerMailTable.End(); ++miter)
+	{
+		PlayerMailTable* curMail = miter->second;
+		if ( IsMailExpired( curMail) )
+		{
+			vecToDelCacheMails.push_back(curMail);
+		}
+		else
+		{
+			vecAllCacheMails.push_back(curMail);
+		}
+	}
+
+	int nTodelMail = vecToDelCacheMails.size();
+	for (int i = 0; i<nTodelMail; i++)
+	{
+		PlayerMailTable* curMail = vecToDelCacheMails[i];
+		if ( m_setCurMail.find(curMail->id) != m_setCurMail.end())
+		{
+			m_setCurMail.erase(curMail->id);
+		}
+		pb::Mail_UserMailInfo* mailinfo = mailUpdate.add_mail_list();
+		SaveMailInfoToMsg( curMail, mailinfo);
+		mailinfo->set_mail_operate(2);//邮件操作0无操作，1添加，2删除,3,更新
+		m_PlayerMailTable.DeleteEntry( curMail);
+		if (mailUpdate.mail_list_size() >= MAILBOX_MAIL_COUNT_LIMIT)
+		{
+			vecToDelCacheMails.clear();
+			return true;
+		}
+	}
+	vecToDelCacheMails.clear();
+	int nCurMail = vecAllCacheMails.size();
+	if (nCurMail > MAILBOX_RECEIVE_MAIL_LIMIT)
+	{
+		std::sort( vecAllCacheMails.begin(), vecAllCacheMails.end());
+		int ntoDel = MAILBOX_RECEIVE_MAIL_LIMIT - nCurMail;
+		for (std::vector<PlayerMailTable*>::iterator iterrMail = vecAllCacheMails.begin(); (iterrMail != vecAllCacheMails.end()) && (ntoDel > 0); ntoDel--)
+		{
+			PlayerMailTable* curTodel = (PlayerMailTable*)(*iterrMail);
+			if ( m_setCurMail.find(curTodel->id) != m_setCurMail.end())
+			{
+				m_setCurMail.erase(curTodel->id);
+			}
+			pb::Mail_UserMailInfo* mailinfo = mailUpdate.add_mail_list();
+			SaveMailInfoToMsg( curTodel, mailinfo);
+			mailinfo->set_mail_operate(2);//邮件操作0无操作，1添加，2删除,3,更新
+			m_PlayerMailTable.DeleteEntry( curTodel);
+			iterrMail = vecAllCacheMails.erase(iterrMail);
+			if (mailUpdate.mail_list_size() >= MAILBOX_MAIL_COUNT_LIMIT)
+			{
+				vecAllCacheMails.clear();
+				return true;
+			}
+		}
+		nCurMail = vecAllCacheMails.size();
+	}
+	std::sort( vecAllCacheMails.begin(), vecAllCacheMails.end());
+	std::set<uint64> newMailSet;
+	nCurMail = (std::min)( nCurMail , MAILBOX_MAIL_COUNT_LIMIT);
+	for (std::vector<PlayerMailTable*>::reverse_iterator reiterrMail = vecAllCacheMails.rbegin(); (reiterrMail != vecAllCacheMails.rend())&&(nCurMail > 0) ; ++reiterrMail,nCurMail--)
+	{
+		PlayerMailTable* curNew = (PlayerMailTable*)(*reiterrMail);
+		newMailSet.insert(curNew->id);
+	}
+	std::set<uint64> AddMailSet;
+	std::set_difference(newMailSet.begin(),newMailSet.end(),m_setCurMail.begin(),m_setCurMail.end(), std::inserter(AddMailSet,AddMailSet.end()));
+
+	std::set<uint64> DelMailSet;
+	std::set_difference(m_setCurMail.begin(),m_setCurMail.end(),newMailSet.begin(),newMailSet.end(),std::inserter(DelMailSet,DelMailSet.end()));
+
+	std::set<uint64> UpdateMailSet;
+	std::set_intersection(newMailSet.begin(),newMailSet.end(),m_setCurMail.begin(),m_setCurMail.end(), std::inserter(UpdateMailSet,UpdateMailSet.end()));
+
+	for (std::set<uint64>::iterator deliter = DelMailSet.begin(); deliter!= DelMailSet.end();++deliter)
+	{
+		uint64 mailId = (*deliter);
+		PlayerMailTable* curMail = m_PlayerMailTable.GetElement( mailId);
+		if ( curMail)
+		{
+			pb::Mail_UserMailInfo* mailinfo = mailUpdate.add_mail_list();
+			SaveMailInfoToMsg( curMail, mailinfo);
+			m_setCurMail.erase(curMail->id);
+			mailinfo->set_mail_operate(2);//邮件操作0无操作，1添加，2删除,3,更新
+			m_PlayerMailTable.DeleteEntry( curMail);
+		}
+		else
+		{
+			pb::Mail_UserMailInfo* mailinfo = mailUpdate.add_mail_list();
+			//SaveMailInfoToMsg( curMail, mailinfo);
+			mailinfo->set_id(mailId);
+			m_setCurMail.erase(mailId);
+			mailinfo->set_mail_operate(2);//邮件操作0无操作，1添加，2删除,3,更新
+		}
+		if (mailUpdate.mail_list_size() >= MAILBOX_MAIL_COUNT_LIMIT)
+		{
+			return true;
+		}
+	}
+
+	for (std::set<uint64>::iterator additer = AddMailSet.begin(); additer!= AddMailSet.end();++additer)
+	{
+		uint64 mailId = (*additer);
+        PlayerMailTable* curMail = m_PlayerMailTable.GetElement( mailId);
+		if ( curMail)
+		{
+			pb::Mail_UserMailInfo* mailinfo = mailUpdate.add_mail_list();
+			bool ismodify = false;
+			if (curMail->mail_state == 0)
+			{
+				curMail->mail_state = 1;
+				ismodify = true;
+			}
+			SaveMailInfoToMsg( curMail, mailinfo);
+			if (curMail->IsAutoTake())
+			{
+				if (curMail->is_take < 1)
+				{
+					curMail->is_take = 1;
+					ismodify = true;
+				}
+			}
+			if (ismodify)
+			{
+				m_PlayerMailTable.SetModifiedID(curMail->id);
+				curMail->SetModify();
+				SetIsDirty( DIRTY_MAIL);
+			}
+			m_setCurMail.insert(curMail->id);
+			mailinfo->set_mail_operate(1);//邮件操作0无操作，1添加，2删除,3,更新
+			if (mailUpdate.mail_list_size() >= MAILBOX_MAIL_COUNT_LIMIT)
+			{
+				return true;
+			}
+		}
+	}
+
+	
+
+	for (std::set<uint64>::iterator upIter = UpdateMailSet.begin(); upIter != UpdateMailSet.end(); ++upIter)
+	{
+		uint64 mailId = (*upIter);
+		PlayerMailTable* curMail = m_PlayerMailTable.GetElement( mailId);
+		if ( curMail)
+		{
+			if (curMail->IsModify())
+			{
+				pb::Mail_UserMailInfo* mailinfo = mailUpdate.add_mail_list();
+                SaveMailInfoToMsg(curMail, mailinfo);
+				mailinfo->set_mail_operate(3);//邮件操作0无操作，1添加，2删除,3,更新
+				curMail->ResetModify();
+				if (mailUpdate.mail_list_size() >= MAILBOX_MAIL_COUNT_LIMIT)
+				{
+					return true;
+				}
+			}
+		}
+	}
+	return mailUpdate.mail_list_size() > 0 ? true : false;
+}
+
+
+void PlayerData::UpdateMail(const pb::SG2D_MailsOperate&mailOperat)
+{
+	//1添加，2删除,3,更新
+ 	int opType = mailOperat.operate_type();
+	switch(opType)
+	{
+	case 2://删除
+		{
+			int nsize =mailOperat.mail_info_data_size();
+			for (int i=0; i< nsize; i++)
+			{
+				const pb::SG2D_MailInfoData& infom = mailOperat.mail_info_data(i);
+                PlayerMailTable* curMail = m_PlayerMailTable.GetElement( infom.id());
+				if ( curMail)
+				{
+					if (curMail->mail_type == pb::MAIL_PLATGIFT)
+					{
+						sDataMgr.GetTable<PlatfromMailTable>()->DeleteEntryFromDB( curMail->mail_id,false);
+						sDataMgr.GetTable<PlatfromMailTable>()->RemoveEntryByKey( curMail->mail_id );
+					}
+                    m_PlayerMailTable.DeleteEntry( curMail);
+				}
+			}
+		}
+		break;
+	case 3://更新
+		{
+			int nsize =mailOperat.mail_info_data_size();
+			for (int i=0; i< nsize; i++)
+			{
+				const pb::SG2D_MailInfoData& infom = mailOperat.mail_info_data(i);
+				PlayerMailTable* curMail = m_PlayerMailTable.GetElement( infom.id());
+				if (curMail)
+				{
+					curMail->LoadFrom(infom);
+					curMail->SetModify();
+					m_PlayerMailTable.SetModifiedID( infom.id());
+					SetIsDirty(DIRTY_MAIL);
+				}
+				else
+				{
+					//error
+				}
+			}
+		}
+		break;
+	default:
+		break;
+	}
+
+}

@@ -1,0 +1,423 @@
+#include "CharacterManager.h"
+
+#include "DbTool.h"
+#include "datastruct/struct_character.h"
+#include "Logger.h"
+#include "def/MmoAssert.h"
+#include "BaseDefineMgr.h"
+#include "item/ItemManager.h"
+#include "item/ItemArray.h"
+#include "utility/Utility.h"
+#include "boost/function/function0.hpp"
+
+#include "BaseDefine.pb.h"
+using namespace pb;
+
+CharacterManager::CharacterManager()
+{
+
+}
+
+CharacterManager::~CharacterManager()
+{
+
+}
+
+void CharacterManager::Init()
+{
+    InitCharProto();
+    InitLvUpItemVec();
+    InitCharSkill();
+    InitRandomMax();
+    InitCharAttrAdd();
+	InitCharFightValue();
+}
+
+const CharacterProto* CharacterManager::GetCharacterProto( uint32 protoID ) const
+{
+    return m_charProtoMap.pfind( protoID);
+}
+
+
+CharacterProto* CharacterManager::MutableCharacterProto( uint32 protoID )
+{
+    return m_charProtoMap.pfind( protoID);
+}
+
+
+void CharacterManager::InitCharProto()
+{
+    FOREACH_DB_ITEM( DBproto, DB_CharProto)
+    {
+        uint32 protoID = DBproto->index;
+        const DB_CharUpgradeXP* DBupgradeXP = DbTool::Get<DB_CharUpgradeXP>(protoID);
+
+
+        CharacterProto * proto = new CharacterProto( *DBproto, DBupgradeXP);
+        m_charProtoMap[ protoID] = proto;
+
+        //if (DBproto->type == DB_CharProto::CHAR_TYPE_HERO)
+      //  {
+           // m_classOption2classId.insert( std::make_pair( DBproto->class_option, proto ) ) ;
+        //} 
+    }
+
+	FOREACH_DB_ITEM( DBTeachProto, DB_Teach_Soldier)
+	{
+		m_teachChars[DBTeachProto->sourceid] = DBTeachProto->level;
+	}
+}
+
+
+bool CompareUpItem( const DB_CharUpgradeLevelItem* item1, const DB_CharUpgradeLevelItem* item2)
+{
+    return item1->xp_value < item2->xp_value;
+}
+
+void CharacterManager::InitLvUpItemVec()
+{
+    FOREACH_DB_ITEM( upItem, DB_CharUpgradeLevelItem)
+    {
+        m_LvUpItemVec.push_back(upItem);
+    }
+    std::sort( m_LvUpItemVec.begin(), m_LvUpItemVec.end(), CompareUpItem);    
+}
+
+
+bool CharacterManager::TryGetItemXp( uint32 itemId, uint32& xp ) const
+{
+    const DB_CharUpgradeLevelItem* proto = DbTool::Get<DB_CharUpgradeLevelItem>(itemId);
+    if ( proto)
+    {
+        xp =  proto->xp_value;
+        return true;
+    }
+    return false;
+}
+
+
+bool CharacterManager::TryGetItemSumXp( ItemID2Count& itemid2cout, uint32& sumXp ) const
+{
+    for ( ItemID2Count::iterator it = itemid2cout.begin(); it != itemid2cout.end(); ++it)
+    {
+        uint32 xp = 0;
+        if ( !sCharacterMgr.TryGetItemXp(it->first, xp))
+        {
+            return false;
+        }
+        sumXp += (xp * it->second);
+    }
+    return true;
+}
+
+
+float CharacterManager::GetFightValueByAttrId(const uint32 attr_id) const
+{
+	FightValueOfCharacter::const_iterator iter = m_fight_value.find(attr_id);
+	if(iter != m_fight_value.end())
+	{
+		return iter->second->attr_fight_value;
+	}
+	return 0;
+}
+
+void CharacterManager::GetRebitrhQualitySumItem(uint32 charProtoId, uint32 curQuality, ItemID2Count& itemid2count) const
+{
+    MMO_ASSERT( curQuality >= MIN_CHAR_QUALITY);
+    if ( curQuality == 0)
+    {
+        return;
+    }
+
+    /*ItemID2Count tmp;
+    for( uint32 i = MIN_CHAR_QUALITY; i != curQuality; ++i)
+    {
+        const DB_CharUpgradeQuality* upQuality = GetUpgradeQuality(i);
+        tmp[upQuality->item_01] += upQuality->item_01_count; 
+        uint32 cardItemId = 0;
+        if ( sItemMgr.TryGetCardItemId( charProtoId, cardItemId) && upQuality->item_self_count != 0)
+        {
+            tmp[cardItemId] += upQuality->item_self_count;
+        }        
+    }
+
+    Utility::MultiplyValue(tmp, GET_BASE_DEF_FLOAT( BD_REBIRTH_CHAR_QUALITY_ITEM_PROPORTION), ::floorf);
+    Utility::AddUp( itemid2count , tmp);*/
+
+}
+
+
+void CharacterManager::GetRebirthLevelSumItem( uint32 sumXp, ItemID2Count& itemid2count ) const
+{
+    for ( LvUpItemVec::const_reverse_iterator rit = m_LvUpItemVec.rbegin();
+        rit != m_LvUpItemVec.rend() && sumXp != 0; ++rit)
+    {
+        const DB_CharUpgradeLevelItem* lvitem = *rit;
+        uint32 count = sumXp / lvitem->xp_value;
+        if (count != 0)
+        {
+            itemid2count[lvitem->item_id] += count; 
+        }
+        sumXp = (sumXp % lvitem->xp_value);
+    }
+}
+
+bool CharacterManager::ExpToBagItemCount(ItemArray * bag, uint32 sumXp, ItemID2Count& itemid2count ) const
+{
+	for ( LvUpItemVec::const_reverse_iterator rit = m_LvUpItemVec.rbegin();
+		rit != m_LvUpItemVec.rend() && sumXp != 0; ++rit)
+	{
+		const DB_CharUpgradeLevelItem* lvitem = *rit;
+		int itemCount = bag->CountItem(lvitem->item_id);
+		uint32 curItemXp =itemCount * lvitem->xp_value;
+		uint32 count = 0;
+		if (curItemXp > sumXp)
+		{
+			if (sumXp > lvitem->xp_value)
+			{
+				count = sumXp / lvitem->xp_value;
+				sumXp = (sumXp % lvitem->xp_value);
+			}
+			else
+			{
+				count = 1;
+				sumXp = 0;
+			}
+		}
+		else if (itemCount > 0)
+		{
+			if (sumXp > lvitem->xp_value)
+			{
+				count = itemCount;
+				sumXp -= curItemXp;
+			}
+			else
+			{
+				count = 1;
+				sumXp = 0;
+			}
+		}
+
+		if (sumXp > 0)
+		{
+			uint32 RemainXp = 0;
+			LvUpItemVec::const_reverse_iterator tempItr = rit;
+			for ( ++tempItr;tempItr != m_LvUpItemVec.rend(); ++tempItr)
+			{
+				const DB_CharUpgradeLevelItem* templvitem = *tempItr;
+				int tempCount = bag->CountItem(templvitem->item_id);
+				RemainXp += tempCount * templvitem->xp_value;
+			}
+			if(RemainXp < sumXp)
+			{
+				if (sumXp < lvitem->xp_value)
+				{
+					count += 1;
+					sumXp = 0;
+				}
+			}
+		}
+		if (count != 0)
+		{
+			itemid2count[lvitem->item_id] += count; 
+			if (sumXp == 0)
+			{
+				break;
+			}
+		}
+		
+	}
+
+	return sumXp <= 0;
+}
+
+void CharacterManager::InitCharSkill()
+{
+    FOREACH_DB_ITEM( db_skill, DB_CharSetSkills)
+    {
+        CharacterProto* proto = MutableCharacterProto(db_skill->index_id);
+        if ( proto)
+        {
+            if ( db_skill->unlock_quality)
+            {
+                proto->m_learnSkillMap[ db_skill->unlock_quality].push_back( db_skill->skill_index);
+            }
+            proto->m_index2skill[ db_skill->skill_index] = db_skill;
+        }
+    }
+}
+
+
+bool CharacterManager::TryGetSkillLevelUpCoin( uint32 skillType, uint32 from, uint32 to, uint32& coinSum) const
+{
+    if ( from >= to )
+    {
+        return false;
+    }
+    coinSum = 0;
+    static uint32 skill_coin_0 = GET_BASE_DEF_UINT( BD_CHAR_UPGRADE_SKILL_0_COIN);
+    static uint32 skill_coin_1 = GET_BASE_DEF_UINT( BD_CHAR_UPGRADE_SKILL_1_COIN);
+    static uint32 skill_coin_2 = GET_BASE_DEF_UINT( BD_CHAR_UPGRADE_SKILL_2_COIN);
+    static uint32 round_num = GET_BASE_DEF_UINT( BD_ROUNDING_NUMBER); 
+
+    for ( uint32 i = from; i != to; ++i)
+    {
+        switch(skillType)
+        {
+        case DB_CharSetSkills::SKILL_TYPE_ACTIVE_SKILL: 
+            coinSum += Utility::Rounding( int (powf(float(i), 2.0f) * skill_coin_0), round_num);
+            break; 
+        case DB_CharSetSkills::SKILL_TYPE_PASSIVE_SKILL:
+            coinSum += Utility::Rounding( int (powf(float(i), 2.0f) * skill_coin_1), round_num);
+            break; 
+        case DB_CharSetSkills::SKILL_TYPE_CAPTAIN_SKILL:
+            coinSum += i * skill_coin_2;
+            break;
+        default:
+            return false;
+        }
+    }
+    return true;
+}
+
+const DB_CharAttrRandom* CharacterManager::GetAttrRandomMaxOfQuality( uint32 charClass, uint32 quality ) const
+{
+    CharClass2Quality2RandomMax::const_iterator it = m_class2quality2rdmax.find(charClass);
+    if ( it != m_class2quality2rdmax.end())
+    {
+        const Quality2RandomMax& quality2randommax = it->second;
+        Quality2RandomMax::const_iterator iter = quality2randommax.find(quality);
+        if (iter != quality2randommax.end())
+        {
+            return iter->second;
+        }
+    }
+    return NULL;
+}
+
+void CharacterManager::InitRandomMax()
+{
+    FOREACH_DB_ITEM( randomMax , DB_CharAttrRandom)
+    {
+        m_class2quality2rdmax[randomMax->char_class][randomMax->quality] = randomMax;
+
+		std::vector<float>* randomMaxVec = NULL;
+        CharClass2RandomMaxVec::iterator it= m_class2randommax.find(randomMax->char_class);
+        if ( it == m_class2randommax.end())
+        {
+            randomMaxVec = &m_class2randommax[randomMax->char_class];
+            randomMaxVec->resize(DB_CharAttrRandom::RANDOM_ATTR_SIZE);
+        }
+        else
+        {
+            randomMaxVec = &(it->second);
+        }
+
+        if (randomMaxVec)
+        {
+            for (size_t i = 0 ; i < randomMaxVec->size(); ++i )
+            {
+                if ( (*randomMaxVec)[i] < randomMax->random_value[i])
+                {
+                    (*randomMaxVec)[i] = randomMax->random_value[i];
+                }
+            }
+        }
+
+    }
+}
+
+const std::vector<float>* CharacterManager::GetAttrRandomMaxVecOfClass( uint32 charClass ) const
+{
+    CharClass2RandomMaxVec::const_iterator it = m_class2randommax.find( charClass);
+    if ( it != m_class2randommax.end())
+    {
+        return &(it->second);
+    }
+    else
+    {
+        return NULL;
+    }
+}
+
+
+const uint32 CharacterManager::PickCharacterProtoIdByClass( uint32 classOption, std::set< uint32 > &notUseId ) const
+{
+	typedef CharacterClassOptoinMap::const_iterator CItr ;
+
+	std::pair< CItr, CItr > pItr =m_classOption2classId.equal_range( classOption ) ;
+
+	if( pItr.first == pItr.second )
+	{
+		return 0 ;
+	}
+
+	std::set< uint32 > protoIds ;
+	for( CItr itr =pItr.first; itr != pItr.second; ++itr )
+	{
+		if( itr->second->IsCharTypeHero() )
+		{
+			protoIds.insert( itr->second->GetCharProto().index ) ;
+		}
+	}
+
+	typedef std::vector< uint32 > Results ;
+	typedef Results::iterator ResultsItr ;
+
+	Results results ;
+
+	results.resize( protoIds.size() ) ;
+	ResultsItr endResultItr =std::set_difference( protoIds.begin(), protoIds.end(), notUseId.begin(), notUseId.end(), results.begin() ) ;
+
+	uint32 diff =std::distance( results.begin(), endResultItr ) ;
+	if( diff == 0 )
+	{
+		return 0 ;
+	}
+
+	return results[ rand() % diff ] ;
+}
+
+
+void CharacterManager::InitCharAttrAdd()
+{
+    FOREACH_DB_ITEM( attr_add, DB_CharAttrAdd)
+    {
+        m_protoid2quality2attradd[
+            std::make_pair(attr_add->character_id, attr_add->quality )
+        ] = attr_add;
+    }
+}
+
+void CharacterManager::InitCharFightValue()
+{
+	FOREACH_DB_ITEM( attr_fight, DB_FightValue)
+	{
+		m_fight_value[attr_fight->attr_id] = attr_fight;
+	}
+}
+
+const DB_CharAttrAdd* CharacterManager::GetAttrAdd( uint32 protoId, uint32 quality ) const
+{
+    CharProtoId2Quality2AttrAdd::const_iterator it = m_protoid2quality2attradd.find( std::make_pair(protoId, quality) );
+    if ( it != m_protoid2quality2attradd.end())
+    {
+        return it->second;
+    }
+    return NULL;
+}
+
+const std::map<uint32, uint32>& CharacterManager::GetTeachChars()
+{
+	return m_teachChars;
+}
+
+const uint32 CharacterManager::getUpgradeLevelXpByItemId(const uint32 ItemID) const
+{
+	for(LvUpItemVec::const_iterator iter = m_LvUpItemVec.begin();iter != m_LvUpItemVec.end();++iter)
+	{
+		if((*iter)->item_id == ItemID)
+			return (*iter)->xp_value;
+	}
+	return 0;
+}

@@ -1,0 +1,584 @@
+
+#include "GameServer.h"
+#include "GameServerLogicalTaker.h"
+
+#include "GameServerHttpClients.h"
+#include "session/PlayerSession.h"
+#include "Cast.h"
+
+#include "Logger.h"
+#include "OS.h"
+
+#include "object/Player.h"
+#include "character/CharacterStorage.h"
+#include "server_client/LoginServerClient.h"
+#include "server_client/DbProxyServerClient.h"
+#include "server_client/EventLogServerClient.h"
+#include "server_client/CrossServerClient.h"
+#include "server_client/LobbyServerClient.h"
+#include "memory_buffer/NetPack.h"
+#include "def/MmoAssert.h"
+#include "net_framework/IoServicePool.h"
+#include "data/PayItemTable.h"
+
+#include "multi_language/multi_lang_def.h"
+// Tips: 这个头文件要放在 CenterServerHttpClients.h 的后面，不然会有冲突，显示网络层接口问题，因为 CenterServerHttpClients.h 包含了asio.hpp 
+#include "json/JsonTool.h"
+
+#include "Opcode.pb.h"
+#include "ServerOpcode.pb.h"
+#include "GameServer.pb.h"
+#include "Login.pb.h"
+#include "Enum.pb.h"
+#include "DbTool.h"
+#include "InterServer.pb.h"
+#include "Web.pb.h"
+
+
+GameServer::GameServer(void)
+{
+	Player::RegisteAllHandlers() ;
+
+	SetLogicalTaker( new GameServerLogicalTaker() ) ;
+
+    m_pGSLogicalTaker       = boost::reinterpret_pointer_cast<GameServerLogicalTaker>( GetLogicalTaker() );
+	m_regionId              = 0 ;
+	m_serverId              = 0 ;
+
+}
+
+GameServer::~GameServer(void)
+{
+}
+
+//服务器开启前先开启游戏http
+void GameServer::OnBeforeStart( void )
+{
+	sHttpClients.Start( sIoPool.GetServerIoService() ) ;
+}
+
+void GameServer::OnAfterStop( void )
+{
+}
+
+//初始化配置文件
+bool GameServer::InitGameConf( const std::string &filePath, const std::string &strConfigFile, const std::string &strDefaultConfigFile )
+{
+	if( !Server::InitGameConf( filePath, strConfigFile, strDefaultConfigFile ) )
+	{
+		return false ;
+	}
+
+	m_serverId          = Config().GetInt( "Self.server_id", 3001 ) ;  //服务器Id
+	m_keyUsefullLifeTime = Config().GetInt( "Self.key_usefull_life_time", 10800 ) ;	//Key 有效时间( 秒 ) 3600秒一小时
+	
+	GetLogicalTaker()->SetThreadUpdateLimitTimeMS( Config().GetInt( "Self.thread_update_limit_time_ms", 100 ) ) ; //线程update间隔提醒时间间隔
+	GetLogicalTaker()->SetNotRecvPackLimitTimeMS( Config().GetInt( "Self.not_recv_packet_limit_time_ms", 3000 ) ) ; //没有数据包通信关闭时间
+
+	return true ;
+}
+
+//根据类型创建会话
+Session* GameServer::CreateSesion( int type )
+{
+	Session *pSession =NULL ;
+	switch( type )
+	{
+	case PACKET_TYPE_CLIENT:
+		{
+			PlayerSession *pPlayerSession =new PlayerSession();		//创建玩家会话
+			pPlayerSession->SetGameLogicalTaker( boost::reinterpret_pointer_cast<GameServerLogicalTaker>( GetLogicalTaker() ) ) ;		//加入逻辑线程
+
+			pSession =pPlayerSession ;
+		} break ;
+
+	case PACKET_TYPE_SERVER_GAME:
+	case PACKET_TYPE_SERVER_LOGIN:
+	case PACKET_TYPE_SERVER_GATEWAY:
+	case PACKET_TYPE_SERVER_DBPROXY:
+	case PACKET_TYPE_SERVER_CENTER:
+	default:
+		{
+			ASSERT( false ) ;
+		}
+	}
+
+	return pSession ;
+}
+
+//根据会话id获得玩家会话
+PlayerSession* GameServer::GetPlayerSession( SessionId id )
+{
+	Session *pSession = GetSession( id ) ;
+	if( pSession != NULL && pSession->GetSessionType() == PACKET_TYPE_CLIENT )
+	{
+		return reinterpret_cast<PlayerSession*>( pSession ) ;
+	}
+
+	return NULL ;
+}
+
+
+
+//玩家会话关闭
+void GameServer::OnSessionClose( PlayerSession &session )
+{
+	SessionKeyInfo *pKeyInfo =GetSessionKeyInfo( session.GetAccountId() ) ;
+	if( pKeyInfo != NULL )
+	{
+		pKeyInfo->m_sessionId =0 ;
+		pKeyInfo->m_usefullLife = sOS.TimeSeconds() + m_keyUsefullLifeTime ;
+	}
+}
+
+//会话更新前
+void GameServer::BeforeSeesionUpdate( uint64 nowTimeMS, int64 diffMS )
+{
+	sEventLogClient.Update( nowTimeMS, diffMS ) ;		//事件日志更新
+
+	sLobbyClient.Update(nowTimeMS,diffMS);
+
+	//////////////////////////////////////////////////////////////////////////
+
+    sOS.Update();								//系统更新
+	//////////////////////////////////////////////////////////////////////////
+
+	CheckCurlResult() ;
+}
+
+//会话更新后
+void GameServer::AfterSessionUpdate( uint64 nowTimeMS, int64 diffMS )
+{
+	// Update all login clients ;
+	ServerClientMap::iterator tmpItr ;
+	for( ServerClientMap::iterator itr =m_loginClients.begin(); itr != m_loginClients.end(); /*++itr*/ )
+	{
+		tmpItr =itr++ ;
+
+		ServerClientPtr &ptr =tmpItr->second ;
+		ptr->Update( nowTimeMS,diffMS ) ;
+
+		if( ptr->GetConnectCount() >= ptr->GetMaxConnectCount() )
+		{
+			ELOG( "%s stop connect to %s(%s:%s) because get max connect count.", ptr->GetClientName(), ptr->GetServerName(), ptr->GetIP(), ptr->GetPort() ) ;
+			m_loginClients.erase( tmpItr ) ;
+		}
+	}
+
+	//LLOG("[1002] after session clientnum=%d",m_crossClients.size());
+	for( ServerClientMap::iterator itr =m_crossClients.begin(); itr != m_crossClients.end(); /*++itr*/ )
+	{
+		//LLOG("[1002] 1");
+		tmpItr =itr++ ;
+
+		ServerClientPtr &ptr =tmpItr->second ;
+		ptr->Update( nowTimeMS,diffMS ) ;
+		//LLOG("[1002] 2");
+		if( ptr->GetConnectCount() >= ptr->GetMaxConnectCount() )
+		{
+			ELOG( "%s stop connect to %s(%s:%s) because get max connect count.", ptr->GetClientName(), ptr->GetServerName(), ptr->GetIP(), ptr->GetPort() ) ;
+			m_crossClients.erase( tmpItr ) ;
+		}
+	}
+	//LLOG("[1002] 3");
+}
+
+//根据玩家id判断玩家是否在线
+bool GameServer::IsPlayerOnline(uint64 playerId)
+{
+	if ( GetGSLogicalTaker() )
+	{
+		return GetGSLogicalTaker()->IsPlayerOnline(playerId);
+	}
+	return false;
+}
+
+int GameServer::GetOnlinePlayerCount()
+{
+	if ( GetGSLogicalTaker() )
+	{
+		return (int)GetGSLogicalTaker()->GetSessionCount();
+	}
+	return 0;
+}
+
+//添加一个登陆服务器
+bool GameServer::AddOneLoginServer( const std::string &ip, const std::string &port )
+{
+	SessionAddress address( port, ip ) ;
+	ServerClientMap::iterator itr = m_loginClients.find( address );
+	if( itr != m_loginClients.end() )
+	{
+		m_loginClients.erase(itr) ;
+	}
+
+	ServerClientPtr ptr( new LoginServerClient() ) ;
+	ptr->SetDstInfo( ip, port ) ;
+	m_loginClients[address] =ptr ;
+
+	return true ;
+}
+
+
+//添加一个事件日志服务器
+bool GameServer::AddOneCrossServer( const std::string &ip, const std::string &port )
+{
+	SessionAddress address( port, ip ) ;
+	ServerClientMap::iterator itr = m_crossClients.find( address );
+	if( itr != m_crossClients.end() )
+	{
+		m_crossClients.erase(itr) ;
+	}
+
+	ServerClientPtr ptr( new CrossServerClient()) ;
+	ptr->SetDstInfo( ip, port ) ;
+	m_crossClients[address] =ptr ;
+	return true ;
+}
+
+
+bool GameServer::AddOneEventLogServer( const std::string &ip, const std::string &port )
+{
+	if( sEventLogClient.IsSettingAddress() )
+	{
+		return false ;
+	}
+
+	sEventLogClient.SetDstInfo( ip, port ) ;
+	sEventLogClient.SetConnectNow() ;
+	return true ;
+
+}
+
+ServerClientPtr GameServer::GetCrossServerClient( const std::string &ip, const std::string &port )
+{
+	SessionAddress address( port, ip ) ;
+	ServerClientMap::iterator it = m_crossClients.find(address);
+	if (it == m_crossClients.end()) return ServerClientPtr();
+	return it->second;
+}
+
+void GameServer::CloseAllCrossServerClient()
+{
+	//LLOG("[1002] close all cross server client");
+	for(ServerClientMap::iterator it = m_crossClients.begin(); it != m_crossClients.end(); it++)
+	{
+		it->second->Stop();
+		it->second->ReleaseConnectCount();
+	}
+	//m_crossClients.clear();
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Client Key
+//玩家会话是否存在，如果已经存在，则踢掉当前会话
+bool GameServer::CheckForLogin( SessionKeyInfo *pSKeyInfo, PlayerSession &curSession )
+{
+	ASSERT( pSKeyInfo != NULL ) ;
+
+	bool isPassed =true ;
+	if( pSKeyInfo->m_sessionId != 0 && pSKeyInfo->m_sessionId != curSession.GetSessionId() )
+	{
+		PlayerSession *pOrignSession = GetPlayerSession( pSKeyInfo->m_sessionId ) ;
+
+		if( pOrignSession != NULL ) // it will get null because passed verfy session update in logical thread not this thread .
+		{
+			ASSERT( pOrignSession->GetAccountId() == pSKeyInfo->m_accountId ) ;
+
+			// Comment: 暂时只踢掉前面那个, 所以不会失败
+			//isPassed =false ;
+			//curSession.Kick( pb::RELOGIN ) ;
+			//curSession.SetIsNeedClose( true ) ;
+
+			pOrignSession->Kick( pb::RELOGIN ) ;
+			pOrignSession->SetIsNeedClose( true ) ;
+		}
+	}
+
+	pSKeyInfo->m_canUse =isPassed ;
+
+	return isPassed ;
+}
+
+//获得玩家信息
+void GameServer::GetPlayerInfo(uint64 playerId,uint64 youId)
+{
+	ASSERT( false ) ;
+	/*C2GS_Get_Player_Info searchInfo;
+	searchInfo.set_player_guid(playerId);
+	searchInfo.set_your_guid(youId);
+	if (IsPlayerOnline(playerId))
+	{
+	}
+	else
+	{
+		sDbProxyClient.Send(SG2D_GET_PLAYERINFO,searchInfo);
+	}*/
+}
+
+//获得会话关键信息
+SessionKeyInfo* GameServer::GetSessionKeyInfo( AccountId id )
+{
+	KeyInfoTableItr itr =m_keyTables.find( id ) ;
+	return itr != m_keyTables.end() ? &itr->second : NULL ;
+}
+
+//添加会话关键信息
+SessionKeyInfo* GameServer::AddSessionKeyInfo( AccountId aId, SessionId sId, const std::string &key )
+{
+	SessionKeyInfo *pRet =&m_keyTables[aId] ;
+	pRet->m_canUse       =true ;
+	pRet->m_accountId    =aId ;
+	pRet->m_sessionId    =sId ;
+	pRet->m_key          =key ;
+	pRet->m_usefullLife  = sOS.TimeSeconds() + m_keyUsefullLifeTime;
+
+	return pRet ;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Broadcas
+
+//广播服务器消息
+void GameServer::BroadcastServerMsg( const int opCode,const ::google::protobuf::Message &msg )
+{
+	if ( GetGSLogicalTaker())
+	{
+		GetGSLogicalTaker()->BroadcastServerMsg( opCode,msg);
+	}
+}
+//向所有玩家客户端广播消息
+void GameServer::BroadcastMsgToPlayer(uint16 opcode, const ::google::protobuf::Message& msg)
+{
+	if ( GetGSLogicalTaker() )
+	{
+		GetGSLogicalTaker()->BroadcastMsgToPlayer( opcode, msg ) ;
+	}
+}
+
+void GameServer::BroadcastMsgToCountryPlayer( uint32 countryId, uint16 opcode, const ::google::protobuf::Message& msg )
+{
+	if ( GetGSLogicalTaker() )
+	{
+		GetGSLogicalTaker()->BroadcastMsgToContryPlayers(countryId,opcode, msg ) ;
+	}
+}
+
+//向一名玩家发送消息
+bool GameServer::SendMsgToPlayer(uint64 playerId, uint16 opcode, const ::google::protobuf::Message& msg)
+{
+	if ( GetGSLogicalTaker() )
+	{
+		return	GetGSLogicalTaker()->SendMsgToPlayer(playerId, opcode, msg);
+	}
+	return false;
+}
+
+//向一名玩家发送消息
+bool GameServer::SendMsgToPlayer( uint64 playerId, NetPack &packet )
+{
+	if ( GetGSLogicalTaker() )
+	{
+		return GetGSLogicalTaker()->SendMsgToPlayer(playerId, packet);
+	}
+	return false;
+}
+
+//处理收到的玩家消息
+void GameServer::PostPlayerMsg( uint64 playerId, uint16 opcode, const ::google::protobuf::Message& msg )
+{
+	if ( GetGSLogicalTaker()  )
+	{
+		GetGSLogicalTaker()->PostPlayerMsg(playerId, opcode,msg);
+	}
+}
+
+void GameServer::PostPlayerNetPack(uint64 playerId,NetPack *pack )
+{
+	if ( GetGSLogicalTaker()  )
+	{
+		GetGSLogicalTaker()->PostPlayerNetPack(playerId, pack);
+	}
+}
+
+//获得标识符
+uint64 GameServer::GetGuidById( OBJECT_TYPE type,uint32 id )
+{
+	return Guid( type, m_regionId, m_serverId, id );
+}
+
+
+
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Gobal values
+//初始化服务器全局对象
+void GameServer::InitServerGobalValues( NetPack &packet )
+{
+	//pb::ServerGobalValue info ;
+	//packet >> info ;
+
+	//if( info.values_size() == 0 )
+	//{
+	//	// new walue
+	//	ServerValue value ;
+	//	value.type     =pb::VALUE_TYPE_INT64 ;
+
+	//	value.index    =pb::VALUE_INDEX_ARENA_DAY_REWARD_TIME ;
+	//	value.i64Value =sPeriodSettle.GetNowPeriodBeginTime( SECONDS_PER_DAY ) ;
+	//	NewServerValue( value ) ;
+	//	SaveServerValue( value ) ;
+
+	//	value.index    =pb::VALUE_INDEX_ARENA_MONTH_REWARD_TIME ;
+	//	value.i64Value =sPeriodSettle.GetNowPeriodBeginTime( SECONDS_PER_DAY * 30 ) ;
+	//	NewServerValue( value ) ;
+	//	SaveServerValue( value ) ;
+
+	//	value.index    =pb::VALUE_INDEX_ARENA_QUARTERLY_REWARD_TIME ;
+	//	value.i64Value =sPeriodSettle.GetNowPeriodBeginTime( SECONDS_PER_DAY * 90 ) ;
+	//	NewServerValue( value ) ;
+	//	SaveServerValue( value ) ;
+
+	//	value.index    = pb::VALUE_INDEX_PLAYER_DAILY_RESET_TIME ;
+	//	value.i64Value = sPeriodSystem.GetNowTimePeriod(SECONDS_PER_DAY);
+	//	NewServerValue( value ) ;
+	//	SaveServerValue( value ) ;
+	//}
+	//else
+	//{
+	//	ServerValue value ;
+	//	for( int i =0; i < (int)info.values_size(); ++i )
+	//	{
+	//		ServerValue value ;
+	//		const pb::GobalValue &gobalValue =info.values( i ) ;
+
+	//		value.index =gobalValue.index() ;
+	//		value.type  =gobalValue.type() ;
+	//		switch( value.type )
+	//		{
+	//		case pb::VALUE_TYPE_INT64:
+	//			{
+	//				value.i64Value =gobalValue.i64_value() ;
+	//			} break ;
+
+	//		default:
+	//			ASSERT( false ) ;
+	//		}
+
+	//		NewServerValue( value ) ;
+	//	}
+	//}
+}
+
+//向全局对象表中添加值
+bool GameServer::NewServerValue( const ServerValue &value )
+{
+	if( m_gobalValues.find( value.index ) != m_gobalValues.end() )
+	{
+		return false ;
+	}
+
+	m_gobalValues[value.index] =value ;
+	return true ;
+}
+
+//将全局对象值保存在数据库
+void GameServer::SaveServerValue( ServerValue &value ) const
+{
+	//pb::ServerGobalValue info ;
+	//pb::GobalValue *pValue =info.add_values() ;
+	//pValue->set_index( value.index ) ;
+	//pValue->set_type( static_cast<pb::ValueType>( value.type ) ) ;
+	//switch( value.type )
+	//{
+	//case pb::VALUE_TYPE_INT64:
+	//	{
+	//		pValue->set_i64_value( value.i64Value ) ;
+	//	} break ;
+
+	//default:
+	//	ASSERT( false ) ;
+	//}
+
+	//sDbProxyClient.Send( pb::SG2D_SERVER_GOBAL_VALUE, info ) ;
+	
+}
+
+//通过下标获取全局对象的值
+ServerValue* GameServer::GetServerValue( uint32 index )
+{
+	ServerValueMapItr itr =m_gobalValues.find( index ) ;
+	return itr != m_gobalValues.end() ? &itr->second : NULL ;
+}
+
+//通过下标获取全局对象的值，如果没有则创建
+ServerValue& GameServer::GetValueCreatIfNot( uint32 index )
+{
+	return m_gobalValues[index] ;
+}
+
+//通过玩家id获取玩家指针
+Player* GameServer::GetPlayerPtr( uint64 playerId )
+{
+	if ( GetGSLogicalTaker() )
+	{
+		return GetGSLogicalTaker()->GetPlayerPtr( playerId );
+	}
+	return NULL;
+}
+
+//通过玩家名获取玩家指针
+Player* GameServer::GetPlayerPtrByName( const std::string &name )
+{
+	if ( GetGSLogicalTaker() )
+	{
+		return GetGSLogicalTaker()->GetPlayerPtrByName( name );
+	}
+	return NULL;
+}
+
+
+bool GameServer::GetLogicTheardUpdateTimeInfo( std::string& info )
+{
+	if ( GetGSLogicalTaker() )
+	{
+		GetGSLogicalTaker()->GetUpdateTimeInfo( info );
+		return true;
+	}
+	return false;
+}
+
+void GameServer::CheckCurlResult( void )
+{
+	while( true)
+	{
+        std::auto_ptr< MCRequest> pRequest( sHttps.GetFinishRequest() );
+        if ( pRequest.get() == NULL)
+        {
+            break;
+        }
+		if( pRequest->m_response.m_result != CURLE_OK )
+		{
+            m_curlRequest.SetIsNeedToSend( pRequest->m_opType);
+			ELOG( "Check CURL result Not OK  %s => (%d) %s",
+                pRequest->m_url.c_str(),
+                pRequest->m_response.m_result,
+                pRequest->m_response.m_error
+            );
+		}
+		else
+		{
+            switch ( pRequest->m_opType)
+            { 
+            case REQUEST_OP_PAY_ITEM_INFO:
+                m_payItemsInfo.LoadFromCURLRespon( pRequest->m_response.m_data );
+                break;
+            case REQUEST_OP_GLOBAL_KEY_VALUE:
+                m_globalKeyValue.LoadFromCURLRespon( pRequest->m_response.m_data );
+                break;
+
+            }
+		}
+	}
+}
+

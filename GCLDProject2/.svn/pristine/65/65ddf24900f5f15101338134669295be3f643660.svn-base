@@ -1,0 +1,796 @@
+#include "TeachMapMgr.h"
+#include "TeachMap.h"
+#include "object/Player.h"
+#include "quest/QuestLogger.h"
+#include "Item.pb.h"
+#include "TeachMap.pb.h"
+#include "Opcode.pb.h"
+#include "character/CharacterStorage.h"
+#include "character/Character.h"
+#include "Npc/Npc.h"
+#include "Npc/NpcMgr.h"
+#include "Map/Table/MapTableMgr.h"
+#include "Map/Table/MapCity.h"
+#include "session/PlayerPool.h"
+#include "Technology/PlayerTechnology.h"
+#include "Technology/Table/TechnologyTableMgr.h"
+#include "common/Logger.h"
+
+void TeachMapMgr::ResetTeachCitys(Player* player, TeachRec& teachRec)
+{
+	if(teachRec.teachid == 0)	return; //所有任务完成，不处理
+
+	uint32 lastinitid = sTeachMapTableMgr.GetLastInitTeachId(teachRec.teachid);
+	if(lastinitid > 0)	//获得了上一个初始化任务id
+	{
+		std::vector<CityCombat>& citymap = teachRec.cityCombatMap;
+
+		for(std::vector<CityCombat>::iterator ite = citymap.begin(); ite != citymap.end(); ite++)
+		{
+			if(ite->groupid != 0)
+			{
+				if(Combat::CombatGroup* pCombat = Combat::CombatGroup::FindGroup(ite->groupid))
+				{
+					pCombat->ShutDown();
+				}
+			}
+		}
+		citymap.clear();
+		TeachWorld* teachWorldInit = sTeachMapTableMgr.GetTeachWorld(player->GetCountryId());	//初始化城池
+		if(teachWorldInit)
+		{
+			for(std::vector<int>::iterator ite = teachWorldInit->citylst.begin(); ite != teachWorldInit->citylst.end(); ite++)
+			{
+				CityCombat citycombatone;
+				citycombatone.cityid = *ite;
+				citycombatone.countryid = player->GetCountryId();
+				citycombatone.groupid = 0;
+				citymap.push_back(citycombatone);
+			}
+		}
+
+		TeachMap* teachmapone = sTeachMapTableMgr.GetTeachMap(lastinitid);
+		if(teachmapone)
+		{
+			std::map<uint32, std::vector<uint32>>& cityinittmp = teachmapone->city_initialize;
+			for(std::map<uint32, std::vector<uint32>>::iterator citylstone = cityinittmp.begin();
+				citylstone != cityinittmp.end(); citylstone++)
+			{
+				if(citylstone->first != player->GetCountryId())	//不是自己国家再循环检查
+				{
+					for(std::vector<uint32>::iterator cityone = citylstone->second.begin();cityone != citylstone->second.end(); cityone++)
+					{
+						for(std::vector<CityCombat>::iterator citymy = citymap.begin(); citymy != citymap.end(); citymy++)
+						{
+							if(citymy->cityid == *cityone)
+								citymy->countryid = citylstone->first;
+						}
+					}
+				}
+			}
+		}
+	}
+	else
+	{
+		PLOG("[1004] Important bug!! Cant Get Last Init Teach id, teachid=%d",teachRec.teachid);
+	}
+}
+
+void TeachMapMgr::DealAskTeachRec(Player* player, pb::GS2C_Get_Teach_Rec& sendmsg)
+{
+	TeachRecMap::iterator it = player_teach_map_rec.find(player->GetGuid());
+	if(it == player_teach_map_rec.end()) //如果没有，则建立新的记录
+	{
+		std::map<uint32,uint32> teachmap;
+		sTeachMapTableMgr.GetTaskIdMap(teachmap);
+		uint32 teachid = 0;	//任务id进度
+
+		for(std::map<uint32,uint32>::iterator it = teachmap.begin(); it != teachmap.end(); it++)
+		{
+			if(player->m_questLogger->GetQuestFinished(it->second))//已经完成了该任务,则检查下一个任务
+				continue;
+			else	//未完成，则返回该教学id
+			{
+				teachid = it->first;
+				break;
+			}			
+		}
+
+		TeachRec teachrecone;
+		teachrecone.teachid = teachid;
+		sendmsg.set_currentteachid(teachid);
+
+		if(teachid != 0)	//教学任务没有完成
+		{
+			ResetTeachCitys(player,teachrecone);
+		}
+		
+		player_teach_map_rec[player->GetGuid()] = teachrecone;
+		for(std::vector<CityCombat>::iterator ite = teachrecone.cityCombatMap.begin(); ite != teachrecone.cityCombatMap.end(); ite++)
+		{
+			pb::City_Combat_Info* cityone = sendmsg.add_cityrec();
+			cityone->set_cityid(ite->cityid);
+			cityone->set_countryid(ite->countryid);
+			cityone->set_groupid(ite->groupid);
+		}
+	}
+	else
+	{
+		TeachRec& teachrec = it->second;
+
+		//TeachMap* teachmapone = sTeachMapTableMgr.GetTeachMap(teachrec.teachid);
+		//if(teachmapone)
+		//{
+		//	uint32 questid = teachmapone->QuestId();
+		//	if(player->m_questLogger->GetQuestFinished(questid))	//已经完成该任务，则刷新任务
+		//	{
+		//			uint32 nextid = sTeachMapTableMgr.GetNextTeachId(teachrec.teachid);	//下一个教学id
+		//			teachrec.teachid = nextid;
+		//			if(nextid>0)	//可以获得下个任务
+		//			{
+		//				if(TeachMap* nextteach = sTeachMapTableMgr.GetTeachMap((int)nextid))	//下一个任务地图信息
+		//				{
+		//					if(nextteach->IsRefresh())		//需要重置城池……好虐……
+		//					{
+		//						ResetTeachCitys(player,teachrec);
+		//					}
+		//				}
+		//			}
+		//			else	//所有任务结束，重置任务
+		//			{
+		//				ResetTeachCitys(player,teachrec);
+		//			}
+		//	}
+		//}
+
+		sendmsg.set_currentteachid(teachrec.teachid);
+		for(std::vector<CityCombat>::iterator ite = teachrec.cityCombatMap.begin(); ite != teachrec.cityCombatMap.end(); ite++)
+		{
+			pb::City_Combat_Info* cityone = sendmsg.add_cityrec();
+			cityone->set_cityid(ite->cityid);
+			cityone->set_countryid(ite->countryid);
+			cityone->set_groupid(ite->groupid);
+		}
+	}
+}
+
+void TeachMapMgr::FreshTeachTask(Player* player)
+{
+	TeachRecMap::iterator it = player_teach_map_rec.find(player->GetGuid());
+	if(it == player_teach_map_rec.end()) //如果没有，则建立新的记录
+	{
+		std::map<uint32,uint32> teachmap;
+		sTeachMapTableMgr.GetTaskIdMap(teachmap);
+		uint32 teachid = 0;	//任务id进度
+
+		for(std::map<uint32,uint32>::iterator it = teachmap.begin(); it != teachmap.end(); it++)
+		{
+			if(player->m_questLogger->GetQuestFinished(it->second))//已经完成了该任务,则检查下一个任务
+				continue;
+			else	//未完成，则返回该教学id
+			{
+				teachid = it->first;
+				break;
+			}			
+		}
+
+		TeachRec teachrecone;
+		teachrecone.teachid = teachid;
+
+		if(teachid != 0)	//教学任务没有完成
+		{
+			ResetTeachCitys(player,teachrecone);
+		}
+
+		player_teach_map_rec[player->GetGuid()] = teachrecone;
+	}
+	else
+	{
+		TeachRec& teachrec = it->second;
+
+		while(teachrec.teachid > 0)
+		{
+			TeachMap* teachmapone = sTeachMapTableMgr.GetTeachMap(teachrec.teachid);
+			if(teachmapone)
+			{
+				uint32 questid = teachmapone->QuestId();
+				if(player->m_questLogger->GetQuestFinished(questid))	//已经完成该任务，则刷新任务
+				{
+					uint32 nextid = sTeachMapTableMgr.GetNextTeachId(teachrec.teachid);	//下一个教学id
+					teachrec.teachid = nextid;
+					if(nextid>0)	//可以获得下个任务
+					{
+						if(TeachMap* nextteach = sTeachMapTableMgr.GetTeachMap((int)nextid))	//下一个任务地图信息
+						{
+							if(nextteach->IsRefresh())		//需要重置城池……好虐……
+							{
+								ResetTeachCitys(player,teachrec);
+							}
+						}
+					}
+					else	//所有任务结束，重置任务
+					{
+						ResetTeachCitys(player,teachrec);
+					}
+				}
+				else
+					break;
+			}
+		}
+	}
+}
+
+void TeachMapMgr::DealRequestTeachMap(Player* player, pb::C2GS_Request_Teach getMsg, pb::GS2C_Answer_Teach& sendMsg)
+{
+	uint32 teachid = getMsg.teachid();
+	if(TeachMap* teachMap = sTeachMapTableMgr.GetTeachMap((int)teachid))
+	{
+		switch (teachMap->TeachType())
+		{
+		case 0:
+			if(player->m_questLogger->GetQuestFinished(teachMap->QuestId()))
+			{
+				TeachRecMap::iterator it = player_teach_map_rec.find(player->GetGuid());
+				if(it != player_teach_map_rec.end())	//找到该玩家信息
+				{
+					TeachRec& teachrec = it->second;
+
+					pb::GS2C_Teach_Finish msg;
+					pb::GS2C_LootResult* lootmsg = msg.mutable_rewards();
+					msg.set_teachid(teachid);
+					msg.set_isfinish(true);
+					sendMsg.set_issuccess(true);
+					sendMsg.set_ret(pb::Teach_Common_success);
+					player->Send(pb::SMSG_TEACH_FINISH,msg);
+				}
+			}
+		case 1:
+			if(player->m_questLogger->GetQuestFinished(teachMap->QuestId()))
+			{
+				sendMsg.set_issuccess(false);
+				sendMsg.set_ret(pb::Teach_Already_Finished);
+			}
+			else
+			{
+				TeachRecMap::iterator it = player_teach_map_rec.find(player->GetGuid());
+				if(it != player_teach_map_rec.end())	//找到该玩家信息
+				{
+					TeachRec& teachrec = it->second;
+
+					//const QuestProto * proto = sQuestMgr.GetQuestProto(teachMap->QuestId());
+					//if ( proto)
+					//{
+					//	player->m_questLogger->TryAddQuest(player,teachMap->QuestId());
+					//}
+
+					pb::GS2C_Teach_Finish msg;
+					pb::GS2C_LootResult* lootmsg = msg.mutable_rewards();
+					msg.set_teachid(teachid);
+					uint32 player_exp = 0;
+					pb::CxGS_ERROR_CODE code = (pb::CxGS_ERROR_CODE)player->m_questLogger->GetQuestRewards(player,teachMap->QuestId(), *(lootmsg->mutable_loot_list()),player_exp);
+					if(code == pb::ErrCommonSuccess)
+					{
+						msg.set_isfinish(true);
+
+						sendMsg.set_issuccess(true);
+						sendMsg.set_ret(pb::Teach_Common_success);
+					}
+					else
+					{
+						msg.set_isfinish(false);
+
+						sendMsg.set_issuccess(false);
+						sendMsg.set_ret(pb::Teach_Common_Fail);
+					}
+					msg.set_errcode((uint32)code);
+					player->Send(pb::SMSG_TEACH_FINISH,msg);
+					player->AddXP(player_exp);
+					//if(code == pb::ErrCommonSuccess)	//如果可以完成该任务，则获得下一个任务
+					//{
+					//	uint32 nextid = sTeachMapTableMgr.GetNextTeachId(teachid);
+					//	teachrec.teachid = nextid;
+					//	if(nextid>0)	//可以获得下个任务
+					//	{
+					//		if(TeachMap* nextteach = sTeachMapTableMgr.GetTeachMap((int)nextid))
+					//		{
+					//			if(nextteach->IsRefresh())		//需要重置城池……好虐……
+					//			{
+					//				ResetTeachCitys(player,teachrec);
+					//			}
+					//			else	//不需要重置城池，则修改城池
+					//			{
+					//				std::map<uint32, std::vector<uint32>>& cityinittmp = nextteach->city_initialize;
+					//				for(std::map<uint32, std::vector<uint32>>::iterator citylstone = cityinittmp.begin();
+					//					citylstone != cityinittmp.end(); citylstone++)
+					//				{
+					//					if(citylstone->first != player->GetCountryId())	//不是自己国家再循环检查
+					//					{
+					//						for(std::vector<uint32>::iterator cityone = citylstone->second.begin();cityone != citylstone->second.end(); cityone++)
+					//						{
+					//							for(std::vector<CityCombat>::iterator citymy = teachrec.cityCombatMap.begin(); citymy != teachrec.cityCombatMap.end(); citymy++)
+					//							{
+					//								if(citymy->cityid == *cityone)
+					//									citymy->countryid = citylstone->first;
+					//							}
+					//						}
+					//					}
+					//				}
+					//			}
+					//		}
+					//	}
+					//	else	//所有任务结束，重置任务
+					//	{
+					//		ResetTeachCitys(player,teachrec);
+					//	}
+					//}
+				}
+
+			}
+			break;
+		case 2:
+		case 3:
+			//LLOG("get a teach quest to fight!! teachid = %d",teachid);
+			if(player->m_questLogger->GetQuestFinished(teachMap->QuestId()))
+			{
+				//LLOG("quest is finished!!");
+				sendMsg.set_issuccess(false);
+				sendMsg.set_ret(pb::Teach_Already_Finished);
+			}
+			else
+			{
+				sendMsg.set_issuccess(false);
+				sendMsg.set_ret(pb::Teach_Common_Fail);
+
+				TeachRecMap::iterator it = player_teach_map_rec.find(player->GetGuid());
+				if(it != player_teach_map_rec.end())	//	//有记录
+				{
+					TeachRec& teachrec = it->second;
+					//LLOG("teachrec.id = %d",teachrec.teachid);
+					if(teachrec.teachid == teachid)
+					{
+						bool combatSuccess = false;
+						for(std::vector<CityCombat>::iterator cityone = teachrec.cityCombatMap.begin();
+							 cityone != teachrec.cityCombatMap.end(); cityone++)
+						{
+							//LLOG("cityid=%d, msgcityid=%d",cityone->cityid,getMsg.cityid());
+							if(cityone->cityid == getMsg.cityid())	//找到该申请城池
+							{
+								//LLOG("get city!! countryid=%d",cityone->countryid);
+								if(cityone->countryid != player->GetCountryId())		//不是自己的国家，可以参加战斗
+								{
+									//LLOG("1");
+									//武将自由
+									Character* charone = player->m_characterStorage->MutableFakeCharacter(getMsg.heroid());//在假武将中找不到，在真武将中找
+									if(!charone)
+									{
+										charone = player->m_characterStorage->MutableCharacter(getMsg.heroid());
+									}
+									if(charone)
+									{
+										//LLOG("2");
+										if(!charone->isInCombat && !charone->isInPrison() && !charone->IsDead() && !charone->isInTraining)	//不在战斗中，不在监狱，不是死亡,不在训练中
+										{
+											//LLOG("3");
+											if(cityone->groupid != 0)	//有战斗组
+											{
+												//LLOG("4");
+												if (Combat::CombatGroup* group = Combat::CombatGroup::FindGroup(cityone->groupid))	//找到战斗组
+												{
+													//LLOG("5,groupid=%llu",group->m_unique_id);
+													group->AddObjToAttack(*charone);
+													combatSuccess = true;
+												}
+											}
+
+											if(!combatSuccess)	//没有找到战斗组，则创建战斗组
+											{
+												//LLOG("6");
+												std::vector<Combat::CombatObj*> attlst;	//攻击队列
+												std::set<Combat::CombatObj*> deflst;	//防守队列
+												CreateCombatGroupLst(teachid,getMsg.cityid(),attlst,deflst);
+												attlst.push_back(charone);
+
+												if(attlst.size()>0 && deflst.size()>0)
+												{
+													//LLOG("7");
+													if(const MapCity* table = sMapTableMgr.GetMapCity(getMsg.cityid()))
+													{
+														//LLOG("8");
+														if (Combat::CombatGroup* pGroup = Combat::CombatGroup::CreateGroup(attlst, deflst, Combat::CT_Teach_Map,table->LandForm()))
+														{
+															//LLOG("9,groupid=%llu",pGroup->m_unique_id);
+															combatSuccess = true;
+															pGroup->AddCallBack_OnEnd(boost::bind(&TeachMapMgr::_OnCombatEnd, this, player, teachid, getMsg.cityid(), _1, _2));
+															cityone->groupid = pGroup->m_unique_id;
+
+															//通知客户端
+															pb::GS2C_Get_Teach_Rec sendmsg;
+															sTeachMapMgr.DealAskTeachRec(player,sendmsg);
+															player->Send(pb::SMSG_ASK_TEACH_REC, sendmsg);
+														}
+													}
+												}
+											}
+										}
+									}
+								}
+							}
+						}
+
+						if(combatSuccess)
+						{
+							sendMsg.set_issuccess(true);
+							sendMsg.set_ret(pb::Teach_Common_success);
+						}
+						else
+						{
+							sendMsg.set_issuccess(false);
+						}
+
+					}
+				}
+			}
+			break;
+		default:
+			break;
+		}
+	}
+}
+
+//突进
+void TeachMapMgr::DealRushTeachMap(Player* player, pb::C2GS_Rush_Teach getMsg, pb::GS2C_Rush_Teach_Ret& sendMsg)
+{
+	uint32 groupid = getMsg.group_id();
+	uint32 cityid = getMsg.des_city_id();
+	uint32 heroid = getMsg.heroid();
+	bool isAttack = getMsg.is_attacker();
+
+	sendMsg.set_issuccess(false);
+	sendMsg.set_ret(pb::Teach_Common_Fail);
+
+	TeachRecMap::iterator it = player_teach_map_rec.find(player->GetGuid());
+	if(it != player_teach_map_rec.end())
+	{
+		TeachRec& teachrec = it->second;
+		std::vector<CityCombat>& citylst = teachrec.cityCombatMap;
+
+		for(std::vector<CityCombat>::iterator it = citylst.begin(); it != citylst.end(); it++)
+		{
+			if(it->groupid == groupid)		//找到战斗组
+			{
+				if (Combat::CombatGroup* group = Combat::CombatGroup::FindGroup(groupid))
+				{
+					Character* pHero = player->m_characterStorage->MutableFakeCharacter(heroid);
+					if(!pHero)
+					{
+						pHero = player->m_characterStorage->MutableCharacter(heroid);
+					}
+					if (pHero)
+					{
+						if(pHero->isInCombat && !pHero->isFighting && pHero->nowCombatGroupID == groupid)	//该武将确实在战斗组中且没有上阵
+						{
+							//目标城池
+							for(std::vector<CityCombat>::iterator ite = citylst.begin(); ite != citylst.end(); ite++)
+							{
+								if(ite->cityid == cityid)	//找到目标城池
+								{
+									if(ite->countryid != player->GetCountryId() || ite->groupid != 0)	//有战斗组或者敌对状态
+									{
+										bool isRushLegal = false;
+										if(player->HaveTechnology(TUJING_QIANGHUA))
+										{
+											const TecTable* tec = sTechnologyTableMgr.GetTable(TUJING_QIANGHUA);
+											if(isAttack)
+												isRushLegal = ((group->m_group_attack.size() >= group->m_group_defence.size()*tec->Value1()) ? true:false);
+											else
+												isRushLegal = ((group->m_group_defence.size() >= group->m_group_attack.size()*tec->Value1()) ? true:false);
+										}
+										else
+										{
+											if(isAttack)
+												isRushLegal = ((group->m_group_attack.size() >= group->m_group_defence.size()*GET_BASE_DEF_UINT(pb::BD_SUDDEN_NEED_TROOPS_MULTIPLE)) ? true:false);
+											else
+												isRushLegal = ((group->m_group_defence.size() >= group->m_group_attack.size()*GET_BASE_DEF_UINT(pb::BD_SUDDEN_NEED_TROOPS_MULTIPLE)) ? true:false);
+										}
+
+										if(isRushLegal)	//可以突进
+										{
+											if(isAttack)
+												group->DelObjToAttack(*pHero);
+											else
+												group->DelObjToDefencek(*pHero);
+
+											if(ite->groupid != 0)	//有战斗组
+											{
+												if (Combat::CombatGroup* group = Combat::CombatGroup::FindGroup(ite->groupid))	//找到战斗组
+												{
+													group->AddObjToAttack(*pHero);
+												}
+											}
+											else	//没有战斗组，创建
+											{
+												std::vector<Combat::CombatObj*> attlst;	//攻击队列
+												std::set<Combat::CombatObj*> deflst;	//防守队列
+												CreateCombatGroupLst(teachrec.teachid,cityid,attlst,deflst);
+												attlst.push_back(pHero);
+
+												if(attlst.size()>0 && deflst.size()>0)
+												{
+													if(const MapCity* table = sMapTableMgr.GetMapCity(cityid))
+													{
+														if (Combat::CombatGroup* pGroup = Combat::CombatGroup::CreateGroup(attlst, deflst, Combat::CT_Teach_Map,table->LandForm()))
+														{
+															pGroup->AddCallBack_OnEnd(boost::bind(&TeachMapMgr::_OnCombatEnd, this, player, teachrec.teachid, cityid, _1, _2));
+															ite->groupid = pGroup->m_unique_id;
+															//通知客户端
+															pb::GS2C_Get_Teach_Rec sendmsg;
+															sTeachMapMgr.DealAskTeachRec(player,sendmsg);
+															player->Send(pb::SMSG_ASK_TEACH_REC, sendmsg);
+
+														}
+													}
+												}
+											}
+
+											sendMsg.set_issuccess(true);
+											sendMsg.set_ret(pb::Teach_Common_success);
+										}
+										else
+										{
+											sendMsg.set_ret(pb::Teach_Rush_Force_Limit);
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+void TeachMapMgr::CreateCombatGroupLst(uint32 teachid, uint32 cityid, std::vector<Combat::CombatObj*>& attlst, std::set<Combat::CombatObj*>& deflst)
+{
+	if(TeachMap* teachMap = sTeachMapTableMgr.GetTeachMap((int)teachid))
+	{
+		for(std::multimap<uint32, npcinfo>::iterator it = teachMap->city_attack_lst.begin();
+				it != teachMap->city_attack_lst.end(); it++)
+		{
+			if(it->first == cityid)	//是本城市的
+			{
+				npcinfo& npcinfo = it->second;
+				for(uint32 i=0; i<npcinfo.num; i++)	//循环添加攻击队列
+				{
+					Npc* pNpc = sNpcMgr.CreateNpc(npcinfo.protoid, npcinfo.level);
+					MMO_ASSERT(pNpc);
+					if (pNpc) attlst.push_back(pNpc);
+				}
+			}
+		}
+
+		for(std::multimap<uint32, npcinfo>::iterator it = teachMap->city_defend_lst.begin();
+			it != teachMap->city_defend_lst.end(); it++)
+		{
+			if(it->first == cityid)	//是本城市的
+			{
+				npcinfo& npcinfo = it->second;
+				for(uint32 i=0; i<npcinfo.num; i++)	//循环添加攻击队列
+				{
+					Npc* pNpc = sNpcMgr.CreateNpc(npcinfo.protoid, npcinfo.level);
+					MMO_ASSERT(pNpc);
+					if (pNpc) deflst.insert(pNpc);
+				}
+			}
+		}
+	}
+}
+
+void TeachMapMgr::_OnCombatEnd(Player* player, uint32 teachid, uint32 cityid, Combat::CombatGroup* pGroup, bool isAttackWin)
+{
+	//if(isAttackWin)		//成功才记录
+	//{
+	//LLOG("teach combat end, id=%d,cityid=%d",pGroup->m_unique_id,cityid);
+		TeachRecMap::iterator it = player_teach_map_rec.find(player->GetGuid());
+		if(it != player_teach_map_rec.end())	//找到记录
+		{
+			//LLOG("get rec");
+			TeachRec& teachrec = it->second;
+			//if(teachrec.teachid == teachid)		//当前的teachid对的上？  不用对上
+			//{
+				std::vector<CityCombat>& citylst = teachrec.cityCombatMap;
+				bool isNeedFresh = false;
+				for(std::vector<CityCombat>::iterator it = citylst.begin(); it != citylst.end(); it++)
+				{
+					CityCombat& cityone = *it;
+					//LLOG("cityid=%d, groupid=%d",cityone.cityid,cityone.groupid);
+					if(cityone.cityid == cityid && cityone.groupid == pGroup->m_unique_id)	//找到战斗的城池，并且战斗组对应的上
+					{
+						//LLOG("get city");
+						//if(!player->m_questLogger->GetQuestFinished(GET_BASE_DEF_INT( pb::BD_AUTO_DRAFT_FOR_END_MAIN_QUEST)))
+						//{
+						//	struct _Hero_Recover_Func //辅助函数对象
+						//	{
+						//		bool operator()(Character* p)
+						//		{
+						//			p->RecoverFullSoldier();
+						//			p->m_player->m_characterStorage->SetModifiedID(p->GetID());
+						//			return false;
+						//		}
+						//	};
+						//	_Hero_Recover_Func recFunc;
+						//	player->m_characterStorage->ForEachBattleCharacterInCombat(recFunc,pGroup->m_unique_id);
+						//}
+
+						////结束战斗
+						//struct _Temp_Hero_Func //计算武将属性
+						//{
+						//	bool operator()(Character* p)
+						//	{
+						//		p->CalculateAttr();
+						//		return false;
+						//	}
+						//};
+						//_Temp_Hero_Func objFunc;
+						//player->m_characterStorage->ForEachBattleCharacterInCombat(objFunc,pGroup->m_unique_id);
+
+						//通知client
+						IntPairVec reward;
+						struct stFunc {
+							bool                 _isAttackWin;
+							Combat::CombatGroup* _pGroup;
+							IntPairVec           _reward;
+							uint64               _fubenOwnerId;
+
+							stFunc(bool isAttackWin, Combat::CombatGroup* pGroup, IntPairVec& reward, uint64 fubenOwnerId)
+								: _isAttackWin(isAttackWin)
+								, _pGroup(pGroup)
+								, _reward(reward)
+								, _fubenOwnerId(fubenOwnerId)
+							{}
+							void operator()(uint64 playerId)
+							{
+								if (Player* player = sPlayerPool.GetByPlayerId(playerId))
+								{
+									//NLOG("################# send awards #############");
+									pb::GS2C_Combat_End msg;
+									msg.set_is_attack_win(_isAttackWin);
+									_pGroup->SaveCombatInfosOfGains(msg, playerId);
+									msg.set_group_id(_pGroup->m_unique_id);
+									//if (playerId == _fubenOwnerId) PackRewardMsg(_reward, msg);
+									player->Send(pb::SMSG_COMBAT_COMBAT_END, msg);
+									//NLOG("on end get award exp = %d, coin = %d, dead = %d, kill = %d",
+									//	msg.statisticexp(), msg.statisticmoney(), msg.statisticdead(), msg.statistickill());
+								}
+							}
+						};
+						stFunc func(isAttackWin, pGroup, reward, player->GetGuid());
+						pGroup->ForEachWatchPlayer(func);
+						//pGroup->SaveAllStaticData();
+
+						//占领该城池
+						if(isAttackWin)
+							cityone.countryid = player->GetCountryId();
+
+						cityone.groupid = 0;
+
+						//通知客户端
+						pb::GS2C_Get_Teach_Rec sendmsg;
+						sTeachMapMgr.DealAskTeachRec(player,sendmsg);
+						player->Send(pb::SMSG_ASK_TEACH_REC, sendmsg);
+
+						//判断任务完成情况
+						if(isAttackWin)
+						{
+							//LLOG("win!!");
+							if(TeachMap* teachMap = sTeachMapTableMgr.GetTeachMap((int)teachid))
+							{
+								//LLOG("1");
+								std::vector<int>& teachGoal = teachMap->teachValue;
+								bool isGoalGet = false;
+								for(std::vector<int>::iterator it = teachGoal.begin(); it!= teachGoal.end(); it++)
+								{
+									if(*it == cityid)	//是目标城池
+										isGoalGet = true;
+								}
+
+								if(isGoalGet)	//完成任务
+								{
+									//LLOG("2");
+									////发送任务完成奖励
+									//const QuestProto * proto = sQuestMgr.GetQuestProto(teachMap->QuestId());
+									//if ( proto)
+									//{
+									//	player->m_questLogger->TryAddQuest(player,teachMap->QuestId());
+									//}
+
+									pb::GS2C_Teach_Finish msg;
+									pb::GS2C_LootResult* lootmsg = msg.mutable_rewards();
+									msg.set_teachid(teachid);
+									uint32 player_exp = 0;
+									pb::CxGS_ERROR_CODE code = (pb::CxGS_ERROR_CODE)player->m_questLogger->GetQuestRewards(player,teachMap->QuestId(), *(lootmsg->mutable_loot_list()),player_exp);
+									if(code == pb::ErrCommonSuccess)
+										msg.set_isfinish(true);
+									else
+										msg.set_isfinish(false);
+									msg.set_errcode((uint32)code);
+
+									//if(code == pb::ErrCommonSuccess)
+									//{
+									//	uint32 nextid = sTeachMapTableMgr.GetNextTeachId(teachid);
+									//	teachrec.teachid = nextid;
+									//	if(nextid>0)	//可以获得下个任务
+									//	{
+									//		if(TeachMap* nextteach = sTeachMapTableMgr.GetTeachMap((int)nextid))
+									//		{
+									//			if(nextteach->IsRefresh())		//需要重置城池……好虐……
+									//			{
+									//				isNeedFresh = true;
+									//				//ResetTeachCitys(player,teachrec);
+									//			}
+									//			//else	//不需要重置城池，则修改城池
+									//			//{
+									//			//	std::map<uint32, std::vector<uint32>>& cityinittmp = nextteach->city_initialize;
+									//			//	for(std::map<uint32, std::vector<uint32>>::iterator citylstone = cityinittmp.begin();
+									//			//		citylstone != cityinittmp.end(); citylstone++)
+									//			//	{
+									//			//		if(citylstone->first != player->GetCountryId())	//不是自己国家再循环检查
+									//			//		{
+									//			//			for(std::vector<uint32>::iterator cityone = citylstone->second.begin();cityone != citylstone->second.end(); cityone++)
+									//			//			{
+									//			//				for(std::vector<CityCombat>::iterator citymy = teachrec.cityCombatMap.begin(); citymy != teachrec.cityCombatMap.end(); citymy++)
+									//			//				{
+									//			//					if(citymy->cityid == *cityone)
+									//			//						citymy->countryid = citylstone->first;
+									//			//				}
+									//			//			}
+									//			//		}
+									//			//	}
+									//			//}
+									//		}
+									//	}
+									//	else	//所有任务结束，重置任务
+									//	{
+									//		isNeedFresh = true;
+									//		//ResetTeachCitys(player,teachrec);
+									//	}
+									//}
+
+									//if(isNeedFresh)
+									//{
+									//	ResetTeachCitys(player,teachrec);
+									//}
+									//else
+									//{
+									//	//通知客户端
+									//	pb::GS2C_Get_Teach_Rec sendmsg;
+									//	sTeachMapMgr.DealAskTeachRec(player,sendmsg);
+									//	player->Send(pb::SMSG_ASK_TEACH_REC, sendmsg);
+									//}
+
+									player->Send(pb::SMSG_TEACH_FINISH,msg);
+									player->AddXP(player_exp);
+								}
+								//else
+								//{
+								//	//通知客户端
+								//	pb::GS2C_Get_Teach_Rec sendmsg;
+								//	sTeachMapMgr.DealAskTeachRec(player,sendmsg);
+								//	player->Send(pb::SMSG_ASK_TEACH_REC, sendmsg);
+								//}
+							}
+						}
+						//else
+						//{
+						//	//通知客户端
+						//	pb::GS2C_Get_Teach_Rec sendmsg;
+						//	sTeachMapMgr.DealAskTeachRec(player,sendmsg);
+						//	player->Send(pb::SMSG_ASK_TEACH_REC, sendmsg);
+						//}
+						break;
+					}
+				}
+			//}
+		}
+	//}
+}

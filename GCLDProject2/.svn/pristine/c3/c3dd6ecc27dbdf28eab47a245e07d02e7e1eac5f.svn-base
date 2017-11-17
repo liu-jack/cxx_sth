@@ -1,0 +1,234 @@
+package pb;
+
+import "CommomDef.proto";
+import "Combat.proto";
+
+//远征消息
+//message GS2C_StageCrusade
+//{
+//	optional	uint32	restReset		=1;	//剩余重置次数
+//	optional	uint64	currFuben		=2;	//当前哪一远征副本
+//	optional	uint64	currStage		=3;	//当前哪一关
+//	optional	uint32	isDead			=4;	//当前副本是否完结
+//	optional	uint32	addCharTimes =5;	//增兵次数
+//}
+
+message GS2C_Resource_Stage //资源小关卡
+{
+    optional uint32 stage_id                    =1;
+    optional uint32 times                       =2; // 领取次数·
+    optional int64  data_valid_time             =3; // 数据有效期
+	optional uint32 quest_times 				=4;
+}
+message Stage_Info
+{
+	optional uint32 stage_type = 1;
+	optional uint32 pass_count = 2;
+	optional uint32 is_take_reward = 3;
+}
+//SMSG_ALL_FUBEN_INFO
+message GS2C_Fuben_All_Info
+{
+    optional uint32 cur_fuben_id               = 1; //副本大章节
+    optional uint32 cur_stage_id               = 2; //章节中的小关
+    repeated GS2C_Resource_Stage stage_infos   = 3;
+    repeated Stage_Info pass_stage_info          = 4; //打过的特殊关卡：军团关、资源关
+	optional GS2C_Combat_Crusade crusade_info			   = 5;	//远征信息
+	optional GxDB_Combat_Crusade crusade_info_db		   = 6;	//给数据库用远征信息
+}
+
+
+//CMSG_ENTER_STAGE
+message C2GS_Enter_Stage
+{
+    required uint32 stage_id    = 1;
+    repeated uint32 hero_id     = 2; //按武将上阵顺序排列
+}
+
+//SMSG_PASS_STAGE
+message GS2C_Pass_Stage
+{
+	required bool   is_win = 1;
+    required uint32 stage_id    = 2;
+    required uint32 fuben_id    = 3;
+    repeated StReward rewards   = 4;
+}
+
+//CMSG_TAKE_RESOURCE
+message C2GS_TakeResource //领取资源关
+{
+    required uint32 stage_id    = 1;
+}
+
+enum RR_T_RESULT
+{
+	RR_T_RESULT_SUCCESS = 1;
+	RR_T_RESULT_FAILED = 2;
+	RR_T_RESULT_OTHER_REASON = 3;
+	RR_T_RESULT_HAS_TAKE = 4;
+}
+message GS2C_TakeResource
+{
+	repeated StReward reward = 1;
+	optional GS2C_Resource_Stage info = 2;				//资源关信息
+	optional RR_T_RESULT result = 3;
+}
+
+//CMSG_RESET_RESOURCE
+message C2GS_ResetResource //重开资源关
+{
+    required uint32 stage_id    = 1;         //资源关Id
+}
+
+
+enum RR_RESULT
+{
+	RR_RESULT_SUCCESS = 1;
+	RR_RESULT_NOT_ENOUGH_GOLD = 2;
+	RR_RESULT_OTHER_REASON = 3;
+}
+message GS2C_ResetResource
+{
+	optional RR_RESULT result = 1;
+	optional GS2C_Resource_Stage info = 2;
+}
+
+//进入远征大章节CMSG_Select_Crusade
+message C2GS_Select_Crusade
+{
+	required uint32 crusade_id = 1;////200
+}
+
+//返回SMSG_Select_Ret
+message GS2C_Select_Ret
+{
+	required bool isSelectSuc = 1;
+	optional GS2C_Combat_Crusade crusadeinfo = 2;
+}
+////远征重置消息
+message GS2C_Crusade_Reset
+{
+	optional bool reset = 1;
+}
+
+////////////fuben fog
+
+message C2GS_Fog_Reward
+{
+	required uint32 id = 1;				//table Id
+}
+message GS2C_Fog_Reward
+{
+	optional uint32 id = 3;				//table Id
+	optional StReward rewards   = 1;	//奖励
+	optional RR_T_RESULT result = 2;	//结果
+}
+
+message GS2C_Open_Fog_Info
+{
+	required uint32 type = 1; 		//活动类型
+	required uint64 start_time = 2; //揭开迷雾开启时间
+}
+//////////////////////////////////攻城部队//////
+enum E_SEIGE_FORCE
+{
+	OPERATE_SUCCESS = 1;
+	OPERATE_FAILED = 2;
+	OPERATE_GOLD_NOT_ENOUGH = 3;
+	OPERATE_ITEM_NOT_ENOUGH = 4;
+	OPERATE_BUY_HAS_DONE = 5;
+	OPERATE_ARMY_ID_INVALID	= 6;
+	OPERATE_DONOT_HAVE_ARMY = 7;
+	OPERATE_ADD_REINFORCE_ERR = 8;
+	OPERATE_NOT_ENOUGH_LEFT_TIMES = 9;
+	OPERATE_SEIGE_ARMY_COUNT_LIMIT =10;
+}
+message Seige_Force_info
+{
+	optional uint32 army_id = 1;		//部队Id
+	optional uint32 left_times = 2;		//剩余次数
+	optional uint32 cur_all_times = 3;	//当前的总的次数
+	optional uint32 level = 4;			//等级
+	optional uint32 cur_exp = 5;		//当前经验
+	optional uint32 skill_id = 6;		//技能id
+	repeated uint32 specific_ids = 7; 	//特性
+	repeated uint32 terrain = 8;		//地形
+	optional uint32 military_power =  9;//战力
+}
+message GS2C_Seige_Force_All_Info
+{
+	repeated Seige_Force_info info = 1;
+}
+message C2GS_Seige_Force_Level_Up
+{
+	required uint32 army_id = 1;
+}
+message GS2C_Seige_Force_Level_Up_Rsp
+{
+	optional uint32 critical = 1;
+	optional uint32 exp_of_this_time = 2;
+	optional Seige_Force_info change_info = 3;
+	required E_SEIGE_FORCE result = 4;
+}
+
+message C2GS_Seige_Force_Buy_Army
+{
+	required uint32 army_id = 1;
+}
+message GS2C_Seige_Force_Buy_Army_Rsp
+{
+	required uint32 army_id = 1;
+	optional E_SEIGE_FORCE result = 2;
+}
+
+message C2GS_Seige_Force_Use_Army
+{
+	required uint32 army_id = 1;
+	required uint32 group_unique_id = 2;
+	optional uint32 cityid = 3;
+}
+message GS2C_Seige_Force_Use_Army_Rsp
+{
+	required uint32 army_id = 1;
+	optional E_SEIGE_FORCE result = 2;
+}
+message GxDB_Seige_Force_Info_Pack
+{
+	repeated Seige_Force_info info = 1;
+}
+//////////////////MONTH CARD
+
+message C2GS_Take_Month_Card_Reward
+{
+	required uint32 card_type = 1;//1 普通 2 高级
+}
+message GS2C_Take_Month_Card_Reward_Rsp
+{
+	required uint32 ret = 1;// 0 success 1 has taken 2 out of date 
+	optional uint32 card_type = 2;
+	repeated StReward reward = 3;
+}
+
+////////////////////////////////连城
+
+message BaseContinueMsg
+{
+	optional uint32 con_occupy_citys = 1;
+	optional uint64 active_time = 2;
+	optional uint64 finish_time = 3;
+}
+message GS2C_ContinueOccupyCity
+{
+	required BaseContinueMsg info = 1;
+}
+message GxDB_ContinueOccupyCityInfo
+{
+	repeated BaseContinueMsg info = 1;
+}
+
+message GS2C_ContinueOccupyCitySuccess
+{
+	optional uint32 con_occupy_citys = 1;
+	optional uint32 exploit_value = 2;
+	optional uint32 need_to_occupy_city = 3;
+}

@@ -1,0 +1,124 @@
+
+#include "../object/Player.h"
+#include "World.pb.h"
+#include "../object/Player.h"
+#include "reward/reward.h"
+#include "Table/WorldFightAchievementMgr.h"
+#include "Opcode.pb.h"
+#include "memory_buffer/NetPack.h"
+#include "WorldFightAchievement.h"
+#include "CrossLogic/PlayerWorldFightAchievementDB.h"
+using namespace pb;
+#ifdef _MMO_SERVER_
+OpHandler(CMSG_WORLD_FIGHT_ACHIEVEMENT_ALL_INFO)
+{
+	GS2C_World_Achievement_All_Info msg;
+	m_WorldFightAchievementLog->SaveTo(msg);
+	Send(SMSG_WORLD_FIGHT_ACHIEVEMENT_ALL_INFO_RSP,msg);
+}
+
+OpHandler(CMSG_WORLD_FIGHT_ACHIEVE_TAKE_REWARD)
+{
+	C2GS_Take_World_Achievement_Reward msg;pack >> msg;
+	GS2C_Take_World_Achievement_Reward_Rsp sendmsg;
+	AchievementInfo* info = NULL;
+	if(msg.type() == CITY_REWARD)
+	{
+		info = m_WorldFightAchievementLog->FindInfoInMap(msg.id(),msg.attack_or_occupy());
+		if(info)
+		{
+			if(info->type == CITY_ATTACK_CITY)
+			{
+				if(info->state == STATE_CAN_TAKE)
+				{
+					if(const WorldFightAchievement* ment = sWorldFightAchievementMgr.getWorldFightAchievement(msg.id()))
+					{
+						pb::StReward* reward = sendmsg.add_reward();
+						reward->set_type(ment->getAttackReward().first);
+						reward->set_value(ment->getAttackReward().second);
+						sReward.Change(*this,ment->getAttackReward());
+						sendmsg.set_ret(0);
+						info->set_state(STATE_HAS_TAKE);
+					}
+				}
+				else if(info->state == STATE_NOT_ACHIEVE)
+				{
+					sendmsg.set_ret(1);
+				}
+				else if(info->state == STATE_HAS_TAKE)
+				{
+					sendmsg.set_ret(2);
+				}
+			}
+			else if(info->type == CITY_OCCUPY_CITY)
+			{
+				if(info->state == STATE_CAN_TAKE)
+				{
+					if(const WorldFightAchievement* ment = sWorldFightAchievementMgr.getWorldFightAchievement(msg.id()))
+					{
+						pb::StReward* reward = sendmsg.add_reward();
+						reward->set_type(ment->getOccupyReward().first);
+						reward->set_value(ment->getOccupyReward().second);
+						sReward.Change(*this,ment->getOccupyReward());
+						sendmsg.set_ret(0);
+						info->set_state(STATE_HAS_TAKE);
+					}
+				}
+				else if(info->state == STATE_NOT_ACHIEVE)
+				{
+					sendmsg.set_ret(1);
+				}
+				else if(info->state == STATE_HAS_TAKE)
+				{
+					sendmsg.set_ret(2);
+				}
+			}
+		}
+		PlayerWorldFightAchievementDB::UpdateAchievementInfoToDb(*this,msg.id(),info);
+	}
+	else if(msg.type() == BOX_REWARD)
+	{
+		if(!IsTakeWorldFightReward(pb::PLAYER_FIELD_WORLD_FIGHT_TAKE_REWARD_FLAG,msg.id(),msg.attack_or_occupy()))
+		{
+			TakeWorldFightReward(pb::PLAYER_FIELD_WORLD_FIGHT_TAKE_REWARD_FLAG,msg.id(),msg.attack_or_occupy());
+			if(const WorldFightAchievementBox* ment = sWorldFightAchievementMgr.getWorldFightAchievementBox(msg.id()))
+			{
+				if(msg.attack_or_occupy() == CITY_ATTACK_CITY)
+				{
+					if(m_WorldFightAchievementLog->GetCanTakeRewardCount(CITY_ATTACK_CITY) < ment->AttackCityNeedNum())
+					{
+						sendmsg.set_ret(1);
+						Send(pb::SMSG_WORLD_FIGHT_ACHIEVE_TAKE_REWARD_RSP,sendmsg);
+						return;
+					}
+					pb::StReward* reward = sendmsg.add_reward();
+					reward->set_type(ment->getAttackCityReward().first);
+					reward->set_value(ment->getAttackCityReward().second);
+					sReward.Change(*this,ment->getAttackCityReward());
+					sendmsg.set_ret(0);
+				}
+				if(msg.attack_or_occupy() == CITY_OCCUPY_CITY)
+				{
+					if(m_WorldFightAchievementLog->GetCanTakeRewardCount(CITY_OCCUPY_CITY) < ment->OccupyCityNeedNum())
+					{
+						sendmsg.set_ret(1);
+						Send(pb::SMSG_WORLD_FIGHT_ACHIEVE_TAKE_REWARD_RSP,sendmsg);
+						return;
+					}
+					pb::StReward* reward = sendmsg.add_reward();
+					reward->set_type(ment->getOccupyCityReward().first);
+					reward->set_value(ment->getOccupyCityReward().second);
+					sReward.Change(*this,ment->getOccupyCityReward());
+					sendmsg.set_ret(0);
+				}
+			}
+		}
+		else {
+			sendmsg.set_ret(2);
+		}
+	}
+	Send(pb::SMSG_WORLD_FIGHT_ACHIEVE_TAKE_REWARD_RSP,sendmsg);
+	return;
+}
+
+#endif

@@ -1,0 +1,223 @@
+package pb;
+import "CommomDef.proto";
+message ExploitRankBoxDrop
+{
+    required uint32 id          = 1; 		//proto id
+	required uint32 cnt 		= 2;	 //
+	optional uint32 strike 		= 3;	// 大于1-暴击 1-没暴击
+}
+
+message RankRewardStatus
+{
+	required uint32 step    = 1;	// 
+	required uint32 reward  = 2;	// 1-已完成 0-进行中
+}
+
+//功勋榜宝箱
+message C2GS_Exploit_Rank_Open_Box
+{
+	required uint32 id 	= 1;	// 1-普通 2-高级
+	optional bool  is_all = 2;//是否所有宝箱
+}
+
+message GS2C_Exploit_Rank_Open_Box	
+{
+	repeated ExploitRankBoxDrop drop 	= 1;
+	optional uint32 ret = 2; // 0 success 1 box is not enough 2 lootlist failed
+}
+
+//诱敌榜奖励
+message GS2C_Trick_Rank_Get_Reward	
+{
+	required ExploitRankBoxDrop drop  = 1;
+	repeated RankRewardStatus reward  = 2;	
+}
+
+//攻城榜奖励
+message GS2C_Occupy_Rank_Get_Reward	
+{
+	required ExploitRankBoxDrop drop  = 1;
+	repeated RankRewardStatus reward  = 2;	
+}
+
+//功勋榜列表
+message ExploitRank
+{
+	optional bool IsNew 		 = 1;  //标记是否是新服
+    required uint32 id          = 2;	// 排名
+	required string name 		= 3;	// 玩家名
+	required uint32 lv	 		= 4;	// 玩家等级
+	required uint32 vip_level   = 6; 	//vip 等级
+	required uint32 exploit	 	= 5;	// 功勋值
+	optional uint32 headIconId = 7;
+}
+
+message GS2C_Exploit_Rank_List
+{
+	repeated ExploitRank list 	= 1;
+}
+
+//诱敌榜列表
+message TrickRank
+{
+	optional bool IsNew 		 = 1;  //标记是否是新服
+    required uint32 id          = 2;	// 排名
+	required string name 		= 3;	// 玩家名
+	required uint32 lv	 		= 4;	// 玩家等级
+	required uint32 trick	 	= 5;	// 诱敌获胜次数
+	required uint32 vip_level   = 6; 	//vip 等级
+	optional uint32 headIconId = 7;
+}
+
+message GS2C_Trick_Rank_List
+{
+	repeated TrickRank list 	= 1;
+	repeated RankRewardStatus reward  = 2;	
+}
+
+//攻城榜列表
+message OccupyRank
+{
+	optional bool IsNew 		 = 1;  //标记是否是新服
+    required uint32 id          = 2;	// 排名
+	required string name 		= 3;	// 玩家名
+	required uint32 lv	 		= 4;	// 玩家等级
+	required uint32 highest	 	= 5;	// 最高连城
+	required uint32 occupy	 	= 6;	// 占领数
+	required uint32 vip_level   = 7; 	//vip 等级
+	optional uint32 headIconId = 8;
+}
+
+message GS2C_Occupy_Rank_List
+{
+	repeated OccupyRank list 	= 1;
+	repeated RankRewardStatus reward  = 2;	
+}
+
+////////////////////////////战场活动
+
+message ShowData
+{
+	optional uint32 rank = 1;//排名
+	optional uint32 lv = 2;//等级
+	optional uint32 country_id = 3;//国家
+	optional uint32 value = 4;//
+	optional uint32 vip_lv = 5;
+	optional string name = 6;//姓名
+	optional uint32 headIconId = 7;
+}
+message GS2C_CountryOccupyCityNum
+{
+	required uint32 nr_worm = 1;//虫
+	required uint32 nr_human = 2;//人
+	required uint32 nr_god = 3;//神
+}
+
+message GS2C_PersonalAddSoldier
+{
+	repeated ShowData rank_of_add_soldier = 1;
+	optional ShowData self_info = 2;
+}
+
+message GS2C_PersonalOccupyCityNum
+{
+	repeated ShowData rank_of_take_city = 1;
+	optional ShowData self_info = 2;
+}
+
+///战力排行榜
+message CharacterInfo
+{
+	optional uint32 character_lv = 1;
+	optional uint32 char_proto_id = 2;
+}
+message CharacterMsg
+{
+	repeated CharacterInfo character_info = 1;
+}
+
+message SiegeArmyInfo
+{
+	optional uint32 siege_lv = 1;
+	optional uint32 siege_char_id = 2;
+}
+
+message SiegeArmyMsg
+{
+	repeated SiegeArmyInfo siege_army_info = 1;
+}
+message ShenQiInfo
+{
+	optional uint32 shenqi_lv = 1;
+	optional uint32 shenqi_id = 2;
+}
+message ShenQiMsg
+{
+	repeated ShenQiInfo shen_qi_info = 1;
+}
+message MilitaryPowerPack
+{
+	optional ShowData military_power_rank = 1;
+	optional CharacterMsg char_msg = 2;
+	optional SiegeArmyMsg siege_army_info = 3;
+	optional ShenQiMsg shenqi_msg = 4;
+}
+
+message GS2C_MilitaryPowerRankList
+{
+	repeated MilitaryPowerPack military_power_list = 1;
+	optional MilitaryPowerPack self_info = 2;
+}
+
+
+///////////////////恭贺功能
+/////SMSG_ACHIEVE_CONGRATULATE
+message GS2C_Achieve_Congratulate
+{
+	optional C2GS_Congratulate_Accept info = 1;
+	optional string to_player_name = 2;//要恭贺的玩家的名字
+}
+///////////CMSG_CONGRATULATE_ACCEPT   
+message C2GS_Congratulate_Accept
+{
+	required uint64 to_player_id = 1;//要恭贺的玩家的id
+	optional uint32 rank = 2;
+	optional uint32 suit_id = 3;
+	optional uint32 congratulate_type = 4;
+	optional uint32 table_id = 5;
+	optional uint32 operate_type = 6; //服务器用
+	optional uint64 active_time = 7; ///触发时间
+}
+
+//////CMSG_CONGRATULATE_CURRENT_CONGRATULATION    SMSG_CONGRATULATE_CURRENT_CONGRATULATION_RSP
+message GS2C_ListOfCurrentCanCongratulate
+{
+	optional GS2C_Achieve_Congratulate info = 1;
+}
+
+
+///////////SMSG_CONGRATULATE_ACCEPT_RSP
+message GS2C_Congratulate_Accept_Rsp   //返回奖励
+{
+	repeated StReward reward = 1;
+}
+
+
+message GxDB_CongratulateInfo
+{
+	optional uint32 table_id = 1;
+	optional uint32 is_achieve = 2;
+	optional uint32 is_reward = 3;
+	optional uint32 been_congratulated_count = 4;
+}
+
+message GxDB_CongratulateRewardLog
+{
+	repeated GxDB_CongratulateInfo info = 1;
+}
+
+
+message GxDB_CongratulateBeenCongratualted
+{
+	repeated C2GS_Congratulate_Accept  info = 1;
+}

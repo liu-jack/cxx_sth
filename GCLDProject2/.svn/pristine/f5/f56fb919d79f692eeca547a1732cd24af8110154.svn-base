@@ -1,0 +1,132 @@
+package pb;
+
+import "CommomDef.proto";
+
+message GS2C_MapLogic_Init
+{
+    optional uint32 	country_id              = 1;
+    optional uint64 	take_box                = 2;//已拿到的路途宝箱
+    repeated uint64 	unlock_fog_city         = 3;//已经解锁的迷雾
+    repeated PairTime 	tonden_hero_begin_time 	= 4;//屯粮 <heroIdx,time>
+    optional uint64 	country_donate_time     = 5;//国家升级捐赠
+    optional uint64     monster_donate_time     = 6;//蛮族捐赠
+
+	repeated PairBool 	has_take_award			= 7;//是否领取了练兵经验<herotid,bool>
+	repeated PairTime 	lianbing_end_time       = 8;//练兵结束时间  <herotid,time>
+
+    optional GS2C_MapLogic_ArmyResource  army_resource  = 9; //军资
+    repeated CityEvent                   event_info     = 10;//事件列表
+    repeated CityEvent 					public_Lst		= 11;//世界事件列表
+	
+	repeated Struct_FOG_INFO	fog_lst					= 12;//迷雾列表
+	
+	optional uint64		tonden_CDEnd_time	= 13;
+}
+
+//-----------------------------------------------军资模块--------------------------------------------------------------------
+message GS2C_MapLogic_ArmyResource
+{
+    required uint32 update_day                  = 1;
+    required uint32 update_hour                 = 2;
+    repeated PairValue resource_lst             = 3;
+}
+
+enum TakeResourceBack
+{
+	Success = 0;	//成功
+	LevelIllegal = 1;	//等级不够
+	NoAwards = 2;		//没有军资可领
+}
+
+message GS2C_Take_Army_Resource_Result
+{
+	optional TakeResourceBack backmsg		=1;
+}
+//---------------------------------------------------------------------------------------------------------------------------
+
+//------------------------------------------------地图事件模块---------------------------------------------------------------
+message GS2C_All_CITY_EVENT
+{
+	repeated CityEvent event_Lst				= 1;//个人事件列表
+	repeated CityEvent public_Lst				= 2;//世界事件列表
+}
+
+message GS2C_CITY_EVENT
+{
+	required CityEvent city_event				= 1;//单个事件
+	optional bool isPublicEvent		=2;
+}
+
+message C2GS_TAKE_EVENT_AWARD
+{
+	required uint32 city_id						= 1;//
+	optional uint32 event_id					= 2;//
+	optional uint32 award_index					= 3;//奖励索引
+}
+
+message CityEvent //城池事件
+{
+	optional uint32 event_id                =1;
+	optional uint64 happen_time             =2;
+	optional uint32 daily_times             =3;
+	optional uint32 city_id                 =4;
+	optional bool   is_begin                =5;
+	optional bool   isCelebrity 			= 6;
+	optional uint32 left_num				=7;//如果是全服事件，需要剩余次数
+	optional uint64 event_end_time			=8;//如果事件有倒计时，需要结束时间
+	repeated uint64 take_players		=9;
+}
+
+
+enum take_award_ret
+{
+	AwardSuccess = 1;
+	CommonFail	 = 2;
+	CityInFighting = 3;
+	NoHeroHere		= 4;
+	NoCity			= 5;
+	CostFail		= 6;
+	SelectError		= 7;
+	NoEvent			= 8;
+	HasTaken		= 9;
+}
+
+message GS2C_Take_Award_Ret
+{
+	required take_award_ret ret = 1;
+}
+//---------------------------------------------------------------------------------------------------------------------------
+
+//--------------------------------------------------世界迷雾模块------------------------------------------------------------
+message C2GS_REQUEST_FOG_INFO
+{
+	repeated uint64 fog_id						= 1;//每一位代表一个迷雾配置表id
+}
+
+message GS2C_FOG_INFO_Lst
+{
+	repeated Struct_FOG_INFO fog_lst			= 1;//迷雾列表
+}
+
+message Struct_FOG_INFO
+{
+	optional uint32 fog_id						= 1;//迷雾关id,
+	optional uint64 uniqueid					= 2;
+	repeated PairValue guard_hp					= 3;//守卫血量信息<守卫ID,当前血量>
+	repeated PairValue guard_max				= 4;//守卫最大血量
+	optional uint32 guard_up_hp				= 5;//所有守卫最大血量和
+}
+
+//CMSG_ENTER_FOG_STAGE
+message C2GS_Enter_Fog
+{
+    required uint32 fog_id    = 1;
+    repeated uint32 hero_id     = 2; //按武将上阵顺序排列
+}
+
+//SMSG_UNLOCK_FOGS
+message GS2C_UNLOCK_FOGS
+{
+	repeated uint64 unlock_fog_city		=1;
+}
+//---------------------------------------------------------------------------------------------------------------------------

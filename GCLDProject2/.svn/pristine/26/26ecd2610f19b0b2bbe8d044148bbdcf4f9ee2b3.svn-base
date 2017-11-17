@@ -1,0 +1,49 @@
+//在各个cpp中实现函数体
+
+Msg_Declare(SG2D_UPDATA_FUBEN_BASE, SG2D_UpdataFuBenBase)
+//Msg_Declare(SG2D_UPDATA_FUBEN_RESOURCE, SG2D_UpdataFuBenResource)
+Msg_Declare(SG2D_UPDATA_FUBEN_PASSSTAGE, Stage_Info)
+
+Msg_Declare(SG2D_CRUSADE_UPDATE, GxDB_Combat_Crusade)
+Msg_Declare(SG2D_BRANCH_FUBEN_UPDATE, BranchFubenInfo)
+Msg_Declare(SG2D_HIDE_FUBEN_UPDATE, HideFubenInfo)
+Msg_Declare(SG2D_MARKET_COLLECT, GS2C_Market_Collect)
+Msg_Declare(SG2D_MARKET_BLACK, GS2C_Market_Black)
+Msg_Declare(SG2D_MARKET_BUY, GS2C_Market_Buy)
+Msg_Declare(SG2D_MARKET_MYSTERY, GS2C_Market_Mystery_Shop)
+
+Msg_Declare(SG2D_ALTAR_ALL_INFO, GS2C_Altar_All_Info)
+
+Msg_Declare(SG2D_DUNGEON_BASE_INFO, GS2C_Dungeon_Base)
+Msg_Declare(SG2D_DUNGEON_ADD_HERO, GS2C_Dungeon_Add_Hero)
+Msg_Declare(SG2D_DUNGEON_DEL_HERO, GS2C_Dungeon_Del_Hero)
+
+Msg_Declare(SG2D_BAO_QI_ALL_INFO, GS2C_BaoQi_All_Info)
+
+Msg_Declare(SG2D_MAP_LOGIC_BASE, GS2C_MapLogic_Init)
+Msg_Declare(SG2D_MAP_LOGIC_UPDATE_CITY_EVENT, CityEvent)
+Msg_Declare(SG2D_MAP_FOG_REC, GS2C_FOG_INFO_Lst)
+
+//Msg_Declare(SG2D_UPDATA_TECHNOLOGY, C2GS_Technology_All_Info)
+Msg_Declare(SG2D_UPDATA_TECHNOLOGY_STUDY, TechnologyStudy)
+
+Msg_Declare(SG2D_UPDATE_SMITHY, GS2C_Smithy_All_Info)
+Msg_Declare(SG2D_DAILY_QUEST_UPDATE, GxDB_Daily_Quest_Info)
+Msg_Declare(SG2D_GROW_UP_QUEST_UPDATE, GxDB_Grow_Up_Quest_Info)
+Msg_Declare(SG2D_GROW_UP_QUEST_GROUP_UPDATE, GxDB_Grow_Up_Quest_Group_Info)
+Msg_Declare(SG2D_SIGN_UP_UPDATE, GxDB_Sign_info)
+Msg_Declare(SG2D_ACTIVITY_PASS_STAGE_REWARD_DIAMOND_UPDATE, pass_stage_reward_info)
+Msg_Declare(SG2D_ACTIVITY_STAR_BOX_UPDATE, GxDB_ActivityStarBoxInfo)
+//Msg_Declare(SG2D_ACTIVITY_STAR_BOX_DELETE, GxDB_ActivityStarDelete)
+Msg_Declare(SG2D_PALACE_ACHIEVEMENT_INFO, PalaceAchievementInfo)
+Msg_Declare(SG2D_GROW_UP_QUEST_DELETE_INFO, GxDB_Grow_Up_Quest_Delete)
+Msg_Declare(SG2D_PASS_STAGE_REWARD_DIAMOND_DELETE, GxDB_Pass_Stage_Reward_Delete)
+Msg_Declare(SG2D_ZHENGWU_UPDATE, GxDB_GovAffairsInfo)
+Msg_Declare(SG2D_ACTIVITY_GENERAL_REWARD_UPDATE, GxDB_Hero_Reward_info)
+//Msg_Declare(SG2D_ACTIVITY_GENERAL_REWARD_DELETE, GxDB_Hero_Reward_delete)
+Msg_Declare(SG2D_WORLD_FIGHT_ACHIEVEMENT_UPDATE, GxDB_World_Achievement_Info)
+Msg_Declare(SG2D_SEIGE_FORCE_DATA_UPDATE, Seige_Force_info)
+Msg_Declare(SG2D_CONTINUE_OCCUPY_CITY_UPDATE, BaseContinueMsg)
+Msg_Declare(SG2D_CONGRATULATE_UPDATE, GxDB_CongratulateInfo)
+Msg_Declare(SG2D_CONGRATULATE_BEEN_CON_UPTATE, C2GS_Congratulate_Accept)
+Msg_Declare(SG2D_WANNA_BE_STRONGER_UPDATE, WannaBeStrongerInfo)

@@ -1,0 +1,177 @@
+
+
+#include "GovAffairsTableMgr.h"
+#include "DbTool.h"
+#include "System.h"
+#include "Activity.pb.h"
+#include "object/Player.h"
+#include "utility/Utility.h"
+#include "BaseDefineMgr.h"
+#include "reward/reward.h"
+#include "Opcode.pb.h"
+
+void GovAffairsTableMgr::Init()
+{
+	FOREACH_DB_ITEM(ptr1,DB_ArmyGovText)
+	{
+		text_map_[ptr1->id] = *ptr1;
+		text_int_vec_.push_back(std::make_pair(ptr1->id,ptr1->weight));
+	}
+	FOREACH_DB_ITEM(ptr2,DB_ArmyGovRewardType)
+	{
+		type_map_[ptr2->id] = *ptr2;
+		type_int_vec_.push_back(std::make_pair(ptr2->id,ptr2->weight));
+		if(ptr2->which_side != ONLY_RIGHT_SIDE)
+		{
+			type_int_left_vec_.push_back(std::make_pair(ptr2->id,ptr2->weight));
+		}
+	}
+	FOREACH_DB_ITEM(ptr3,DB_ArmyGovRewardNum)
+	{
+		num_map_[ptr3->id] = *ptr3;
+		//reward_num_vec_.push_back(std::make_pair(ptr3->id,ptr3->weight));
+	}
+	FOREACH_DB_ITEM(ptr4,DB_ArmyGovRewardCritical)
+	{
+		critical_map_[ptr4->id] = *ptr4;
+		critical_int_vec_.push_back(std::make_pair(ptr4->id,ptr4->weight));
+	}
+	FOREACH_DB_ITEM(ptr5,DB_ArmyGovLoyalReward)
+	{
+		loyal_reward_map_[ptr5->id] = *ptr5;
+	}
+}
+
+void  GovAffairsTableMgr::GetRandomTextId(Player* player,pb::GS2C_Show_Dialog& msg)
+{
+	int text_id =  System::RandWeight(text_int_vec_);
+	ASSERT(text_id != -1);
+	msg.set_left_id(text_map_[text_id].left_text_id);
+	//msg.set_right_id(text_map_[text_id].right_text_id);
+	msg.set_title_id(text_map_[text_id].title_id);
+	msg.set_image_name(text_map_[text_id].image_name);
+	int reward_type_right_id = System::RandWeight(type_int_vec_);
+	ASSERT(reward_type_right_id != -1);
+	IntPairVec tmp_type;
+	for(IntPairVec::iterator it1 = type_int_left_vec_.begin();it1 != type_int_left_vec_.end();++it1)
+	{
+		if(it1->first == reward_type_right_id)
+			continue;
+		else
+			tmp_type.push_back(*it1);
+	}
+	int reward_type_left_id = System::RandWeight(tmp_type);
+	int32 player_level = player->GetLevel();
+	IntPairVec left_reward_num_vec,right_reward_num_vec;
+	int left_reward_id,right_reward_id;
+	pb::ZhengWuReward *left_reward = msg.mutable_left_reward();
+	pb::ZhengWuReward *right_reward = msg.mutable_right_reward();
+	int critical_id = System::RandWeight(critical_int_vec_);
+	int critical_time = critical_map_[critical_id].critical_time;
+	GetRewardNum(player_level,type_map_[reward_type_left_id].reward_type,left_reward_num_vec);
+	left_reward_id = System::RandWeight(left_reward_num_vec);
+	left_reward->set_reward_type(type_map_[reward_type_left_id].reward_id);
+	left_reward->set_reward_count(num_map_[left_reward_id].base_reward_num);
+	if(type_map_[reward_type_right_id].reward_type == REWARD_TYPE_MINZHONG)
+	{
+		GetRewardNum(player_level,type_map_[reward_type_right_id].reward_type,right_reward_num_vec);
+		right_reward_id = System::RandWeight(right_reward_num_vec);
+		right_reward->set_reward_type(type_map_[reward_type_right_id].reward_id);
+		right_reward->set_reward_count(num_map_[right_reward_id].base_reward_num * critical_time);
+	}
+	else
+	{
+		right_reward->set_reward_type(type_map_[reward_type_right_id].reward_id);
+		right_reward->set_reward_count(num_map_[left_reward_id].base_reward_num *critical_time);
+	}
+	if(critical_map_[critical_id].cost_diamond != 0)
+	{
+		msg.set_right_id(text_map_[text_id].right_critical_text_id);
+	}
+	else
+	{
+		msg.set_right_id(text_map_[text_id].right_text_id);
+	}
+	right_reward->set_cost_diamond(critical_map_[critical_id].cost_diamond);
+}
+
+void GovAffairsTableMgr::GetRewardNum(const int32 player_level,const uint32 reward_type,IntPairVec& vec)
+{
+	for(numMap::iterator it2 = num_map_.begin();it2 != num_map_.end();++it2)
+	{
+		IntPair tmp2;
+		Utility::SplitStr(it2->second.level_stage,tmp2,',');
+		if(it2->second.reward_type == reward_type)
+		{
+			if(player_level >= tmp2.first && player_level <= tmp2.second)
+			{
+				vec.push_back(std::make_pair(it2->first,it2->second.weight));
+			}
+		}
+		else
+		{
+			continue;
+		}
+	}
+}
+
+void GovAffairsTableMgr::TakeReward(Player* player,const pb::C2GS_Take_Reward& msg)
+{
+	pb::GS2C_Take_Reward_Rsp sendmsg;
+	if(player->GetCurrency(eZhengWu) > 0)
+	{
+		player->TryDeductCurrency(pb::IR_CYCLE_COST,eZhengWu,1);
+	}
+	else
+	{
+		sendmsg.set_ret(2);//没有政务次数
+		player->Send(pb::SMSG_ZHENGWU_TAKE_REWARD_RSP,sendmsg);
+		return;
+	}
+	const pb::ZhengWuReward & cost = msg.reward();
+	sReward.Change(*player,cost.reward_type(),cost.reward_count());
+	if(cost.has_cost_diamond())
+	{
+		if(!player->TryDeductCurrency(pb::IR_MINZHONG_COST,eSysGold,cost.cost_diamond()))
+		{
+			sendmsg.set_ret(1);//钻石不足
+		}
+		else
+		{
+			sendmsg.set_ret(0);//成功
+		}
+	}
+	else
+	{
+		sendmsg.set_ret(0);//成功
+	}
+	player->Send(pb::SMSG_ZHENGWU_TAKE_REWARD_RSP,sendmsg);
+}
+
+void GovAffairsTableMgr::TakeMinZhongReward(Player* player,pb::GS2C_Take_MinZhong_Reward_Rsp& msg)
+{
+	int32 player_level = player->GetLevel();
+	int32 min_zhong = player->GetCurrency(ePeopleLoyal);
+	if(min_zhong < GET_BASE_DEF_INT(pb::BD_ARMY_GOV_MINGZHONG_REWARD))//100
+	{
+		return;
+	}
+	IntPairVec reward_vec;
+	for(loyalRewardMap::iterator iter = loyal_reward_map_.begin();iter != loyal_reward_map_.end();++iter)
+	{
+		IntPair p;
+		Utility::SplitStr(iter->second.level_stage,p,',');
+		if(player_level >=p.first && player_level <= p.second)
+		{
+			Utility::SplitStr2(iter->second.reward_list,reward_vec);
+		}
+	}
+
+	for(IntPairVec::iterator iter = reward_vec.begin();iter != reward_vec.end();++iter)
+	{
+		pb::StReward* reward_ = msg.add_reward();
+		reward_->set_type(iter->first);
+		reward_->set_value(iter->second);
+	}
+	player->bzero_min_zhong();
+}

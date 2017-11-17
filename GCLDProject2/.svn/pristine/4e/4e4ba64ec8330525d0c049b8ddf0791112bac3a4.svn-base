@@ -1,0 +1,12 @@
+/************************************************************************/
+/*Add by:zhoulunhao													*/
+/*Email	:zhoulunhao@hotmail.com											*/
+/************************************************************************/
+
+
+#ifdef _MMO_SERVER_
+HandleOpcode(CMSG_COUNTRY_OCCUPY_CITY_INFO);
+HandleOpcode(CMSG_PERSONAL_OCCUPY_CITY_INFO);
+HandleOpcode(CMSG_ADD_SOLDIER_INFO);
+
+#endif

@@ -1,0 +1,462 @@
+package pb;
+import "CommomDef.proto";
+
+
+message CountyLevelUpTaskPlayer
+{
+    required uint64 playerId    = 1;
+    required uint32 country     = 2;
+    required uint32 rank        = 3;
+    required uint32 statistic_kill = 4;
+    required bool   is_take_reward = 5;
+}
+
+message MonsterCity //蛮族：捐赠、发动入侵
+{
+    required uint32 donation_money      =1;
+    required uint32 friend_val          =2;
+    required uint32	moster_level        =3;
+    required uint32 invade_cnt          =4;
+    required uint32 today_invade_count  =5;
+}
+message MonsterCityLst
+{
+    repeated MonsterCity list = 1;
+}
+
+message CountryCrossWarInfo
+{
+    required uint32 id 				= 1;//1匈奴-虫族 2罗马-人族 3大汉-神族 4蛮族
+	required  CrossWarInfo cross_war_info = 2;
+}
+
+enum CROSS_STATE
+{
+	State_Null			=0;		//空闲状态	//周一，三，五，日全天
+	State_Collect_Info		=1;	//收集游戏服务器信息	////////////////
+	State_Devide			=2;	//分配服务器		//////// 00:00 到 19:50
+	State_Prepare			=3;	//筹备阶段		////////////////
+	State_Preview			=4;	//预览阶段		// 19:50 到 20:00
+	State_Start			=5;	//开启跨服灭国		// 20:00 到 21:30
+	State_Award			=6;	//领奖阶段		// 21:30 到 24:00
+}
+message CrossWarInfo
+{
+	optional bool   is_open_cross_war = 1;//是否已开启跨服灭国
+	optional bool   is_open_anabasis = 2;//是否已开启跨服远征
+	optional CROSS_STATE cross_state		= 3;
+	optional CROSS_STATE anabasis_state	= 4;
+	optional uint64 cross_war_start_time = 5;
+	optional string cross_server_ip = 6; 
+	optional string cross_server_port = 7; 
+	optional bool   is_anabasis = 8;
+	optional uint64 anabasis_start_time = 9;
+	optional string anabasis_server_ip = 10; 
+	optional string anabasis_server_port = 11; 
+}
+
+//SMSG_COUNTRY_INFO
+message CountyInfo
+{
+	required uint32 id 				= 1;//1匈奴-虫族 2罗马-人族 3大汉-神族 4蛮族
+	required uint32 exp 			= 2;
+	required uint32 level 			= 3;
+	required uint32 donate_times 	= 4;
+	required uint32 country_npc_level = 5;
+	required uint32 country_npc_exp = 6;
+	optional uint32 have_city_cnt 	= 7;
+
+    // 升级任务 蛮族试练
+    optional uint64 open_level_up_task_time = 8;
+    optional uint32 cur_level_do_task_cnt   = 9;
+    optional uint32 kill_monster_num        = 10;
+    optional bool   is_monster_task_open    = 11;
+    optional bool   is_monster_task_succeed = 12;
+	
+	optional  CrossWarInfo cross_war_info = 13;
+    // 蛮族：捐赠、发动入侵
+    optional MonsterCityLst monster_city_lst = 14;
+	
+	optional uint64 last_check_npc_exp 	 = 15;
+	
+	optional uint32 npc_level_id = 16;		//服务器使用
+	
+	optional uint32 tuntian_level = 17;
+	optional uint64 tuntian_exp = 18;
+	
+	optional uint32 Prosperity_Degree = 19;	//繁荣度
+}
+message Country_Levle_Up_Task_Rank
+{
+    required uint32 country = 1;
+    repeated CountyLevelUpTaskPlayer player_lst = 2;
+}
+
+
+//CMSG_COUNTRY_INFO
+message C2GS_Country_Info
+{
+	required uint32 id 	= 1; //id=0表示取所有国家
+}
+//SMSG_COUNTRY_INFO
+message GS2C_Country_Info
+{
+    repeated CountyInfo country     =1; //三个国家信息
+}
+
+
+//国家任务相关
+////////////////////////////////////////////////////////////////
+message Struct_Country_Task_Base
+{
+	required bool   is_begin                =1;
+	optional uint32 cur_stage               =2;
+	optional uint64 cur_stage_begin_time    =3;
+	optional bool   is_waiting_state        =4; //镇压蛮族，阶段切换中途等待一分钟
+	
+	repeated uint32 cur_stage_begin_country_citys =5;		// 开拓国境
+	repeated uint32 cur_stage_now_country_occupy_citys = 6;		
+	repeated uint32 cur_stage_target_num = 7;	
+
+	repeated uint32 cur_stage_now_country_invest_money = 8;	// 投资
+
+	repeated bool is_country_failed = 9; // 守卫边疆
+
+	repeated uint32 country_score = 10; // 比武积分赛，国家积分
+	
+	repeated uint32 cur_stage_fighting_city_num			 = 11;// 镇压蛮族
+}
+
+message Struct_Country_Task_City
+{
+	required uint32 city_id         = 1;//城池id
+	required uint64 end_time        = 2;//任务结束时间
+	optional uint32 win_country     = 3;// 为0表示，还在进行中
+	optional uint32 origin_country  = 4;//开启国战任务前，所属国家 
+}
+
+//攻守城池
+//GS2C_Country_Task_Info		 城池信息
+message GS2C_Country_Task_Info
+{
+	optional bool                      is_running = 1;// 是否进行中
+	repeated Struct_Country_Task_City  city       = 2;// 	城池信息
+	optional Struct_Country_Task_Base  base 	  = 3;	 // 	
+}
+
+//CMSG_COUNTRY_TASK_PLAYER		 当前请求的玩家信息
+message GS2C_Country_Task_Player
+{
+	required uint32 rank        = 1;//排名         投资任务是称号id        比武是个人排名
+	required uint32 kill_count  = 2;//杀敌数量     投资任务是捐赠钱数	   比武是个人积分
+
+	repeated bool   is_take_reward = 3; //是否已领取奖励
+	repeated uint32 task_end_rank = 4;  //任务结束时的排名
+
+	repeated GS2C_LootList rank_reward  = 5;// 称号奖励列表
+	optional GS2C_LootList win_reward 	= 6;// 胜利奖励列表
+
+	optional uint64 cd_time  = 7;			//
+	
+	optional Struct_Country_Pk_Info pk_info = 8; // 比武信息
+}
+
+//CMSG_COUNTRY_TASK_REWARD			//玩家请求国家任务奖励
+message C2GS_Country_Task_Reward
+{
+    required uint32 task_idx  = 1;
+}
+
+message GS2C_Country_Task_Reward_Ret
+{
+	required bool isSuccess = 1;
+}
+
+//国战结果
+message Country_Task_Result
+{
+	optional uint32 rank		=1;
+	optional uint32 kill_count	=2;
+}
+
+//SMSG_COUNTRY_TASK_END		//攻守任务结束消息		发送给所有玩家
+message GS2C_Country_Task_End
+{
+	required uint32					city_id		=1;
+	optional Country_Task_Result 	result		=2;
+}
+
+
+// 比武积分赛玩家镜像
+message Struct_Country_Pk_Player_mirror
+{
+	required uint32 head_id = 1; 
+	required string name = 2; 
+	required uint32 level = 3; 
+	repeated uint32 card_tid = 4; // 出战的武将列表id（最多4个）
+	repeated uint32 card_lv = 5; // 出战的武将列表等级
+}
+
+// 比武积分赛玩家历史记录
+message Struct_Country_Pk_History
+{
+	required string    rival_name = 1; 	   // 对手名字
+	required bool      rival_is_att = 2;   // 对手是否为挑战方
+	required bool      rival_is_win = 3;   // 对手是否胜利
+	required uint32    my_score_change = 4;// 我的积分变化
+}
+
+// 比武积分赛
+message Struct_Country_Pk_Info
+{
+	repeated string recent_player_name = 1; // 前后名次玩家的名字（两个，除第一名发第二、第三名外，其他都是自己名次-1、名次+1）
+	repeated uint32 recent_player_score = 2; // 前后名次玩家的积分（两个）
+	repeated uint32 recent_player_country = 3; // 前后名次玩家的国家（两个）
+	required string rank_no1_name = 4; 			// 比武榜第一名玩家名字
+	repeated Struct_Country_Pk_Player_mirror mirror_list = 5; // 三个镜像
+	repeated Struct_Country_Pk_History pk_history = 6; // 历史记录（最多十场）
+	required bool is_pking = 7;   // 玩家正在挑战中
+	required uint32 total_win = 8; 			   // 玩家胜利总场数
+	required uint32 total_lose = 9; 			// 玩家失败总场数
+}
+
+
+
+
+
+//CMSG_COUNTRY_TASK_PK_CHALLENGE
+message C2GS_Country_Task_Pk_Challenge
+{
+    required uint32 idx  = 1;
+}
+
+
+
+// 蛮族：捐赠、发动入侵
+////////////////////////////////////////////////////////////////
+enum E_MONSTER_CITY
+{
+	M_OPERATE_SUCCESS = 1;
+	M_OPERATE_NO_TODAY_INVADE_TIME = 2;
+	M_OPERATE_GOLD_NOT_ENOUGH = 3;
+	M_OPERATE_ITEM_NOT_ENOUGH = 4;
+	M_OPERATE_NO_INVADE_TIME = 5;
+	M_OPERATE_OFFICE_ID_NOT_MATCH = 6;
+}
+
+
+message GS2C_Monster_City_All_Info
+{
+	optional MonsterCityLst all_info = 1;
+	optional uint64	CDEndTime = 2;
+}
+message C2GS_Monster_City_Donate
+{
+    required uint32 dest_country_id  = 1;
+}
+
+message GS2C_Monster_City_Donate
+{
+	optional StReward reward = 1;
+	optional MonsterCity info = 2;
+	optional uint64	CDEndTime = 3;
+}
+message C2GS_Monster_City_Start_Invade
+{
+    required uint32 dest_country_id  = 1;
+}
+message GS2C_Monster_City_Invade_Rsp
+{
+	optional uint32 ret = 1; ///E_MONSTER_CITY
+	optional MonsterCity info = 2;
+}
+/////////////////////////////////////////////////////////////////
+
+enum Country_Task_Err
+{
+	TaskErr = 1;		//通用错误，服务器错误
+	investUpperErr = 2;	//超过当前阶段上限
+	investStageNotMatch = 3;	//捐赠请求阶段与后台阶段不匹配
+	investInCD = 4;		//CD中
+	investNoMoney = 5;	//银币不足
+	rewardHasTaken = 6;	//已经领取过
+	stageNotInvested = 7;	//当前阶段没有投资过
+
+	OccupyStageNotMatch = 8;
+	stageNotOccupied = 9;
+
+	NoRecord = 10;	//没有记录
+	StageNotMatch = 11;
+	TaskNotFind = 12;
+	TaskIsNotFinished = 13;
+}
+
+/////////////// 投资任务 /////////////////
+message GS2C_Country_Task_Insvest
+{
+	required bool   is_begin                =1;
+	optional uint32 cur_stage               =2;
+	optional uint64 cur_stage_begin_time    =3;
+	repeated uint32 cur_stage_now_country_invest_money = 4;	// 投资
+}
+
+message GS2C_Country_Invest_Player
+{
+	optional uint32 stageID		= 1;//最后存在的阶段
+	optional uint32 rankID		= 2;//称号id
+	optional uint32 donateNum	= 3;//捐赠钱数
+
+	optional bool   is_take_reward	= 4;//是否已领取奖励
+	optional bool	canTakeExReward = 5;//是否可以领取最后阶段的额外奖励
+	optional uint64 cd_time		= 6;//投资一次加CD一分钟；累计到十分钟，无法继续投资；可用11金币清空CD
+
+	optional GS2C_LootList rank_reward	= 7;// 称号奖励列表
+	optional GS2C_LootList win_reward	= 8;// 额外奖励
+	optional uint32 total_donate	= 9;//个人累计总投资
+}
+
+message C2GS_Country_Invest_Donate
+{
+	optional uint32 stage = 1;
+}
+
+message GS2C_Country_Invest_Donate_Ret
+{
+	required bool isSuccess = 1;
+	optional Country_Task_Err errRet = 2;
+	optional uint32 my_invest_money = 3;		//当前阶段投资金额
+	optional uint32 country_invest_money = 4;	//自己国家总投资
+	optional uint64 cd_time		= 5;//投资一次加CD一分钟；累计到十分钟，无法继续投资；可用11金币清空CD
+	optional uint32 total_donate	= 6;//个人累计总投资
+	optional GS2C_LootList successAward	= 7;//投资成功的经验奖励
+}
+
+message C2GS_Country_Invest_Take_Reward
+{
+	optional uint32 stage = 1;
+}
+
+message GS2C_Country_Invest_Take_Reward
+{
+	required bool isSuccess = 1;
+	optional Country_Task_Err errRet = 2;
+}
+
+message GS2C_Country_Invest_Clear_CD_Ret
+{
+	required bool isSuccess = 1;
+	optional Country_Task_Err errRet = 2;
+}
+
+/////////////开拓国境任务/////////////
+message GS2C_Country_Task_Occupy
+{
+	required bool   is_begin                =1;
+	optional uint32 cur_stage               =2;
+	optional uint64 cur_stage_begin_time    =3;
+	repeated uint32 cur_stage_now_country_have_citys = 4;	//当前拥有城市数
+	repeated uint32 cur_stage_begin_have_citys = 5;		//阶段开始时拥有的城市数
+	repeated uint32 need_total_citys		= 6;		//需要占领的城市数
+
+}
+
+message GS2C_Country_Occupy_Player
+{
+	optional uint32 stageID		= 1;//最后存在的阶段
+	optional uint32 rankID		= 2;//称号id
+	optional uint32 rank		= 3;//排名	如果rankid不为0，则有排名
+
+	optional bool   is_take_reward	= 4;//是否已领取奖励
+	optional bool	canTakeExReward = 5;//是否可以领取最后阶段的额外奖励
+
+	optional GS2C_LootList rank_reward	= 6;// 称号奖励列表
+	optional GS2C_LootList win_reward	= 7;// 额外奖励
+}
+
+message C2GS_Country_Occupy_Take_Reward
+{
+	optional uint32 stage = 1;
+}
+
+message GS2C_Country_Occupy_Take_Reward
+{
+	required bool isSuccess = 1;
+	optional Country_Task_Err errRet = 2;
+}
+
+//////////////个人任务///////////////
+message OneTaskInfo
+{
+	optional uint32 stageid = 1;			//该任务属于哪一阶段
+	optional uint32 taskid = 2;			//任务id
+	optional uint32 curCompletion = 3;		//当前完成度
+	optional bool   isTakeAward = 4;		//是否领取了奖励
+}
+
+message GS2C_PersonalTask_Info
+{
+	optional bool is_begin	= 1;
+	optional uint32 curStage = 2;		//当前阶段 一阶段二阶段
+	optional uint32 curSubStage = 3;	//当前子阶段 二阶段的子阶段
+	optional uint64 taskBeginTime = 4;	//任务开始时间
+	repeated OneTaskInfo tasks = 5;		//三个一阶段任务 + 二阶段任务
+}
+
+message C2GS_PersonalTask_One
+{
+	required uint32 taskid = 1;
+}
+
+message C2GS_PersonalTask_Take_Award
+{
+	optional uint32 taskid = 1;
+}
+
+message GS2C_PersonalTask_Take_Award
+{
+	required bool isSuccess = 1;
+	optional Country_Task_Err errRet = 2;
+}
+
+message GS2C_Notice_Country_NPC_NextTime
+{
+	optional uint32 npcType = 1;	//1:远征军, 2:禁卫军
+	optional uint64 nextTime = 2;
+}
+
+////////////////坚守国境////////////////////////
+message GS2C_Country_Task_DefenceBorderland
+{
+	required bool   is_begin                =1;
+	optional uint32 cur_stage               =2;	//当前大阶段 30分
+	optional uint32 cur_sub_stage		=3;	//当前小阶段 10分
+	optional uint64 cur_stage_end_time	=4;	//当前大阶段结束时间
+	optional uint64 cur_sub_stage_end_time	=5;	//当前小阶段结束时间
+	repeated bool is_country_failed	=6;	//三个国家是否防守失败
+	repeated uint32 cityid_monster_attack	=7;	//正在被满足攻打的城池id
+}
+
+
+message GS2C_Country_DefenceBorderland_Player
+{
+	optional uint32 stageID		= 1;//最后存在的阶段
+	optional uint32 rankID		= 2;//称号id
+	optional uint32 rank		= 3;//排名	如果rankid不为0，则有排名
+	optional uint32 killNum		= 4;//杀敌数
+	optional bool   is_take_reward	= 5;//是否已领取奖励
+	optional bool	canTakeExReward = 6;//是否可以领取最后阶段的额外奖励
+
+	optional GS2C_LootList rank_reward	= 7;// 称号奖励列表
+	optional GS2C_LootList win_reward	= 8;// 额外奖励
+}
+
+message C2GS_Country_DefenceBorderland_Take_Reward
+{
+	optional uint32 stage = 1;
+}
+
+message GS2C_Country_DefenceBorderland_Take_Reward
+{
+	required bool isSuccess = 1;
+	optional Country_Task_Err errRet = 2;
+}

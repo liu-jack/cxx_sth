@@ -1,0 +1,47 @@
+#include "BuffFight.h"
+#include "datastruct/struct_skill_slg.h"
+
+BuffFight::BuffFight(const DB_Buff_Fight& db)
+	:m_dbBuffFight(db)
+{
+}
+
+int BuffFight::GetBuffType()
+{
+	return (int)m_dbBuffFight.buff_type;
+}
+
+int BuffFight::GetLastRoundsCount()
+{
+	return (int)m_dbBuffFight.last_time;
+}
+
+int BuffFight::GetBuffTarget()
+{
+	return (int)m_dbBuffFight.target;
+}
+
+int BuffFight::GetRows()
+{
+	return (int)m_dbBuffFight.rows;
+}
+
+int BuffFight::GetLevel()
+{
+	return (int)m_dbBuffFight.buff_level;
+}
+
+float BuffFight::GetValue1()
+{
+	return m_dbBuffFight.value1;
+}
+
+float BuffFight::GetValue2()
+{
+	return m_dbBuffFight.value2;
+}
+
+float BuffFight::GetValue3()
+{
+	return m_dbBuffFight.value3;
+}

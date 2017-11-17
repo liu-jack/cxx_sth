@@ -1,0 +1,131 @@
+/************************************************************************/
+/*Add by:zhoulunhao													*/
+/*Email	:zhoulunhao@hotmail.com											*/
+/************************************************************************/
+
+#include "ActivityHeroRewardLog.h"
+#include "Activity.pb.h"
+#include "../object/Player.h"
+#include "def/ConstDef.h"
+ActivityHeroRewardLog::ActivityHeroRewardLog()
+{
+	
+}
+
+
+void ActivityHeroRewardLog::SaveTo(Player* player,pb::GS2C_Reward_Hero_Info& msg)
+{
+	for(B_MAP::iterator iter = troops_has_first_reward_log_.begin();iter != troops_has_first_reward_log_.end();++iter)
+	{
+		if(iter->second)
+		{
+			if(const Character * charac = player->m_characterStorage->GetCharacter(iter->first))
+			{
+				if(charac->GetLevel() == player->GetLevel())
+					continue;
+			}
+			msg.set_charid(iter->first);
+			msg.set_is_first_reward(iter->second);
+			break;
+		}
+	}
+	
+	if(!msg.has_charid())
+	{	
+		int round = 0;
+		while(!char_queue_.empty())////when all character's level are equal to player's level,we need to quit from the while cycle.
+		{
+			if(const Character * charac = player->m_characterStorage->GetCharacter(char_queue_.front()))
+			{
+				if(charac->GetLevel() == player->GetLevel())
+				{
+					SyncCharId();
+					++round;
+				}
+				else
+				{
+					msg.set_charid(char_queue_.front());
+					msg.set_is_first_reward(getIsFirstReward(msg.charid()));
+					break;
+				}
+			}
+			if(round > CHARACTER_COUNT)
+				break;
+		}
+	}
+	if(!msg.has_charid())
+	{
+		msg.set_charid(0);
+		msg.set_is_first_reward(false);
+	}
+}
+
+void ActivityHeroRewardLog::LoadFrom(Player* player,const pb::GxDB_Hero_Reward& msg)
+{
+	FillCharId(player);
+	for(int i = 0;i < msg.info_size();i++)
+	{
+		const pb::GxDB_Hero_Reward_info& info = msg.info(i);
+		troops_has_first_reward_log_[info.charid()] = info.has_first_reward();
+	}
+	uint32 cur_char_id = player->getCurrRewardCharId();///current character Id.
+	while(!char_queue_.empty() && char_queue_.front() <= cur_char_id)
+	{
+		char_queue_.push_back(char_queue_.front());
+		if(char_queue_.front() == cur_char_id)//In case of dead cycle.
+		{
+			char_queue_.pop_front();
+			break;
+		}
+		else
+		{
+			char_queue_.pop_front();
+		}
+	}
+}
+
+
+void ActivityHeroRewardLog::UpdateCharInfo(const uint32 char_Id)
+{
+	troops_has_first_reward_log_[char_Id] = true;
+	char_queue_.push_back(char_Id);
+}
+//由于是可配置的活动，并不需要将数据清空
+void ActivityHeroRewardLog::Clear()
+{
+	char_queue_.clear();
+	for(B_MAP::iterator iter = troops_has_first_reward_log_.begin();iter != troops_has_first_reward_log_.end();++iter)
+	{
+		iter->second = true;
+		char_queue_.push_back(iter->first);
+	}
+}
+
+bool ActivityHeroRewardLog::getIsFirstReward(const uint32 char_id)
+{
+	return troops_has_first_reward_log_[char_id];
+}
+
+void ActivityHeroRewardLog::setHasFirstReward(const uint32 char_id,bool value)
+{
+	troops_has_first_reward_log_[char_id] = value;
+}
+
+void ActivityHeroRewardLog::SyncCharId()
+{
+	if(!char_queue_.empty())
+	{
+		char_queue_.push_back(char_queue_.front());
+		char_queue_.pop_front();
+	}
+}
+
+void ActivityHeroRewardLog::FillCharId(Player* player)
+{
+	CharacterContainer& char_container = player->m_characterStorage->GetMutableCharacterContainer();
+	for(CharacterContainer::iterator iter = char_container.begin();iter != char_container.end();++iter)
+	{
+		troops_has_first_reward_log_[iter->first] = true;
+		char_queue_.push_back(iter->first);
+	}
+}

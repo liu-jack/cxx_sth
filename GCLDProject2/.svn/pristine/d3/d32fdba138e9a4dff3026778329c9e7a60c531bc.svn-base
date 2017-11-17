@@ -1,0 +1,67 @@
+/************************************************************************/
+/*Add by:zhoulunhao													*/
+/*Email	:zhoulunhao@hotmail.com											*/
+/************************************************************************/
+#ifndef __EXPLOITMGR___H
+#define __EXPLOITMGR___H
+
+#include "SimpleSingleton.h"
+#include "ptr_container/PtrMap.h"
+#include "ExploitBoxProto.h"
+#include "../Loot/LootList.h"
+#include "../object/Player.h"
+#include "../Loot/LootDefine.h"
+#include "../Loot/LootManager.h"
+#include "item/LogicItemProto.h"
+#include "item/ItemManager.h"
+#include "TrickReward.h"
+
+const static uint32 EXPLOIT_NUM  = 100;
+#define MAX_SHOW_NUM_PALYER 1000
+const static uint32 MAX_VEC_NUM = 1000;
+
+
+class ExploitMgr:public SimpleSingleton<ExploitMgr>
+{
+public:
+
+	~ExploitMgr(){}
+	void Init();
+	void GetInit();
+
+	const ExploitBoxProto* GetExploitBoxProto(uint32 Id) const;
+	const ChallengeRank* GetChallengerank(uint32 Id) const;
+	const AttackCityRank* GetAttackCityRank(uint32 Id) const;
+
+	bool GetRankBoxReward(Player& player,int VictimType,LootList& lootlist,bool is_exploit = true);//¸ø±¦Ïä½±Àø
+	bool GetRankReward(Player& player,int VictimType,int rank,LootList& lootlist,bool is_exploit = true);//¸øÅÅÐÐ°ñ½±Àø
+	uint32 GetExploitRank(uint32 ExploitRank) const;
+	uint32	__GetKillFromLevel(uint32 level) const;
+
+	const IntPairVec* GetMilitaryPowerRankRewardByRank(const int rank);
+
+	void InitializeExploitValue();
+	void InitMilitaryPowerRankValue();
+	typedef PtrMap< uint32, ExploitBoxProto> ExploitBoxProtoMap;
+	typedef PtrMap<uint32, ChallengeRank> ChallengeRankMap;
+	typedef PtrMap<uint32,AttackCityRank> AttackCityRankMap;
+	typedef PtrMap<uint32,FightRankReward> FightRankRewardMap;
+public:
+	std::map<uint32,std::pair<uint32,uint32> > ExploitRankMap;
+	ExploitBoxProtoMap m_exploitboxprotomap;
+	ChallengeRankMap m_challengerankmap;
+	AttackCityRankMap m_attackcityrankmap;
+	FightRankRewardMap fightrank_reward_map_;
+	ranksortMap exploit_rank_map_;
+	ranksortMap trick_rank_map_;
+	ranksortMap occupy_rank_map_;
+	ranksortMap military_power_rank_map_;
+	std::deque<DB_ExploitBoxProto> box_queue_;
+	std::deque<OccupyReward > occupy_queue_;//Õ¼³Ç°ñ
+	std::deque<TrickReward > trick_queue_;//µ¥Ìô°ñ
+};
+#define sExploitMgr ExploitMgr::Instance()
+
+
+
+#endif

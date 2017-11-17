@@ -1,0 +1,134 @@
+
+#include "ActivtyStage.h"
+#include "object/Player.h"
+#ifdef _MMO_SERVER_
+#include "fuben/FubenLog.h"
+#endif
+PassStageReward::PassStageReward()
+{
+	Init();
+}
+
+PassStageReward::~PassStageReward()
+{
+
+}
+
+void PassStageReward::Init()
+{
+	const ActivityStageRewardMap& reward_map = sActivityStageRewardTableMgr.GetActivityStageRewardMap();
+	for(ActivityStageRewardMap::const_iterator iter = reward_map.begin();iter != reward_map.end();++iter)
+	{
+		PassStageRewardStruct& ref = pass_stage_reward_struct_map_[iter->first];
+		ref.is_take_reward = 0;
+		ref.stage_is_passed = 0;
+		ref.stage_level = iter->second->StageLevelId();
+	}
+}
+
+void PassStageReward::SaveTo(Player* player, pb::GS2C_Pass_Stage_Reward_All_Info& msg )
+{
+	for(PassStageRewardStructMap::iterator Iter = pass_stage_reward_struct_map_.begin();Iter != pass_stage_reward_struct_map_.end();++Iter)
+	{
+		pb::pass_stage_reward_info* stage_info = msg.add_pass_stage_info();
+		stage_info->set_id(Iter->first);
+		stage_info->set_is_take_reward(Iter->second.is_take_reward);
+		stage_info->set_stage_is_passed(Iter->second.stage_is_passed);
+		stage_info->set_stage_level(Iter->second.stage_level);
+	}
+}
+
+void PassStageReward::SaveTo( pb::GxDB_Pass_Stage_Reward& msg )
+{	
+	for(PassStageRewardStructMap::iterator iter = pass_stage_reward_struct_map_.begin();iter != pass_stage_reward_struct_map_.end();++iter)
+	{
+		pb::pass_stage_reward_info* reward_info = msg.add_pass_stage_info();
+		reward_info->set_id(iter->first);
+		reward_info->set_is_take_reward(iter->second.is_take_reward);
+		reward_info->set_stage_is_passed(iter->second.stage_is_passed);
+		reward_info->set_stage_level(iter->second.stage_level);
+	}
+}
+void PassStageReward::LoadFrom( const pb::GxDB_Pass_Stage_Reward& msg )
+{
+	for(int i = 0;i < msg.pass_stage_info_size();++i)
+	{
+		const pb::pass_stage_reward_info& stage_info = msg.pass_stage_info(i);
+		PassStageRewardStruct& ref = pass_stage_reward_struct_map_[stage_info.id()];
+		ref.is_take_reward = stage_info.is_take_reward();
+		ref.stage_is_passed = stage_info.stage_is_passed();
+		ref.stage_level = stage_info.stage_level();
+	}
+}
+
+void PassStageReward::UpdateStageIsPassed( const uint32 id )
+{
+	if(pass_stage_reward_struct_map_.empty()) return ;
+	PassStageRewardStruct& ref = pass_stage_reward_struct_map_[id];
+	ref.stage_is_passed = 1;
+}
+
+void PassStageReward::UpdateStageIsTakeReward( const uint32 id )
+{
+	if(pass_stage_reward_struct_map_.empty()) return ;
+	PassStageRewardStruct& ref = pass_stage_reward_struct_map_[id];
+	ref.is_take_reward = 1;
+}
+
+bool PassStageReward::CheckStageIsPassed( const uint32 id )
+{
+	if(pass_stage_reward_struct_map_.empty()) return false;
+	PassStageRewardStruct& ref = pass_stage_reward_struct_map_[id];
+	return ref.stage_is_passed == 1;
+}
+
+bool PassStageReward::CheckStageIsTakeReward( const uint32 id )
+{
+	if(pass_stage_reward_struct_map_.empty()) return false;
+	PassStageRewardStruct& ref = pass_stage_reward_struct_map_[id];
+	return ref.is_take_reward == 1;
+}
+
+bool PassStageReward::CanTakeReward( const uint32 id )
+{
+	if(pass_stage_reward_struct_map_.empty()) return false;
+	PassStageRewardStruct& ref = pass_stage_reward_struct_map_[id];
+	return ref.stage_is_passed == 1 && ref.is_take_reward == 0;
+}
+
+PassStageRewardStructMap& PassStageReward::GetPassStageRewardStructMap()
+{
+	return pass_stage_reward_struct_map_;
+}
+
+void PassStageReward::GM_Finish(Player* player, const uint32 id )
+{
+	PassStageRewardStruct& ref = pass_stage_reward_struct_map_[id];
+	ref.stage_is_passed = 1;
+	PlayerPassStageRewardDB::SendInfoToDB(*player,id,ref,pb::DATA_UPDATE);
+}
+
+void PassStageReward::UpdateStagePassByStageLevel(Player*player, const uint32 stage_level )
+{
+	for(PassStageRewardStructMap::iterator iter = pass_stage_reward_struct_map_.begin();
+		iter != pass_stage_reward_struct_map_.end();++iter)
+	{
+		if(stage_level >= iter->second.stage_level)
+		{
+			if(iter->second.stage_is_passed == 0)
+			{
+				iter->second.stage_is_passed = 1;
+			}
+		}
+		PlayerPassStageRewardDB::SendInfoToDB(*player,iter->first,iter->second.is_take_reward,iter->second.stage_is_passed,iter->second.stage_level,pb::DATA_UPDATE);
+	}
+}
+
+void PassStageReward::Clear(Player& player)
+{
+	if(!pass_stage_reward_struct_map_.empty())
+	{
+		pass_stage_reward_struct_map_.clear();
+		PlayerPassStageRewardDB::SendDeleteInfoToDb(player,pb::DATA_DEL);
+	}
+}

@@ -1,0 +1,174 @@
+package pb;
+import "CommomDef.proto";
+import "Stage.proto";
+import "Fuben.proto";
+import "MapLogic.proto";
+import "Item.proto";
+import "Character.proto";
+import "Quest.proto";
+import "Mail.proto";
+import "Market.proto";
+import "Altar.proto";
+import "Dungeon.proto";
+import "BaoQi.proto";
+import "Smithy.proto";
+import "Buff.proto";
+import "Technology.proto";
+import "Module.proto";
+import "Activity.proto";
+import "Palace.proto";
+import "World.proto";
+import "TeachMap.proto";
+import "Rank.proto";
+
+enum KickErrorType
+{
+	RELOGIN  =1 ;
+}
+
+message OtherInfo
+{
+	optional uint32 channel_id   =1 ; // 渠道Id
+	optional uint32 platform_id  =2 ; // 平台Id
+}
+
+message PlayerAllData
+{
+	optional ObjectFullValue        full_value      =1;
+	optional GS2C_Bag               bag_info        =2; 
+	optional GS2C_CharacterStorage  character_info  =3;
+	optional GS2C_Mail_MailList  	mails        	=4;
+	optional GS2C_QuestList         quest_log       =5;
+	optional GxDB_BehaviorList      behavior_count  =6;
+	optional OtherInfo              other_info      =7;
+	optional GS2C_PlayerStringGroup string_data     =8;
+	optional GS2C_Fuben_All_Info    fuben_info      =9;
+	optional GS2C_MapLogic_Init     world_map_logic =10;
+	optional GS2C_Market_All_Info   market_info     =11;
+	optional GS2C_Altar_All_Info    altar_info      =12;
+	optional GS2C_Dungeon_All_Info  dungeon_info    =13;
+	optional GS2C_BaoQi_All_Info    bao_qi_info     =14;
+	optional GS2C_Smithy_All_Info   smithy_info     =15;
+	optional GS2C_Buff_All_Info     buff_info       =16;
+	optional GxDB_Technology_All_Info  technology_info    =17;
+	optional GxDB_Daily_Quest dailyquest_info = 18;
+	optional GxDB_Grow_Up_Quest growupquest_info = 19;
+	optional GxDB_Grow_Up_Quest_Group growupquestgroup_info = 20;
+	optional GxDB_Sign_Up sign_up_info = 21;
+	optional GxDB_Pass_Stage_Reward pass_stage_reward_info = 22;
+	optional GxDB_ActivityStarBox activity_star_box_info = 23;
+	optional GxDB_PalaceAchievement  achievement_info = 24;
+	optional GxDB_GovAffairsInfo gov_affairs_info  = 25;
+	optional GxDB_Hero_Reward  hero_reward = 26;
+	optional GxDB_World_Achievement world_fight_achieve_info = 27;
+	optional GxDB_Seige_Force_Info_Pack seige_force_info = 28;
+	optional GxDB_ContinueOccupyCityInfo continue_info = 29;
+	optional GS2C_Get_Teach_Rec teach_rec = 30;
+	optional GxDB_CongratulateRewardLog congratulate_info = 31;
+	optional GxDB_CongratulateBeenCongratualted con_been_congratulated = 32;
+}
+
+message CreatePlayerData
+{
+	required uint64        account_id   =1 ;
+	required PlayerAllData all_data     =2 ;
+}
+
+message RegistCrossPlayerData
+{
+	required PlayerAllData player_data     =1 ;
+	optional PlayerAppendData  append =2;
+	optional uint32 country_id     =3;//国家id
+	optional uint64 account_id  =4 ;
+	optional uint32 cross_Unique_id = 5;
+}
+
+message PlayerAppendData
+{
+	optional GxDB_Modules_Info      module 			=1;
+	optional GxDB_Buildings_Info    building		=2;
+}
+
+message SyncPlayerCacheData
+{
+	required uint64        account_id   =1 ;
+	required PlayerAllData all_data     =2 ;
+	optional PlayerAppendData  append =3;
+}
+
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+message CQuickLogin
+{
+	optional uint64 account_id  =1 ;
+	optional uint64 player_id   =2 ;
+	optional string session_key =3 ;
+	optional uint32 platform_id =4 ; // 平台Id		
+}
+
+enum QuickLoginResult
+{
+	QUICK_LOGIN_SUCCESS                =0 ; // 成功
+	QUICK_LOGIN_SUCCESS_NO_PLAYER      =1 ; // 成功	
+	QUICK_LOGIN_KEY_ERROR              =2 ; // key 错误
+	QUICK_LOGIN_KEY_PAST_DUE           =3 ; // key 已过期
+	QUICK_LOGIN_KEY_UNAVAILABLE_SERVER =4 ; // 服务器暂时不可用
+	QUICK_LOGIN_CAN_NOT_FIND_KEY_INFO  =5 ; // 找不到key信息
+	QUICK_LOGIN_NEED_RELOGIN_AGAIN     =6 ; // 需要重新登录
+}
+
+message SQuickLogin
+{
+	required QuickLoginResult result =1 ;
+}
+
+message GS2C_ItemOperateError
+{
+	required uint32         error_type = 1; // 错误类型  enum ItemOperateError{} 在程序中定义
+	optional uint32         property   = 2; // ItemOperateResult 为 ITEM_OP_PROPERTY_ERROR 是有
+}
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+message GS2C_Player_Online_State
+{
+	optional uint64      player_guid = 1;
+	optional string      player_name = 2;
+	optional bool        isonline    = 3;
+}
+
+message C2GS_Is_Player_Exist
+{
+	required string  	player_name = 1;
+	required uint64  	your_guid = 2;
+	optional uint32  send_from = 3;//0默认，1，邮件系统，2，好友系统，
+}
+
+message GS2C_Is_Player_Exist
+{
+	required bool   is_exist = 1;
+	optional string  player_name = 2;
+	optional bool   is_online = 3;
+	required uint64  your_guid = 4;
+	optional uint32  send_from = 5;//0默认，1，邮件系统，2，好友系统，
+}
+
+
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// 
+
+message FeedbackInfo
+{
+	optional string		   feedback   = 1;
+}
+
+message FeedbackRet
+{
+	required bool  is_success           =1;
+	optional int32  error_code          =2;
+}
+
+message NUll_Ret
+{
+}

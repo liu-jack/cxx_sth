@@ -1,0 +1,82 @@
+#ifndef CharacterManager_h__
+#define CharacterManager_h__
+
+#include "SimpleSingleton.h"
+#include "def/TypeDef.h"
+#include "ptr_container/PtrMap.h"
+#include "CharacterProto.h"
+struct DB_CharUpgradeLevelItem;
+struct DB_CharAttrRandom;
+struct DB_CharAttrAdd;
+struct DB_Teach_Soldier;
+struct DB_FightValue;
+class ItemArray;
+class CharacterManager : public SimpleSingleton<CharacterManager>
+{
+    friend class SimpleSingleton<CharacterManager>;
+
+    typedef PtrMap<uint32, CharacterProto>                   CharacterProtoMap;
+
+    typedef std::vector<const DB_CharUpgradeLevelItem*>      LvUpItemVec;
+
+    typedef std::map<uint32, const DB_CharAttrRandom*>       Quality2RandomMax;
+    typedef std::map<uint32, Quality2RandomMax>              CharClass2Quality2RandomMax;
+	typedef std::map<uint32, std::vector<float>>                  CharClass2RandomMaxVec;
+	typedef std::map<uint32, const DB_FightValue*>				FightValueOfCharacter;
+	typedef std::multimap<uint32, CharacterProto*>           CharacterClassOptoinMap ; // map< class_option, class_id >
+	typedef std::map<std::pair<uint32, uint32>, const DB_CharAttrAdd*> CharProtoId2Quality2AttrAdd;
+
+
+public:
+    typedef std::map<uint32, uint32> ItemID2Count;
+    void Init();
+
+    const CharacterProto* GetCharacterProto( uint32 protoID) const; 
+    bool TryGetItemXp(uint32 itemId, uint32& xp) const;
+    bool TryGetItemSumXp(ItemID2Count& itemid2cout, uint32& sumXp) const;
+	float GetFightValueByAttrId(const uint32 attr_id) const;
+    
+    void GetRebirthLevelSumItem(uint32 sumXp, ItemID2Count& itemid2count ) const; 
+	bool ExpToBagItemCount(ItemArray * bag, uint32 sumXp, ItemID2Count& itemid2count ) const;
+	void GetRebitrhQualitySumItem(uint32 charProtoId, uint32 curQuality, ItemID2Count& itemid2count) const;
+
+
+    bool TryGetSkillLevelUpCoin( uint32 skillType, uint32 from, uint32 to, uint32& coinSum) const;
+
+    const DB_CharAttrRandom* GetAttrRandomMaxOfQuality( uint32 charClass, uint32 quality) const;
+	const std::vector<float>* GetAttrRandomMaxVecOfClass( uint32 charClass) const;
+
+	const uint32 PickCharacterProtoIdByClass( uint32 classOption, std::set< uint32 > &notUseId ) const ;
+    const DB_CharAttrAdd* GetAttrAdd( uint32 protoId, uint32 quality) const;
+	const std::map<uint32, uint32>& GetTeachChars();
+	const uint32 getUpgradeLevelXpByItemId(const uint32 ItemID) const;
+private: 
+    void InitCharProto();
+    void InitLvUpItemVec();
+    void InitCharSkill();
+    void InitRandomMax();
+    void InitCharAttrAdd();
+	void InitCharFightValue();
+
+
+    CharacterManager();
+    CharacterProto* MutableCharacterProto( uint32 protoID);
+
+public:
+    ~CharacterManager();
+
+private:
+    CharacterProtoMap           m_charProtoMap;
+    LvUpItemVec                 m_LvUpItemVec;
+    CharClass2Quality2RandomMax m_class2quality2rdmax;
+    CharClass2RandomMaxVec      m_class2randommax;
+	CharacterClassOptoinMap     m_classOption2classId;
+    CharProtoId2Quality2AttrAdd m_protoid2quality2attradd;
+	std::map<uint32, uint32>	m_teachChars;	//<id,level>
+	FightValueOfCharacter       m_fight_value;
+};
+
+
+#define sCharacterMgr CharacterManager::Instance()
+
+#endif // CharacterManager_h__

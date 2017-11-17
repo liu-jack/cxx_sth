@@ -1,0 +1,348 @@
+#ifndef DB_PROXY_H
+#define DB_PROXY_H
+
+
+#include "PlayerBaseData.h"
+#include "player_data/CachePtrMap.h"
+#include "player_data/CachePtr.h"
+#include "boost/noncopyable.hpp"
+using namespace pb;
+
+namespace pb
+{
+	class MsgPlayerBaseData;
+	class MsgPlayerBaseInfo;
+	class MsgPlayerTeamInfo;
+	class GxDB_FriendInfo;
+    class GS2C_PlayerStringGroup;
+    class PlayerAllData;
+	class GxDB_Module;
+	class GxDB_Building;
+	class GxDB_Buildings_Info;
+	class GxDB_Modules_Info;
+}
+
+class PlayerData : public boost::noncopyable
+{
+	DECLARE_OBJ_POOL(PlayerData)
+
+public:
+	typedef bool (PlayerData::*SaveDirtyFuntion)();
+
+	enum DIRTY_BIT{
+        DIRTY_PLAYER_VALUE,
+		DIRTY_CHARACTER,
+        DIRTY_BATTLE_ARRAY,
+		DIRTY_ITEM,
+        DIRTY_QUEST_COUNTER,
+        DIRTY_QUEST_LOG,
+        DIRTY_QUEST_COMPLETE,
+        //DIRTY_SELL_RANDOM_PROGRAM,
+        //DIRTY_SELL_PROGRAM_INFO,
+        //DIRTY_SELL_RECORD,
+        //DIRTY_LOOT_RECORD,
+        //DIRTY_LOTTERY_RECORD,
+        DIRTY_PLAYER_STRING,
+		DIRTY_PLAYER_BUILDING,
+		DIRTY_PLAYER_MODULE,
+		DIRTY_FUBEN_INFO,
+		DIRTY_MARKET_INFO,
+		DIRTY_ALTAR_INFO,
+        DIRTY_BAO_QI_INFO,
+        DIRTY_DUNGEON_INFO,
+        DIRTY_MAP_LOGIC,
+        DIRTY_TECHNOLOGY,
+		DIRTY_CRUSADE,
+		DIRTY_MAIL,
+		DIRTY_SMITHY,
+		DIRTY_DAILYQUEST,
+		DIRTY_GROW_UP_QUEST,
+		DIRTY_GROW_UP_QUEST_GROUP,
+		DIRTY_SIGN_UP,
+		DIRTY_PASS_STAGE_REWARD,
+		DIRTY_ACTIVITY_STAR_BOX,
+		DIRTY_PALACE_ACHIEVEMENT,
+		DIRTY_ZHENG_WU,
+		DIRTY_GENERAL_REWARD,
+		DIRTY_WORLD_FIGHT_ACHIEVEMENT,
+		DIRTY_SEIGE_FORCE,
+		DIRTY_CONTINUE_CITY,
+		DIRTY_CONGRATULATE,
+		DIRTY_CONGRATULATE_BEEN_CON,
+		DIRTY_WANNA_BE_STRONGER,
+		_DIRTY_BIT_COUNT
+    };
+
+public:
+	explicit PlayerData(uint64 playerId);
+	~PlayerData();
+
+	void Init( uint64 playerId ) ;
+
+    void InitDirtySaver();
+
+	void SetAllDirty( void );
+	inline bool GetIsDirty() {    return m_dirtyBit.any();    }
+	void SetIsDirty( DIRTY_BIT dirtyType){ m_dirtyBit.set(dirtyType); }
+	void SaveDirtyPart(time_t cur_time);
+
+	inline bool GetIsReconnectInit( void ) {    return m_reconnectInit ;    }
+	inline void SetIsReconnectInit( bool Reconnect ) {    m_reconnectInit =Reconnect ;    }
+
+	inline time_t GetLastSaveTime( void ){    return m_lastSaveTime;    }
+	inline void SetLastSaveTime(time_t time){    m_lastSaveTime = time;    }
+
+	inline bool GetIsOffline( void ){    return m_isOffline;    }
+	inline void SetIsOffline(bool flag){    m_isOffline = flag;    }
+
+	inline bool GetIsLoadedDatabaseTable( void ) {    return m_isLoadedTable ;    }
+	inline void SetIsLoadedDatabaseTable( bool is_loaded ) {    m_isLoadedTable =is_loaded ;    }
+
+	inline uint64 GetPlayerId( void ) {    return m_playerId ;    }
+	inline void SetPlayerId( uint64 id ) {    m_playerId =id;    }
+
+	std::string GetPlayerName();
+	uint64 GetPlayerAccountId();
+	void ReadAllPlayerdata( const pb::PlayerAllData &data ) ;
+
+    void ChangeNameImm( const std::string& name);
+	void SetNameAndHeadId(const std::string& name,const uint32 head_id);
+
+    //////////////////////////////////////////////////////////////////////////
+    // Handler
+public:
+#undef Msg_Declare
+#undef Msg_Realize
+#define Msg_Declare(e, MsgType) void Player_##e(MsgType& msg);
+#define Msg_Realize(e, MsgType) void PlayerData::Player_##e(MsgType& msg)
+    #include "msg/PlayerDataMsg.h"
+
+  /*  void UpdateEndlessLevel(pb::SG2D_UpdataStageLevel& info);
+	void UpdateStageInfo(pb::SG2D_UpdataStage& info);
+	void UpdateStageLevelInfo(pb::SG2D_UpdataStageLevel& info);*/
+
+    void UpdateQuestLog( const pb::GxDB_Quest& questLog);
+    void UpdateQuestComplete( const pb::GxDB_Quest& questId);
+    void UpdateQuestCounter( const pb::GxDB_Behavior& questCounter );
+
+    void UpdateSellRandomProgram( const pb::GS2C_SellRandomProgram& msg);
+    void UpdateSellProgramInfo( const pb::GS2C_SellProgramInfo& msg);
+    void UpdateLootRoundRecord( const pb::GS2C_LootRecord& msg);
+    void UpdateLotteryFree( const pb::GS2C_LotteryFreeRecord& msg);
+    void UpdatePlayerString( const pb::GS2C_PlayerString& msg);
+    void UpdatePlayerValue( const pb::ObjectValueUpdate& playerValueUp);
+    void UpdateBag( const pb::GS2C_Bag& bagUpdate);
+	void UpdateCharacter( const pb::GS2C_CharacterUpdate& charUpdate);
+    void UpdateBattleArray( const pb::GS2C_BattleCharacter& battleArray);
+
+	void UpdateModuleInfo( pb::GxDB_Module &module);
+	void UpdateBuildInfo( pb::GxDB_Building &building);
+
+    void AddCharacter(const pb::GS2C_CharacterCreate& charMsg);
+    void DestoryCharacter( const pb::Uint32List& charIds);
+public:
+    void GetBattleArray( std::set<uint32>& charIds) const;
+    void GetEquip(const std::set<uint32>& charIds, std::set<uint32>& equipIds) const;
+	string GetPlayerString(uint32 strType);
+
+public:
+	// 是否正在登出
+	bool m_isOffline;
+
+	bool ReadPlayerAllInitInfo( const uint64 &guid ) ; 
+
+private:
+	void WriteOtherInfo( pb::OtherInfo &info ) ;
+	//void WritePlayerStageLevelInfo(pb::GS2C_AllStageInfo& stageInfo);
+    void WritePlayerFuBenInfo(pb::GS2C_Fuben_All_Info& msg);
+    void WritePlayerTechnologyInfo(pb::GxDB_Technology_All_Info& msg);
+	void WritePlayerDailyQuestInfo(pb::GxDB_Daily_Quest& msg);
+	void WritePlayerGrowUpQuestInfo(pb::GxDB_Grow_Up_Quest& msg);
+	void WritePlayerGrowUpQuestGroupInfo(pb::GxDB_Grow_Up_Quest_Group& msg);
+	void WritePlayerSignUp(pb::GxDB_Sign_Up& msg);
+	void WritePlayerPassStageReward(pb::GxDB_Pass_Stage_Reward &msg);
+	void WritePlayerGeneralReward(pb::GxDB_Hero_Reward& msg);
+	void WritePlayerZhengWu(pb::GxDB_GovAffairsInfo& msg);
+	void WritePlayerActivityStarBox(pb::GxDB_ActivityStarBox& msg);
+	void WritePlayerPalaceAchievement(pb::GxDB_PalaceAchievement& msg);
+	void WritePlayerWorldFightAchievement(pb::GxDB_World_Achievement& msg);
+	void WritePlayerSeigeForce(pb::GxDB_Seige_Force_Info_Pack& msg);
+	void WritePlayerContinueOccupyCity(pb::GxDB_ContinueOccupyCityInfo& msg);
+	void WritePlayerCongratulate(pb::GxDB_CongratulateRewardLog& msg);
+	void WritePlayerCongratulateBeenCon(pb::GxDB_CongratulateBeenCongratualted& msg);
+	void WritePlayerWannaBeStronger(pb::GxDB_WannaBeStrongerInfoAllInfo& msg);
+    void WritePlayerMarketInfo(pb::GS2C_Market_All_Info& msg);
+    void WritePlayerAltarInfo(pb::GS2C_Altar_All_Info& msg);
+    void WritePlayerBaoQiInfo(pb::GS2C_BaoQi_All_Info& msg);
+    void WritePlayerMapLogic(pb::GS2C_MapLogic_Init& msg);
+    void WritePlayerDungeonInfo(pb::GS2C_Dungeon_All_Info& msg);
+    void WritePlayerBagInfo(pb::GS2C_Bag& bagInfo);
+    void _WritePlayerBagInfo(pb::GS2C_Bag& bagInfo, ItemBaseTable* item_base);
+    void WriteCharacterStorage( pb::GS2C_CharacterStorage& charInfo);
+
+    void _WriteBattleArray( pb::GS2C_CharacterStorage &charInfo );
+
+    void WriteQuestList( pb::GS2C_QuestList& questListMsg);
+    void WriteQuestCounter( pb::GxDB_BehaviorList& questCounterMsg);
+    void WriteSellData( pb::GS2C_AllSellData& allSellData);
+    void WriteLootData( pb::GS2C_AllLootRecord& allLootData);
+    void WriteLotteryData( pb::GS2C_AllLotteryInfo& allLotteryData);
+    void WritePlayerString( pb::GS2C_PlayerStringGroup& playerstring);
+	void WriteSmithyInfo(pb::GS2C_Smithy_All_Info &data);
+	void UpdateBagItem( const pb::GS2C_SlotItem& itemUpdate );
+    void AddItem( const pb::GS2C_SlotItem &itemUpdate );
+    void AddItemEquip( const pb::GS2C_SlotItem &itemUpdate );
+
+
+
+public:
+	bool AddMailAsync(const pb::SG2G_Mail_SendMail& newMail);
+    void SaveMailInfoToMsg( PlayerMailTable* mailTable, pb::Mail_UserMailInfo* mailinfo);
+	void WriteModuleInfo( pb::GxDB_Modules_Info &allmodule);
+	void WriteBuildInfo( pb::GxDB_Buildings_Info &allbuilding);
+
+	bool GetPlayerMailUpdate(pb::GS2C_Mail_MailList& mailUpdate);
+	void UpdateMail(const pb::SG2D_MailsOperate&mailOperat);
+	void WriteFriendInfo(pb::Friend_list_Record& info);
+	void WriteAllPlayerData( pb::PlayerAllData *pAllData );
+	void WriteFriendReceiveApIds(pb::GxDB_FriendInfo& info);
+	//void WriteGuildMemberInfo(pb::GxDB_GMember_Info &info);
+
+	void WritePlayerInfo(pb::MsgPlayerBaseData &info, int dataFlag =0);
+
+	void WritePlayerBaseInfo(pb::MsgPlayerBaseInfo &info, int dataFlag =0);
+	void WritePlayerTeamInfo(pb::MsgPlayerTeamInfo &info, int dataFlag =0);
+
+	uint32 GetLearderCardProId();
+	time_t GetLastLoginTime();
+	bool HasLearder();
+	bool IsLocked();
+	bool IsLockType(uint32 type);
+
+private:
+	bool save_fuben_record();
+    bool save_technology_record();
+    bool save_market_record();
+    bool save_altar_record();
+    bool save_bao_qi_record();
+    bool save_map_logic_record();
+    bool save_dungeon_record();
+    bool save_mode_item();
+    bool save_mode_character();
+    bool save_battle_array();
+    bool save_player_value();
+    bool save_quest_complete();
+    bool save_mod_quest_log();
+    bool save_mod_quest_counter();
+    bool save_mod_sell_random_program();
+    bool save_mod_sell_program_info();
+    bool save_mod_sell_record();
+    bool save_mod_loot_record();
+    bool save_mod_lottery_record();
+    bool save_mod_player_string();
+	bool save_mod_player_building();
+	bool save_mod_player_module();
+	bool save_mod_crusade();
+	bool save_mod_mail();
+	bool save_smithy();
+	bool save_dailyquest();
+	bool save_growupquest();
+	bool save_growupquestgroup();
+	bool save_signup();//签到
+	bool save_pass_stage_reward();
+	bool save_activity_star_box();
+	bool save_palace_achievement();
+	bool save_zheng_wu();
+	bool save_general_reward();
+	bool save_world_fight_achievement();
+	bool save_seige_force();
+	bool save_continue_occupy_city();
+	bool save_congratulate();////恭贺
+	bool save_congratulate_been_con();
+	bool save_wanna_be_stronger();
+
+private:
+
+	// 数据代理ID 
+	uint64                        m_playerId;
+
+	std::string                   m_playerName;
+
+	bool                          m_isLoadedTable ; // 是否已经加载过数据库表格数据了
+
+	// 脏标志
+	std::bitset<_DIRTY_BIT_COUNT>  m_dirtyBit;
+	SaveDirtyFuntion              save_dirty_function[_DIRTY_BIT_COUNT];
+
+	// 重连之后初始化的数据，在保存之前需要先删除所有数据，例如物品
+	bool                          m_reconnectInit; 
+
+	// 最后保存时间
+	time_t                        m_lastSaveTime;
+    std::set<uint64>              m_setCurMail;
+
+public:
+	//这里的几个，初始时，数据库里没内容，是空指针	(一个player对应一个)
+    CachePtr< PlayerTable>                     m_PlayerTable;
+    CachePtr< BattleArrayTable>                m_BattleArrayTable;
+    CachePtr< QuestCompleteTable>              m_QuestCompleteTable;
+    CachePtr< FuBenBaseTable>                  m_FuBenBaseTable;
+    CachePtr< MarketTable>                     m_MarketTable;
+	CachePtr< SmithyTable>					   m_SmithyTable;
+    CachePtr< AltarTable>                      m_AltarTable;
+    CachePtr< BaoQiTable>                      m_BaoQiTable;
+    CachePtr< DungeonTable>                    m_DungeonTable;
+    CachePtr< MapLogicTable>                   m_MapLogicTable;
+	//CachePtr< TechnologyTable>                 m_TechnologyTable;
+	CachePtr< StageCrusadeTable>			   m_StageCrusadeTable;
+	CachePtr<ZhengWuTable>                     m_ZhengWuTable;
+public:		//（一个player对应多个）
+    CachePtrMap< uint64, StageLevelTable>          m_StageLevelTable;
+	CachePtrMap< uint64, FuBenHideTable>			m_FuBenHideTable;
+    CachePtrMap< uint64, FuBenPassStageTable>      m_FuBenPassStageTable;
+	CachePtrMap< uint64, BranchFuBenTable>         m_BranchFuBenTable;
+    CachePtrMap< uint64, DungeonHeroTable>         m_DungeonHeroTable;
+    CachePtrMap< uint64, PlayerMailTable>          m_PlayerMailTable;
+    //CachePtrMap< uint64, LootRecordTable>          m_LootRecordTable;
+    //CachePtrMap< uint32, SellProgramInfoTable>     m_SellProgramInfoTable;
+    //CachePtrMap< uint32, SellRandomProgramTable>   m_SellRandomProgramTable;
+    //CachePtrMap< uint32, SellRecordTable>          m_SellRecordTable;
+    CachePtrMap< uint64, ItemBaseTable>            m_ItemBaseTable;
+    CachePtrMap< uint64, ItemEquipTable>           m_ItemEquipTable;
+    CachePtrMap< uint64, CharacterTable>           m_CharacterTable;
+    CachePtrMap< uint64, CharacterTrainingTable>   m_CharacterTrainingTable;
+	CachePtrMap< uint64, CharacterJueXingTable>    m_CharacterJueXingTable;
+    CachePtrMap< uint64, QuestCounterTable>        m_QuestCounterTable;
+    CachePtrMap< uint64, QuestLogTable>            m_QuestLogTable;
+    //CachePtrMap< uint32, LotteryFreeTable>         m_LotteryFreeTable;
+    CachePtrMap< uint64, PlayerStringTable>        m_PlayerStringTable;
+	CachePtrMap< uint64, BuildingTable>			   m_BuildingTable;
+	CachePtrMap< uint64, ModuleTable>			   m_ModuleTable;
+    CachePtrMap< uint64, TechnologyStudyTable>     m_TechnologyStudyTable;
+    CachePtrMap< uint64, MapLogicCityEventTable>   m_MapLogicCityEventTable;
+	CachePtrMap< uint64, FogRecMap>				   m_FogRecMap;
+	CachePtrMap< uint64, DailyQuestTable>			m_DailyQuestTable;
+	CachePtrMap< uint64, GrowUpQuestTable>          m_GrowUpQuestTable;
+	CachePtrMap< uint64, GrowUpQuestGroupTable>     m_GrowUpQuestGroupTable;
+	CachePtrMap< uint64, SignUpTable>				m_SignUpTable;
+	CachePtrMap< uint64, PassStageRewardRecordTable> m_PassStageRewardRecordTable;
+	CachePtrMap< uint64,ActivityStarBoxTable>		m_ActivityStarBoxTable;
+	CachePtrMap< uint64,PalaceOfficeAchievement>      m_PalaceOfficeAchievement;
+	CachePtrMap< uint64,GeneralRewardTable>           m_GeneralRewardTable;
+	CachePtrMap< uint64,WorldFightAchievementTable>   m_WorldFightAchievementTable;
+	CachePtrMap< uint64,SeigeForceTable>              m_SeigeForceTable;
+	CachePtrMap< uint64,ContinueOccupyCityTable>      m_ContinueOccupyCityTable;
+	CachePtrMap< uint64,CongratulateTable>				m_CongratulateTable;
+	CachePtrMap< uint64,CongratulateBeenCongratulatedTable>				m_CongratulateBeenCongratulatedTable;
+	CachePtrMap< uint64,WannaBeStrongerTable>				m_WannaBeStrongerTable;
+				
+	uint32 m_loadCount;
+	uint32 m_unloadCount;
+
+#ifdef _DEBUG
+	std::set< uint32 > m_hadDeleteCharId ;
+#endif
+
+};
+
+#endif

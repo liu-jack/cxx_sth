@@ -1,0 +1,18 @@
+#pragma once
+
+#include "def/TypeDef.h"
+
+class Player;
+class FubenLog;
+struct DB_FubenStage;
+struct ResourceLog;
+struct CrusadeLog;
+struct stage_info;
+
+class PlayerFuBenDB {
+public:
+    static void SendFuBenBaseToDb(Player& player, FubenLog& log);
+    static void SendResourceToDb(Player& player, uint32 stageId, ResourceLog* p);//资源关
+    static void SendPassStageToDb(Player& player, uint32 stage_type,stage_info* p);   //打过的特殊关
+	static void SendCrusadeToDb(Player& player, FubenLog& log);
+};

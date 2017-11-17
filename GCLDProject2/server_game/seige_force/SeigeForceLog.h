@@ -1,0 +1,77 @@
+/************************************************************************/
+/*Add by:zhoulunhao													*/
+/*Email	:zhoulunhao@hotmail.com											*/
+/************************************************************************/
+#ifndef _SEIGE_FORCE_LOG_H
+#define _SEIGE_FORCE_LOG_H
+
+
+#include "def/TypeDef.h"
+class Character;
+class CharacterAttr;
+namespace Combat
+{
+	class CombatObj;
+}
+namespace pb
+{
+	class GS2C_Seige_Force_All_Info;
+	class GS2C_Seige_Force_Level_Up_Rsp;
+	class GS2C_Seige_Force_Buy_Army_Rsp;
+	class GxDB_Seige_Force_Info_Pack;
+	class GS2C_Seige_Force_Use_Army_Rsp;
+	class Seige_Force_info;
+	class SiegeArmyMsg;
+}
+class Player;
+struct LogOfSeigeArmy
+{
+	uint32 cur_all_times;
+	uint32 left_times;
+	uint32 level;
+	uint32 skill_id;
+	uint32 cur_exp;
+	VecUint specific_ids;
+	VecUint terrains;
+	LogOfSeigeArmy()
+		:cur_all_times(0)
+		,left_times(0)
+		,level(1)//// initialization is level 1.
+		,skill_id(0)
+		,cur_exp(0)
+		,specific_ids()
+		,terrains(){}
+};
+typedef std::map<uint32,LogOfSeigeArmy> LogOfSeigeArmyMap;
+class SeigeForceLog
+{
+private:
+	LogOfSeigeArmyMap log_of_seige_army_map_;
+	DISALLOW_COPY_AND_ASSIGN(SeigeForceLog);
+public:
+	SeigeForceLog();
+	void LoadFrom(const pb::GxDB_Seige_Force_Info_Pack& msg);
+	void SaveTo(Player* player,pb::GS2C_Seige_Force_All_Info& msg);
+	void SaveTo(Player* player,pb::GS2C_Seige_Force_Level_Up_Rsp& msg,const uint32 siege_army_id);
+	void SaveTo(Player* player,pb::GS2C_Seige_Force_Buy_Army_Rsp& msg,const uint32 siege_army_id);
+	void SaveTo(Player* player,pb::GS2C_Seige_Force_Use_Army_Rsp& msg,const uint32 siege_army_id,const uint32 group_unique_id,uint32 cityid);
+	void SaveTo(pb::Seige_Force_info& info,const uint32 siege_army_id,const LogOfSeigeArmy& ref);
+	void SaveToMsg(pb::SiegeArmyMsg& msg);
+	void GivePlayerFirstSeigeArmy(Player* player,const int login_days);
+	void CharAttrReCalculator(LogOfSeigeArmy& ref);
+	void CalculateCharacterAttr(const uint32 siege_army_id,CharacterAttr* attr);
+	void ResetSiegeTimes(Player* player);
+	bool TryDecreaseTimes(Player* player,const uint32 siege_army_id);
+	bool CanAddSeigeArmy(const uint32 siege_army_id);
+	bool ArmyIsHave(const uint32 army_id) const;
+	LogOfSeigeArmy* GetLogOfSeigeArmyStruct(const uint32 siege_army_id);
+	void FillAllSeigeArmy();
+	void GM_LevelUp(Player* player,const uint32 siege_army_id,const uint32 level);
+	void ClearLogOfSeigeMap();
+	const uint32 getMilitaryPowerBySiegeArmyId(const uint32 siege_army_id);
+	const uint32 GetSiegeMilitaryPower();
+};
+
+
+
+#endif

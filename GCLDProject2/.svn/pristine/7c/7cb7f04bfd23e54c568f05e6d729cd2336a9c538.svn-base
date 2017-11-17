@@ -1,0 +1,156 @@
+#ifndef DB_BASE_PROXY_H
+#define DB_BASE_PROXY_H
+
+#include <map>
+#include <deque>
+#include <bitset>
+#include <boost/noncopyable.hpp>
+#include <boost/smart_ptr.hpp>
+#include "memory_buffer/MemoryPool.h"
+#include "data/FriendInfo.h"
+#include "def/TypeDef.h"
+#include "def/MmoAssert.h"
+#include "ModMarker.h"
+#include "ptr_container/PtrMap.h"
+
+
+#include "structDef.h"
+
+
+struct PlayerTable ;
+struct StageLevelTable;
+struct FuBenBaseTable;
+//struct FuBenResourceTable;
+struct FuBenPassStageTable;
+struct ItemBaseTable;
+struct ItemEquipTable;
+struct CharacterTable;
+struct CharacterTrainingTable;
+struct BattleArrayTable;
+struct QuestCompleteTable;
+struct QuestCounterTable;
+struct QuestLogTable;
+struct PlayerMailTable;
+struct SellProgramInfoTable;
+struct SellRandomProgramTable;
+struct SellRecordTable;
+struct LootRecordTable;
+struct DB_FriendInfo;
+struct MarketTable;
+struct SmithyTable;
+struct AltarTable;
+struct BaoQiTable;
+struct DungeonTable;
+struct DungeonHeroTable;
+struct MapLogicTable;
+struct MapLogicCityEventTable;
+struct TechnologyStudyTable;
+struct StageCrusadeTable;
+struct DailyQuestTable;
+struct GrowUpQuestTable;
+struct GrowUpQuestGroupTable;
+struct SignUpTable;
+struct PassStageRewardRecordTable;
+struct ActivityStarBoxTable;
+struct PalaceOfficeAchievement;
+struct GeneralRewardTable;
+struct WorldFightAchievementTable;
+struct SeigeForceTable;
+struct ContinueOccupyCityTable;
+struct CongratulateTable;
+struct CongratulateBeenCongratulatedTable;
+struct WannaBeStrongerTable;
+namespace pb
+{
+	class SSlectPlayer ;
+	class SG2D_UpdataStage;
+	class SG2D_UpdataStageLevel;
+    class SG2D_UpdataFuBenBase;
+    class SG2D_UpdataFuBenResource;
+    class SG2D_UpdataFuBenPassStage;
+    class GS2C_Fuben_All_Info;
+    class GS2C_Bag;
+    class GS2C_SlotItem;
+	class PlayerAllData;
+    class GS2C_CharacterUpdate;
+    class GS2C_BattleCharacter;
+    class GS2C_CharacterCreate;
+    class GS2C_CharacterStorage;
+    class Uint32List;
+    class ObjectValueUpdate;
+    class GxDB_Quest;
+    class GS2C_QuestList;
+    class GxDB_Behavior;
+    class GxDB_BehaviorList;
+	class OtherInfo;
+	class GS2C_AllStageInfo;
+	class SG2G_Mail_SendMail;
+	class GS2C_Mail_MailList;
+	class SG2D_MailsOperate;
+    class GS2C_SellRandomProgram;
+    class GS2C_SellProgramInfo;
+    class GS2C_AllSellData;
+    class GS2C_LootRecord;
+    class GS2C_AllLootRecord;
+	class Friend_list_Record;
+	class GxDB_GMember_Info;
+	class C2GS_Guild_Player_Search;
+	class GS2C_Guild_Player_Search_Respone;
+    class GS2C_AllLotteryInfo;
+    class GS2C_LotteryFreeRecord;
+	class MsgPlayerBaseData;
+	class GS2C_Market_Collect;
+	class GS2C_Market_Black;
+	class GS2C_Market_Buy;
+    class GS2C_Market_All_Info;
+    class GS2C_Altar_All_Info;
+    class GS2C_BaoQi_All_Info;
+    class GS2C_Dungeon_Base;
+    class GS2C_Dungeon_Add_Hero;
+    class GS2C_Dungeon_Del_Hero;
+    class GS2C_Dungeon_All_Info;
+    class GS2C_MapLogic_Init;
+	class GS2C_Combat_Crusade;
+	class GS2C_FOG_INFO_Lst;
+	class GxDB_Daily_Quest_Info;
+	class GxDB_Daily_Quest;
+	class GxDB_Grow_Up_Quest;
+	class GxDB_Grow_Up_Quest_Info;
+	class GxDB_Grow_Up_Quest_Group;
+	class GxDB_Grow_Up_Quest_Group_Info;
+	class GxDB_Sign_info;
+	class GxDB_Sign_Up;
+	class GxDB_Pass_Stage_Reward;
+	class pass_stage_reward_info;
+	class GxDB_Technology_All_Info;
+	class TechnologyStudy;
+	class GxDB_ActivityStarBoxInfo;
+	class GxDB_ActivityStarDelete;
+	class GxDB_ActivityStarBox;
+	class Stage_Info;
+	class PalaceAchievementInfo;
+	class GxDB_PalaceAchievement;
+	class GxDB_Grow_Up_Quest_Delete;
+	class GxDB_Pass_Stage_Reward_Delete;
+	class GxDB_GovAffairsInfo;
+	class GxDB_Hero_Reward_delete;
+	class GxDB_Hero_Reward;
+	class GxDB_World_Achievement_Info;
+	class GxDB_World_Achievement;
+	class GxDB_Seige_Force_Info_Pack;
+	class Seige_Force_info;
+	class GxDB_ContinueOccupyCityInfo;
+	class BaseContinueMsg;
+	class GxDB_CongratulateInfo;
+	class GxDB_CongratulateRewardLog;
+	class GxDB_CongratulateBeenCongratualted;
+	class C2GS_Congratulate_Accept;
+	class BranchFubenInfo;
+	class HideFubenInfo;
+	class GxDB_WannaBeStrongerInfoAllInfo;
+	class WannaBeStrongerInfo;
+}
+
+typedef PtrMap<uint64,pb::MsgPlayerBaseData> PlayerBaseInfoMap;
+
+#endif

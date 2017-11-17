@@ -1,0 +1,12 @@
+/************************************************************************/
+/*Add by:zhoulunhao													*/
+/*Email	:zhoulunhao@hotmail.com											*/
+/************************************************************************/
+
+HandleOpcode(CMSG_EXPLOIT_RANK_LIST);
+HandleOpcode(CMSG_TRICK_RANK_LIST);
+HandleOpcode(CMSG_OCCUPY_RANK_LIST);
+HandleOpcode(CMSG_EXPLOIT_RANK_OPEN_BOX);
+HandleOpcode(CMSG_TRICK_RANK_GET_REWARD);
+HandleOpcode(CMSG_OCCUPY_RANK_GET_REWARD);
+HandleOpcode(CMSG_MILITARY_POWER_RANK_LIST);

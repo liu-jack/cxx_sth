@@ -1,0 +1,96 @@
+#pragma once
+#include "structDef.h"
+
+namespace pb{
+    class SG2D_UpdataFuBenBase;
+    class Stage_Info;
+    class GS2C_Resource_Stage;
+}
+
+//set byte alignment 
+#pragma pack(push,1)
+
+struct FuBenBaseTable : public BaseStruct {
+public:
+	
+    INIT_GAMEDATA(FuBenBaseTable);
+
+    static const bool HasIndex(){ return true; }
+    const Key GetKey(void) const{ return id; }
+    uint64 GetLogicalKey(void) const{ return player_id; }
+    void SetDbIncreaseId(const IdType& id_){ id = id_; }
+    static const char* GetDbIncreaseIdName(){ return "id"; }
+    static const char* GetLogicalKeyName(void){ return "player_id"; }
+    static const char* GetTableName(){ return "fuben_base"; }
+	static const char* GetFormat()
+	{
+		return "bbuu";
+	}
+    void SaveTo(pb::SG2D_UpdataFuBenBase& msg);
+    void LoadFrom(const pb::SG2D_UpdataFuBenBase& msg);
+
+public:
+    IdType      id;
+    uint64      player_id;
+	uint32      cur_fuben_id;
+    uint32      cur_stage_id;
+};
+
+struct FuBenResourceTable : public BaseStruct {
+public:
+    
+    INIT_GAMEDATA(FuBenResourceTable);
+
+    static const bool HasIndex(){ return true; }
+    const Key GetKey(void) const{ return id; }
+    uint32 GetLogicalKey(void) const{ return stage_id; }
+    void SetDbIncreaseId(const IdType& id_){ id = id_; }
+    static const char* GetDbIncreaseIdName(){ return "id"; }
+    static const char* GetLogicalKeyName(void){ return "stage_id"; }
+    static const char* GetTableName(){ return "fuben_resource_stage"; }
+    static const char* GetFormat()
+    {
+        return "bbuubu";
+    }
+    void SaveTo(pb::GS2C_Resource_Stage& msg);
+    void LoadFrom(const pb::GS2C_Resource_Stage& msg);
+
+public:
+    IdType      id;
+    uint64      player_id;
+    uint32      stage_id;
+    uint32      times;
+    uint64      valid_time;
+	uint32		quest_times;
+};
+
+struct FuBenPassStageTable : public BaseStruct {
+public:
+    
+    INIT_GAMEDATA(FuBenPassStageTable);
+
+    static const bool HasIndex(){ return true; }
+    const Key GetKey(void) const{ return id; }
+    uint32 GetLogicalKey(void) const{ return stage_type; }
+    void SetDbIncreaseId(const IdType& id_){ id = id_; }
+    static const char* GetDbIncreaseIdName(){ return "id"; }
+    static const char* GetLogicalKeyName(void){ return "stage_type"; }
+    static const char* GetTableName(){ return "fuben_pass_stage"; }
+    static const char* GetFormat()
+    {
+        return "bbuuu";
+    }
+    void SaveTo(pb::Stage_Info& msg);
+    void LoadFrom(const pb::Stage_Info& msg);
+
+
+public:
+    IdType      id;
+    uint64      player_id;
+    uint32      stage_type;
+	uint32		pass_count;
+	uint32		is_take_reward;
+};
+
+
+#pragma pack(pop)

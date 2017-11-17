@@ -1,0 +1,63 @@
+package pb;
+
+import "CommomDef.proto";
+import "Combat.proto";
+import "Item.proto";
+
+enum Teach_Ret
+{
+	Teach_Common_success = 0;
+	Teach_Common_Fail = 1;
+
+	Teach_Already_Finished = 2;
+	Teach_Rush_Force_Limit = 3;	//兵力不满足突进
+}
+
+message City_Combat_Info
+{
+	optional uint32 CityId = 1;
+	optional uint32 countryid = 2;
+	optional uint32 groupid = 3;	//0表示没有战斗 
+}
+
+message GS2C_Get_Teach_Rec
+{
+	optional uint32 currentTeachid = 1;	//当前处于的阶段id, 0表示全部完成
+	repeated City_Combat_Info cityrec = 2;
+}
+
+message C2GS_Request_Teach
+{
+	optional uint32 teachid = 1;
+	optional uint32 cityid = 2;
+	optional uint32 heroid =3;	
+}
+
+message GS2C_Answer_Teach
+{
+	optional bool isSuccess = 1;
+	optional Teach_Ret ret = 2;
+}
+
+message GS2C_Teach_Finish
+{
+	optional uint32 teachid = 1;
+	optional bool isfinish = 2;
+	optional uint32 errcode = 3;
+	optional GS2C_LootResult rewards = 4;
+}
+
+//突进
+message C2GS_Rush_Teach
+{
+	required uint32 group_id    =1;
+	required bool   is_attacker =2; //是否进攻方
+	required uint32 des_city_id =3;
+	required uint32 heroid = 4;
+}
+
+message GS2C_Rush_Teach_Ret
+{
+	optional bool isSuccess = 1;
+	optional Teach_Ret ret = 2;
+}

@@ -1,0 +1,13 @@
+package pb;
+
+
+message GS2C_ActMgr_Begin
+{
+    required uint32 type               =1;
+    optional uint32 nexttype	       =2;
+    optional uint32 nextStartHour      =3;
+}
+message GS2C_ActMgr_End
+{
+    required uint32 type               =1;
+}

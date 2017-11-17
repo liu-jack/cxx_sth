@@ -1,0 +1,89 @@
+package pb;
+import "CommomDef.proto";
+
+
+// @SMSG_CHARACTER_CREATE
+message GS2C_CharacterCreate
+{
+	required uint32          id              	 = 1;// 玩家卡片标识
+    optional uint32          protoID         	 = 2;
+	optional Int32List       values          	 = 3;// 卡片基础值
+	optional bool            isjuexing       	 = 4;
+	optional uint64          juxingtime      	 = 5;
+	optional uint32          quality         	 = 6;// 品质( 仅仅在 values 为空的时候会写入 )
+    optional uint32          cur_city_id     	 = 7;
+    optional uint64          dungeon_owner   	 = 8;
+	optional uint32			 combatgroupID   	 = 9;//所在的战斗组id
+	optional bool			 isInCombat		 	 = 10;//是否在战斗中
+	optional uint32 		 combatType		 	 = 11;//战斗类型
+	optional bool 		     is_fighting	 	 = 12;//是否上阵
+	optional bool			isFakeChar		= 13;
+}
+
+message GS2C_ChangeBattleCharacter
+{
+	required bool            		is_zhaomu       = 1;
+	optional uint32                 card_id        = 2;
+    optional Uint32List             battle_array = 3;      // 上阵的卡牌
+    optional bool		    crossret = 4;	//跨服用
+}
+
+message GS2C_BattleCharacter
+{
+    optional Uint32List             battle_array = 1;      // 上阵的卡牌
+}
+
+
+// @SMSG_ALL_CHARACTER_INFO
+message GS2C_CharacterStorage
+{
+    repeated GS2C_CharacterCreate   characters = 1;
+    optional GS2C_BattleCharacter   battle_character = 2;  
+}
+
+// SMSG_CHARACTER_UPDATE
+message GS2C_CharacterUpdate
+{
+	required uint32              id              = 1;// 玩家卡片标识
+	optional Int32ListUpdate     update_values   = 2;// 更新的值	
+	optional uint64          juxingtime      = 3;
+	optional uint32				cur_city_id = 4;
+	optional uint32				isInCombat = 5;
+	optional uint32				combatGroupId = 6;
+	optional bool				isFakeChar = 7;
+}
+
+message C2GS_UseItemsToTarget
+{
+    required uint32 target_id            = 1;
+    required uint32 target_lv            = 2;
+}
+
+message C2GS_UpgradeQuality
+{
+    required uint32 char_id                 = 1;
+    optional Uint32List material_char_ids   = 2;     
+}
+
+// SMSG_CHARACTER_COMBAT_SHOW_DATA
+message GS2C_Combat_Show_Data
+{
+    required uint32 char_id             =1;
+    optional uint32 soldierLv           =2;
+    repeated uint32 soldierCnt          =3;
+}
+
+//宴会征兵///////////////////////////////////////////////////////////////////
+//请求宴会数据：无
+message GS2C_Dinner_Data
+{
+	required uint32 dinner_num = 1;		//剩余宴会次数
+	required uint32 next_time = 2;		//下次涨次数时间
+}
+
+//请求宴会：无
+message GS2C_Dinner_Resp
+{
+	required uint32 ret = 1;		//0：成功 1.正在战斗  2 部队血满
+}
+

@@ -1,0 +1,730 @@
+#include "CharacterStorage.h"
+
+#include <algorithm>
+#include <boost/typeof/typeof.hpp>
+
+#include "def/MmoAssert.h"
+#include "def/ObjectDefines.h"
+#include "utility/MsgTool.h"
+#include "Logger.h"
+
+#include "Character.h"
+#include "CharacterManager.h"
+#include "CharacterPredicate.h"
+
+#include "BaseDefineMgr.h"
+#include "BaseDefine.pb.h"
+
+#include "Character.pb.h"
+#include "Opcode.pb.h"
+#include "ServerOpcode.pb.h"
+#include "OS.h"
+#include "Enum.pb.h"
+#include "../object/Player.h"
+#include "../Technology/PlayerTechnology.h"
+#include "../Technology/Table/TechnologyTableMgr.h"
+#include "../item/ItemArray.h"
+#include "../item/ItemEquip.h"
+#include "utility/Utility.h"
+#include "ActivityHeroReward/ActivityHeroRewardLog.h"
+#include "Combat/combat_define.h"
+#include "Rank.pb.h"
+#include "WannaBeStronger/WannaBeStrongerLog.h"
+CharacterStorage::CharacterStorage()
+:m_maxCharId(1)
+,m_maxFakeCharId(100)
+{
+
+}
+
+CharacterStorage::~CharacterStorage()
+{
+}
+
+void CharacterStorage::Synchronization(Player*player, const pb::GS2C_CharacterStorage& msg)
+{
+	for ( int i = 0; i < msg.characters_size(); ++i )
+	{
+		const pb::GS2C_CharacterCreate& create_char_msg = msg.characters(i);
+		Synchronization(player,create_char_msg);
+	}
+
+	m_maxCharId = FindFistFreeId();
+	m_battleArray.clear();
+	MsgTool::SaveMsgToVec( msg.battle_character().battle_array(), m_battleArray);
+	LoadTechnologyAttr(player);
+	SetUnmodified();
+}
+
+void CharacterStorage::Synchronization(Player*player, const pb::GS2C_CharacterCreate& msg)
+{
+	Character* ch = MutableCharacter(msg.id());  //m_charID
+	if ( ch)
+	{
+		ch->m_values.ApplyFullUpdateMsg( msg.values());
+	}
+}
+
+void CharacterStorage::LoadFrom( Player*player,const pb::GS2C_CharacterStorage& msg)
+{
+    for ( int i = 0; i < msg.characters_size(); ++i )
+    {
+        const pb::GS2C_CharacterCreate& create_char_msg = msg.characters(i);
+        LoadFrom(player,create_char_msg);
+    }
+
+    m_maxCharId = FindFistFreeId();
+
+	//创建假武将
+	CreateFakeCharacter(player);
+
+    MsgTool::SaveMsgToVec( msg.battle_character().battle_array(), m_battleArray);
+	LoadTechnologyAttr(player);
+    SetUnmodified();
+}
+
+void CharacterStorage::LoadFrom(Player*player, const pb::GS2C_CharacterCreate &msg )
+{
+	Character* ch = CreateCharacterInst(player,msg) ;
+    if( ch != NULL )
+    {
+        m_characters[msg.id()] = ch;
+    }
+    else
+    {
+        ELOG( "Create char from db msg fail !!");
+    }
+}
+
+void CharacterStorage::CreateFakeCharacter(Player* player)
+{
+	const std::map<uint32, uint32>& fakeCharLst = sCharacterMgr.GetTeachChars();
+	for(std::map<uint32, uint32>::const_iterator it = fakeCharLst.begin(); it != fakeCharLst.end(); ++it)
+	{
+		Character* ch = CreateCharacterInst(player, it->first);
+		int id = GenFakeCharId();
+		ch->SetId( id);
+		ch->SetLevel(it->second);
+		ch->CalculateAttr();
+		ch->RecoverFullSoldier();
+		ch->SetObjType(Combat::Obj_FakeChar);	//是假武将
+		m_charactersFake[id] = ch;
+	}
+	//for()
+	//Character* ch = CreateCharacterInst(player, msg.protoid());
+}
+
+void CharacterStorage::SaveTo( pb::GS2C_CharacterStorage& msg ) const
+{
+    for ( CharacterContainer::const_iterator it = m_characters.begin();
+        it != m_characters.end(); ++it)
+    {
+        MsgTool::SaveToRepeatField( it->second, msg.mutable_characters());
+    }
+    SaveBattleArrayToMsg( *msg.mutable_battle_character());    
+	for( CharacterContainer::const_iterator ite = m_charactersFake.begin();
+		ite != m_charactersFake.end(); ++ite)
+	{
+		MsgTool::SaveToRepeatField( ite->second, msg.mutable_characters());
+	}
+}
+
+
+void CharacterStorage::SaveBattleArrayToMsg( pb::GS2C_BattleCharacter& msg ) const
+{
+    MsgTool::SaveVecToMsg( m_battleArray, *msg.mutable_battle_array());
+}
+
+void CharacterStorage::SaveToMsg(pb::CharacterMsg & msg) const
+{
+	for (CharacterIds::const_iterator it = m_battleArray.begin(); it != m_battleArray.end(); ++it)
+	{
+		if(*it == 0) continue;
+		if (const Character* character = GetCharacter(*it))
+		{
+			pb::CharacterInfo *char_info = msg.add_character_info();
+			char_info->set_char_proto_id(character->ProtoID());
+			char_info->set_character_lv(character->GetLevel());
+		}
+	}
+}
+
+Character* CharacterStorage::CreateCharacterInst(Player*player, const CharacterProto& proto )
+{
+    return new Character(proto, this, player);
+}
+
+Character* CharacterStorage::CreateCharacterInst(Player*player, uint32 protoId )
+{
+    const CharacterProto* proto = sCharacterMgr.GetCharacterProto( protoId);
+    if ( proto)
+    {
+        return CreateCharacterInst(player,*proto);
+    }
+    return NULL;
+}
+
+Character* CharacterStorage::CreateCharacterInst(Player*player, const pb::GS2C_CharacterCreate& msg )
+{
+    Character* ch = CreateCharacterInst(player, msg.protoid());
+    if ( ch)
+    {
+        ch->LoadFrom( msg);
+    }
+    return ch;
+}
+
+const Character* CharacterStorage::GetCharacter( CharacterId charId ) const
+{
+    CharacterContainer::const_iterator it = m_characters.find( charId);
+    if (it == m_characters.end())
+    {
+        return NULL;
+    }
+    return it->second;
+}
+Character* CharacterStorage::MutableCharacter( CharacterId charId )
+{
+    CharacterContainer::iterator it = m_characters.find( charId);
+    if (it == m_characters.end())
+    {
+        return NULL;
+    }
+    return it->second;
+}
+Character* CharacterStorage::GetCharacterByTableId(uint32 tableId)
+{
+    for (CharacterContainer::iterator it = m_characters.begin(); it != m_characters.end(); ++it)
+    {
+        if (it->second->GetTableId() == tableId)
+        {
+            return it->second;
+        }
+    }
+    return NULL;
+}
+
+Character* CharacterStorage::MutableFakeCharacter( CharacterId charId )
+{
+	CharacterContainer::iterator it = m_charactersFake.find( charId);
+	if (it == m_charactersFake.end())
+	{
+		return NULL;
+	}
+	return it->second;
+}
+
+bool CharacterStorage::DestroyCharacter( CharacterId charId )
+{
+    if ( IsInBatterArray( charId))
+    {
+        return false;
+    }
+    return m_characters.erase( charId) != 0;
+}
+
+bool CharacterStorage::HasCharacterInCity(uint16 cityID)
+{
+	bool has = false;
+	for (CharacterContainer::iterator it = m_characters.begin(); it != m_characters.end(); ++it)
+	{
+		if (it->second->GetCurCity() == cityID)
+		{
+			has = true;
+			break;
+		}
+	}
+	return has;
+}
+
+Character* CharacterStorage::CreateCharacter(Player*player, uint32 protoId )
+{
+    Character* ch = CreateCharacterInst(player,protoId);
+    if (ch)
+    {
+        int id = GenFreeId();
+        ch->SetId( id);
+        m_characters[id] = ch;
+#ifdef _MMO_SERVER_
+		player->m_ActivityHeroRewardLog->UpdateCharInfo(id);
+#endif
+		//player->UpdateWannaBeStrongerInfo();
+    }
+    return ch;
+}
+
+bool CharacterStorage::IsInBatterArray( CharacterId charId) const
+{
+    return std::find( m_battleArray.begin(), m_battleArray.end(), charId) != m_battleArray.end();
+}
+
+
+const uint32 CharacterStorage::GetCountOfContainer() const
+{
+	return m_characters.size();
+}
+
+const CharacterIds& CharacterStorage::GetBattleArray() const
+{
+    return m_battleArray;
+}
+
+
+void CharacterStorage::SetBattleArray(Player*player, const CharacterIds& battleArray )
+{
+    m_battleArray.clear();
+	if(battleArray.size() <= GetBattleMemberCount(player))
+	{
+		m_battleArray.assign(battleArray.begin(),battleArray.end());
+	}
+	else
+	{
+		for(uint32 i = 0;i < GetBattleMemberCount(player);++i)
+		{
+			m_battleArray.push_back(battleArray[i]);
+		}
+	}
+	
+}
+
+bool CharacterStorage::HasCharacter( CharacterId charId ) const
+{
+    return m_characters.find( charId) != m_characters.end();
+}
+
+int CharacterStorage::FindFistFreeId() const
+{
+    if ( m_characters.empty())
+    {
+        return 1;
+    }
+    CharacterContainer::const_reverse_iterator it = m_characters.rbegin();
+    return it->first + 1;
+}
+
+bool CharacterStorage::CanBeDestroy( CharacterId charId ) const
+{
+    return !IsInBatterArray(charId);
+}
+
+
+//
+uint32 CharacterStorage::WearQualityAndStarCount(Player* player,uint32 quality,uint star)
+{
+	uint starcount = 0;uint ret = 0;
+	for (CharacterIds::const_iterator it = m_battleArray.begin(); it != m_battleArray.end(); ++it)
+	{
+		if (const Character* character = GetCharacter(*it))
+		{
+			for (uint32 i = pb::EQUIP_SLOT_WEAPON; i < pb::EQUIP_SLOT_COUNT; ++i)
+			{
+				uint32 EquipId = character->GetSlotEquip(i);
+				ItemEquip* itemequip = player->m_bag->MutableItemEquip(EquipId);
+				if(itemequip != NULL)
+				{
+					if(itemequip->Quality() >= quality)
+					{
+						starcount = itemequip->GetAttrCount();
+						if(starcount>=star)
+						{
+							ret++;
+						}
+					}
+				}
+			}
+		}
+	}
+	return ret;
+}
+
+
+CharacterAttr* CharacterStorage::GetCharacterAttr(Player*player, uint32 battleArrayIdx )
+{
+    if ( battleArrayIdx >= GetBattleMemberCount(player))
+        return NULL;
+    
+    if ( m_battleCharAttr[battleArrayIdx] == NULL)
+    {
+        m_battleCharAttr[battleArrayIdx] = new CharacterAttr();
+    }
+
+    return m_battleCharAttr[battleArrayIdx];
+}
+
+void CharacterStorage::DeleteCharacterAttr(Player*player, uint32 battleArrayIdx )
+{
+    if ( battleArrayIdx >= GetBattleMemberCount(player))
+        return;
+
+    if ( m_battleCharAttr[battleArrayIdx])
+    {
+        m_battleCharAttr.Delete( battleArrayIdx);
+    }
+}
+
+uint32 CharacterStorage::GetLeaderProtoId() const
+{
+	if (m_battleArray.size() > 0)
+	{
+		CharacterId temId = m_battleArray[0];
+		const Character* tempChar = GetCharacter(temId);
+		if (tempChar)
+		{
+			return tempChar->ProtoID();
+		}
+	}
+	return 11;
+}
+
+uint32 CharacterStorage::GetCountBAMatchLevel( int value ) const
+{
+    return GetBattleArrayMatchCount( PredCharLevelMatch(value));
+}
+
+uint32 CharacterStorage::GetCountBAMatchReinforce( int value ) const
+{
+    return GetBattleArrayMatchCount( PredCharReinforceMatch(value));
+}
+
+uint32 CharacterStorage::GetCountBAMatchSkillLv( int value ) const
+{
+    return GetBattleArrayMatchCount( PredCharSkillLvMatch(value));
+}
+
+uint32 CharacterStorage::GetCountBAMatchQuality( int value ) const
+{
+    return GetBattleArrayMatchCount( PredCharQualityMatch(value));
+}
+uint32 CharacterStorage::GetWearEquip(int value) const
+{
+    uint32 ret = 0;
+    for (CharacterIds::const_iterator it = m_battleArray.begin(); it != m_battleArray.end(); ++it)
+    {
+        if (const Character* character = GetCharacter(*it))
+        {
+            for (uint32 i = pb::EQUIP_SLOT_WEAPON; i < pb::EQUIP_SLOT_COUNT; ++i)
+            {
+                if (character->GetSlotEquip(i) == value) ++ret;
+            }
+        }
+    }
+    return ret;
+}
+
+uint32 CharacterStorage::WearEquipClass(Player* player,uint type){//type 40506  三种类型  4,5,6
+	std::vector<int> vec;
+	Utility::GetValue(type,vec,2);
+	uint32 n_count = 0;
+	ItemArray* bag = player->m_bag.get();
+	for (CharacterIds::const_iterator it = m_battleArray.begin(); it != m_battleArray.end(); ++it)
+	{
+		if (const Character* character = GetCharacter(*it))
+		{
+			for (uint32 i = pb::EQUIP_SLOT_WEAPON; i < pb::EQUIP_SLOT_COUNT; ++i){
+				uint32 EquipId = character->GetSlotEquip(i);
+				const Item* rawItem = bag->GetItem(EquipId);
+				if(rawItem)
+				{
+					for(std::vector<int>::const_iterator iter = vec.begin();iter != vec.end();++iter)
+					{
+						if(rawItem->Proto()->Class2() == *iter ) n_count++;
+					}
+				}
+			}
+		}
+	}
+	return n_count >= vec.size() ? 1 : 0;
+}
+
+void CharacterStorage::InitCharactersCombatData()
+{
+	for (CharacterIds::const_iterator it = m_battleArray.begin(); it != m_battleArray.end(); ++it)
+	{
+		if (Character* character = MutableCharacter(*it))
+		{
+			character->InitCombatData();
+		}
+	}
+}
+
+void CharacterStorage::FullCharHP()
+{
+	for (CharacterIds::const_iterator it = m_battleArray.begin(); it != m_battleArray.end(); ++it)
+	{
+		if (Character* character = MutableCharacter(*it))
+		{
+			character->RecoverFullSoldier();
+		}
+	}
+}
+
+uint32  CharacterStorage::HasCharacterProto( uint32 protoId ) const
+{
+    for( BOOST_AUTO( it, m_characters.begin()); it != m_characters.end(); ++it)
+    {
+        Character* chara = it->second;
+        if ( chara->ProtoID() == protoId)
+        {
+            return protoId;
+        }
+    }
+    return 0;
+}
+
+int CharacterStorage::GenFreeId()
+{
+    return m_maxCharId++;
+}
+
+int CharacterStorage::GenFakeCharId()
+{
+	return m_maxFakeCharId++;
+}
+
+void CharacterStorage::MoveTo(Player& player, uint8 charId, uint32 destCityId)
+{
+    if (Character* pHero = MutableCharacter(charId))
+    {
+        pHero->MoveTo(destCityId);
+    }
+}
+
+uint32 CharacterStorage::GetMilitaryPower()
+{
+	uint32 military_power = 0;
+	for(CharacterIds::const_iterator iter = m_battleArray.begin();iter != m_battleArray.end();++iter)
+	{
+		if(*iter == 0) continue;
+		if(const Character* chac = GetCharacter(*iter))
+		{
+			military_power += chac->GetCharacterMilitaryPower();
+		}
+	}
+	return military_power;
+}	
+
+Character* CharacterStorage::GetMaxLvHero()
+{
+    int maxLv = 0;
+    Character* ret = NULL;
+    for (CharacterContainer::iterator it = m_characters.begin();
+        it != m_characters.end(); ++it)
+    {
+        if (it->second->GetLevel() > maxLv)
+        {
+            maxLv = it->second->GetLevel();
+            ret = it->second;
+        }
+    }
+    return ret;
+}
+Character* CharacterStorage::GetMaxLvHeroInCity(uint32 cityid)
+{
+	int maxLv = 0;
+	Character* ret = NULL;
+	for (CharacterContainer::iterator it = m_characters.begin();
+		it != m_characters.end(); ++it)
+	{
+		if ((it->second->GetLevel() > maxLv) && (it->second->GetCurCity() == cityid))
+		{
+			maxLv = it->second->GetLevel();
+			ret = it->second;
+		}
+	}
+	return ret;
+}
+
+Character* CharacterStorage::GetMaxLvHeroInCombat(uint32 combatid)
+{
+	int maxLv = 0;
+	Character* ret = NULL;
+	for (CharacterContainer::iterator it = m_characters.begin();
+		it != m_characters.end(); ++it)
+	{
+		if ((it->second->GetLevel() > maxLv) && (it->second->nowCombatGroupID == combatid))
+		{
+			maxLv = it->second->GetLevel();
+			ret = it->second;
+		}
+	}
+	return ret;
+}
+
+Character* CharacterStorage::GetMaxLvFakeHeroInCombat(uint32 combatid)
+{
+	int maxLv = 0;
+	Character* ret = NULL;
+	for (CharacterContainer::iterator it = m_charactersFake.begin();
+		it != m_charactersFake.end(); ++it)
+	{
+		if ((it->second->GetLevel() > maxLv) && (it->second->nowCombatGroupID == combatid))
+		{
+			maxLv = it->second->GetLevel();
+			ret = it->second;
+		}
+	}
+	return ret;
+}
+
+bool CharacterStorage::CanSpeedUp(uint32 cityId)
+{
+    std::map<uint32, uint64>::iterator it = m_SpeedUpTime.find(cityId);
+    if (it != m_SpeedUpTime.end())
+    {
+        return sOS.TimeSeconds() - it->second >= 60;
+    }
+    return true;
+}
+void CharacterStorage::SetSpeedUp(uint32 cityId)
+{
+    m_SpeedUpTime[cityId] = sOS.TimeSeconds();
+}
+
+CharacterIds& CharacterStorage::GetCharIDLst()
+{
+	return m_battleArray;
+}
+
+
+int CharacterStorage::GetAllCharMaxHp()
+{
+	int maxHp = 0;
+	for(CharacterIds::const_iterator iter = m_battleArray.begin();iter != m_battleArray.end();++iter)
+	{
+		if(const Character* chac = GetCharacter(*iter))
+		{
+			//maxHp += chac->GetMaxHp();
+		}
+	}
+	return maxHp;
+
+}
+
+bool CharacterStorage::CheckHasCombatChar()
+{
+	for(CharacterIds::const_iterator iter = m_battleArray.begin();iter != m_battleArray.end();++iter)
+	{
+		if(const Character* chac = GetCharacter(*iter))
+		{
+			if(chac->isInCombat)
+			{
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+void CharacterStorage::BattleCharAttrResize( uint32 size )
+{
+	m_battleCharAttr.resize(size);
+}
+
+void CharacterStorage::SetBattleMemberCount(Player* player, uint32 count )
+{
+	if(count >= MaxBattleMemberCount )
+	{
+		count = MaxBattleMemberCount;
+	}
+	player->SetValueInt(pb::PLAYER_FIELD_CARD_SLOT_COUNT,count);
+}
+
+const uint32 CharacterStorage::GetBattleMemberCount(Player* player) const
+{
+	return player->GetAttrInt(pb::PLAYER_FIELD_CARD_SLOT_COUNT);
+}
+
+uint32 CharacterStorage::CharacterHasZhaoMu( CharacterId charId ) //40506 //人，虫，神 
+{
+	std::vector<int> vec;
+	Utility::GetValue(charId,vec,2);
+	for(CharacterIds::const_iterator iter = m_battleArray.begin();iter != m_battleArray.end();++iter)
+	{
+		if(const Character* chac = GetCharacter(*iter))
+		{
+			for(std::vector<int>::iterator Iter = vec.begin();Iter != vec.end();++Iter)
+			{
+				if(chac->ProtoID() == *Iter)
+					return 1;
+			}
+		}
+	}
+	return 0;
+}
+
+bool CharacterStorage::CharacterHasMoved()
+{
+	for(CharacterIds::const_iterator iter = m_battleArray.begin();iter != m_battleArray.end();++iter)
+	{	
+		if(Character* character = MutableCharacter(*iter))
+		{
+			if(character->CharacterMoved())
+			{
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+CharacterContainer& CharacterStorage::GetMutableCharacterContainer()
+{
+	return m_characters;
+}
+
+void CharacterStorage::LoadTechnologyAttr(Player* player)
+{
+	Character * character = NULL;
+	const TecTable* tec = NULL;
+	if(player)
+	{
+		for(CharacterContainer::const_iterator it = m_characters.begin();it!=m_characters.end();++it)
+		{
+			character = it->second;
+			if(player->HaveTechnology(FIGHT_ENFORCE5))
+			{
+				tec = sTechnologyTableMgr.GetTable(FIGHT_ENFORCE5);
+				character->soldierLv = tec->Value1();
+			}
+			else if(player->HaveTechnology(FIGHT_ENFORCE4))
+			{
+				tec = sTechnologyTableMgr.GetTable(FIGHT_ENFORCE4);
+				character->soldierLv = tec->Value1();
+			}
+			else if(player->HaveTechnology(FIGHT_ENFORCE1))
+			{
+				tec = sTechnologyTableMgr.GetTable(FIGHT_ENFORCE1);
+				character->soldierLv = tec->Value1();
+			}
+			//character->CalculateAttr();//防止服务器宕机，来不及将数据写回数据库
+		}
+	}
+}
+
+uint32 CharacterStorage::WearQualityAndAnyStar( Player* player,uint32 quality,uint star )
+{
+	uint starcount = 0;uint ret = 0;
+	for (CharacterIds::const_iterator it = m_battleArray.begin(); it != m_battleArray.end(); ++it)
+	{
+		if (const Character* character = GetCharacter(*it))
+		{
+			for (uint32 i = pb::EQUIP_SLOT_WEAPON; i < pb::EQUIP_SLOT_COUNT; ++i)
+			{
+				uint32 EquipId = character->GetSlotEquip(i);
+				ItemEquip* itemequip = player->m_bag->MutableItemEquip(EquipId);
+				if(itemequip != NULL)
+				{
+					if(itemequip->Quality() == quality)
+					{
+						starcount = itemequip->GetAttrCount();
+						if(starcount>=star)
+						{
+							ret++;
+						}
+					}
+				}
+			}
+		}
+	}
+	return ret;
+}

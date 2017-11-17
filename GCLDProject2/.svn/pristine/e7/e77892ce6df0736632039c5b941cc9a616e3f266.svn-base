@@ -1,0 +1,211 @@
+#ifndef DB_GLOABALDATA_PROXY_H
+#define DB_GLOABALDATA_PROXY_H
+#include "../PlayerBaseData.h"
+#include <boost/unordered_map.hpp>
+#include "../session/PlayerDataCacheContainer.h"
+#include "Singleton.h"
+
+#include "EventTable.h"
+#include "../player_data/CachePtrMap.h"
+#include "def/ConstDef.h"
+
+const time_t MAIL_EXPIRED_TIME = 604800; //7天
+const time_t MAIL_NOLOGIN_CANT_RECEIVE_TIME = 2592123; //30天未登录者不再能接收邮件
+const int MAILBOX_MAIL_COUNT_LIMIT = 20;
+const int MAILBOX_RECEIVE_MAIL_LIMIT = 40;
+
+namespace pb
+{
+	class GS2C_FriendListInfo;
+	class C2GS_Friend_Search;
+	class GS2C_Friend_Search_Respone;
+	class GxDB_Guild;
+	class GxDB_GuildInfo;
+	class GxDB_GMember_Info;
+	class SG2D_Broadcast_Info;
+	class SG2G_Mail_SendMail;
+	class GxDB_FriendInfo;
+	class GxDB_Guilds;
+	class GxDB_Guild;
+	class SD2G_Check_Mail_Recivers_Exist_Rspone;
+	class SC2G_activity_package;
+}
+
+struct PlatfromMailTable;
+struct GuildMemberInfoTable;
+struct GuildInfoTable;
+class GameServerSession;
+struct ActivityProtoTable;
+struct ActivityPlanTable;
+struct ServerOpenTimeTable;
+struct ActivityRewardTable;
+struct ActivityCountryOccupyCityTable;
+
+enum ACTIVITY_MODIFY_TYPE
+{
+	MODIFY_TYPE_PROTO,
+	MODIFY_TYPE_PLAN,
+	MODIFY_TYPE_OPEN_TIME,
+	MODIFY_TYPE_REWARD,
+	MODIFY_TYPE_COUNT,
+};
+
+struct PlayerFriendInfo
+{
+public:
+	typedef uint64                                PlayerId ;
+	typedef uint32                                FriendType ;
+	typedef CachePtrMap< PlayerId, DB_FriendInfo> FriendIdMap ;
+
+	typedef std::map< FriendType, FriendIdMap >   FriendTypeTable ;
+	typedef FriendTypeTable::iterator             FriendTypeTableItr ;
+
+	typedef std::map< PlayerId, FriendType >      FriendIdToType ;
+	typedef FriendIdToType::iterator              FriendIdToTypeItr ;
+
+public:
+	PlayerFriendInfo( void ){}
+	~PlayerFriendInfo( void ) {}
+
+	bool ChangeFriendType( uint64 friendId, uint32 newType ) ;
+
+	void UnloadData( void ) ;
+
+	void GetAndClearFriends( FriendIdMap &allFriendMap ) ;
+
+public:
+	FriendTypeTable  m_myFriends ;
+	FriendIdToType   m_firendIdToType ;
+} ;
+
+class GlobalData
+{
+public:
+	typedef boost::unordered_map<uint64, GuildMemberInfoTable*> GuildMemberInfoTableMap;
+	struct GuildInfo
+	{
+		GuildInfoTable* pInfo;
+		GuildMemberInfoTableMap memberMap;
+		bool IsContainMember(uint64 playerId)
+		{
+			return (memberMap.find(playerId) != memberMap.end());
+		}
+		void WriteGuild(pb::GxDB_Guild &guild);
+	};
+	typedef boost::unordered_map<uint64,GuildInfo> GuildInfoMap;
+
+public:
+	GlobalData(int serverId,int regionId);
+	~GlobalData();
+
+	void Init(int serverId,int regionId) ;
+
+	inline time_t GetLastSaveTime( void ){    return m_lastSaveTime;    }
+	inline void SetLastSaveTime(time_t time){    m_lastSaveTime = time;    }
+	inline bool GetIsLoadedDatabaseTable( void ) {    return m_isLoadedTable ;    }
+	inline void SetIsLoadedDatabaseTable( bool is_loaded ) {    m_isLoadedTable =is_loaded ;    }
+
+public:
+	void SetServerId( int serverId ) { m_serverId = serverId; };
+	void SetRegionId( int regionId ) { m_regionId = regionId; };
+	void SetSession( GameServerSession *psession) { m_curSession = psession;}
+	void AddMailAsync(const pb::SG2G_Mail_SendMail& newMail);
+	bool AddOfflineMail(uint64 playerId,const pb::SG2G_Mail_SendMail& sendMail);
+	bool GetPlayerMailUpdate(pb::GS2C_Mail_MailList& mailUpdate);
+	void UpdateMail(const pb::SG2D_MailsOperate&mailOperat);
+
+	bool SearchStringForKey(const string& dstStr, const string& strKey);
+	void Search_friend_info( pb::C2GS_Friend_Search& searchInfo, pb::GS2C_Friend_Search_Respone& respon, PlayerDataMap &playerMap, MKPlayerOfflineTable &offLineInfos );
+	void UpdateGuildInfo(const pb::GxDB_GuildInfo& info,int update_type );
+	void UpdateGuildMemberInfo(const pb::GxDB_GMember_Info& info,int update_type );
+	void UpdateActivityAllInfo(const pb::SC2G_activity_package& info);
+	PlatfromMailTable* AddNewPlatfromMailToTable( PlatfromMailTable &newMail );
+
+	void LoadGlobalData();
+
+    void OnGameServerRegist();
+	void OnPlayerOnline(uint64 playerId,bool isOnline);
+	bool CreateGuildInfo(pb::GxDB_Guild& newGuild, uint64 guildId);
+	void SearchGuildMember(const pb::C2GS_Guild_Player_Search sMsg, pb::GS2C_Guild_Player_Search_Respone resMsg,PlayerDataMap& playerMap);
+
+	int Search_Player_FromCache(string searchKey,int maxCount,std::set<uint64>& playerSet,pb::GS2C_Friend_Search_Respone& respon,PlayerDataMap& playerMap);
+	int Search_Player_FromDB(string searchKey,int maxCount,std::set<uint64>& playerSet,pb::GS2C_Friend_Search_Respone& respon,PlayerDataMap& playerMap);
+
+	bool Search_Friend_FromCache(uint64 youGuid, int& curCount, int maxCount,pb::GS2C_Friend_Search_Respone& respon,PlayerDataMap& playerMap, MKPlayerOfflineTable &offLineInfos );
+
+	bool RemoveFriendApSendInfo(uint64 playerId,uint64 friendId,PlayerDataMap& playerMap);
+	void SaveApReceivedIds(string& strApIds,const std::set<uint64>& setPlayerId);
+	void ParserApSendIds(const ::std::string& strIds,std::set<uint64> & setPlayerId);
+	int GetServerId() { return m_serverId;}
+	int GetRegionId() { return m_regionId;}
+
+private:
+    //打包功能模块的数据
+    void SyncGuildInfo();
+    void SyncCountryInfo();
+    void SyncPalaceInfo();
+    void SyncCountryLevelUpTaskRankInfo();
+	void SyncActivityInfo();
+	void SyncActivityCountryOccupyCityInfo();
+
+private:
+	// 数据代理ID 
+	int m_serverId;
+	int m_regionId;
+	bool m_isLoadedTable ; // 是否已经加载过数据库表格数据了
+
+	bool m_reconnectInit; 
+	// 最后保存时间
+	time_t m_lastSaveTime;
+
+public:
+    CachePtrMap< uint64, PlatfromMailTable>            m_PlatfromMailTable;
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // country
+public:
+    CachePtrMap< uint32, CountryBaseTable>          m_CountryBaseTable;
+    CachePtrMap< uint32, CountryCityTable>          m_CountryCityTable[MONSTER_COUNTRY_ID];//m_CountryCityTable[MAX_PLAYER_COUNTRY_ID];
+	CachePtrMap<uint64, ActivityProtoTable>				m_ActivityProtoTable;
+	CachePtrMap<uint64,ActivityPlanTable>				m_ActivityPlanTable;
+	CachePtrMap<uint64,ActivityRewardTable>				m_ActivityRewardTable;
+	CachePtrMap<uint64,ServerOpenTimeTable>				m_ServerOpenTimeTable;
+	CachePtrMap<uint64,ActivityCountryOccupyCityTable> m_ActivityCountryOccupyCityTable;
+    CachePtrMap< uint64, CountryLevelUpTaskPlayerTable> m_CountryLevelUpTaskPlayerTable[MAX_PLAYER_COUNTRY_ID];
+
+    CachePtrMap< int, PalaceOfficeTable>         m_PalaceOfficeTable[MAX_PLAYER_COUNTRY_ID];
+	std::map<uint64,bool> vec_modify[MODIFY_TYPE_COUNT];
+public:
+    GuildInfoMap m_guildInfoMap;
+    GameServerSession *m_curSession;
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// friend info
+public:
+	void AddFriendInfo( DB_FriendInfo *pInfo ) ;
+	void AddFriendInfo( PlayerFriendInfo &playerFriendInfo, DB_FriendInfo *pInfo ) ;
+
+	PlayerFriendInfo& GetPlayerFriendInfo( uint64 playerId ) {   return m_allPlayerFriendTable[ playerId ] ;   }
+
+	bool HadFriend( uint64 playerId, uint64 friendId ) ;
+
+	DB_FriendInfo* GetFriendInfo( uint64 playerId, uint64 friendId ) ;
+	PlayerFriendInfo::FriendIdMap* GetFriendInfoMap(  uint64 playerId, uint64 friendId ) ;
+
+	int DelFriendInfo(uint64 playerId,uint64 friendId,uint32 listType,PlayerDataMap& playerMap);
+	void NewFriendInfo(uint64 playerId,uint64 friendId,uint32 listType);
+
+	bool GetMyFriendListInfoById( uint64 player_id, pb::GS2C_FriendListInfo& info );
+
+	void UpdateFriendInfo( uint64 playerId, uint64 friendId,uint32 listType,bool isSendAp = false, bool apValue = false ); 
+	void UpdatePlayerFriend(pb::GxDB_FriendInfo updateMsg);
+	bool IsPlayerFriendsRechLimits(uint64 playerId);
+public:
+	typedef std::map< PlayerId, PlayerFriendInfo > AllPlayerFriendTable ;
+	typedef AllPlayerFriendTable::iterator         AllPlayerFriendTableItr ;
+
+public:
+	AllPlayerFriendTable m_allPlayerFriendTable ;
+};
+
+#endif

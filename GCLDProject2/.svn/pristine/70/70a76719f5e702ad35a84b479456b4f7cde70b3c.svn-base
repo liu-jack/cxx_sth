@@ -1,0 +1,62 @@
+#ifndef CharacterProto_h__
+#define CharacterProto_h__
+
+#include "def/TypeDef.h"
+
+class ValueArray;
+struct DB_CharProto;
+struct DB_CharUpgradeXP;
+struct DB_CharSetSkills;
+
+
+class CharacterProto
+{   
+    typedef uint32 SkillIndex;
+    typedef uint32 QualityType;
+    typedef std::vector< SkillIndex> SkillIndexs;
+	typedef std::map<QualityType, SkillIndexs> LearnSkillMap;
+	typedef std::map<SkillIndex, const DB_CharSetSkills*> Index2Skill;
+    friend class CharacterManager;
+public:
+    CharacterProto(
+        const DB_CharProto& dbCharProto,
+        const DB_CharUpgradeXP* dbCharUpgradeXp
+        );
+
+    uint32 CharacterID() const;
+    uint32 CharClass() const;
+	uint32 CharType() const;
+    int32 GetBirthLevel() const;
+    int32 GetBirthQuality() const;
+    int32 GetBirthReinForce() const;
+
+    int32 GetCharacterLvUpCoin( int32 curLv) const;
+    int32 GetCharacterLvUpCoin( int32 fromLv, int32 toLv) const;
+
+    int32 GetCharacterQualityUpCoin( int32 curQuality) const;
+    int32 GetCharacterQualityUpCoin( int32 fromQua, int32 toQua) const;
+
+    int32 GetCharacterReinforceUpCoin( int32 curReinforce) const;
+    int32 GetCharacterReinforceUpCoin( int32 from, int32 to) const;
+
+
+    bool TryGetUpgradeXp( int32 curLevel, int32& outUpgradeXp) const;
+    bool TryAddXp( int32& curLv, int32& curXp, int32 xpAdd, int32 maxLv) const;
+
+    const std::vector<uint32>* GetSkillUnLockIds( uint32 quality) const;
+    const DB_CharSetSkills* GetSkillInfo( uint32 index) const;
+	const DB_CharProto& GetCharProto( void ) const ;
+    bool IsCharTypeHero() const;
+	int32 GetZhaoMuCost() const;
+	uint32 GetRow() const;
+	const string&  GetEnableTactics() const;
+private: 
+    LearnSkillMap               m_learnSkillMap;
+    Index2Skill                 m_index2skill;
+
+    const DB_CharProto&         m_dbCharProto;
+    const DB_CharUpgradeXP*     m_dbCharUpgradeXp;
+};
+
+
+#endif // CharacterProto_h__

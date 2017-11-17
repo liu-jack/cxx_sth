@@ -1,0 +1,87 @@
+package pb;
+import "CommomDef.proto";
+
+////////////////////////////////////////////////////////////////////////////////////
+//邮件
+enum MailStateType
+{
+	MAIL_STATE_NEW                       =0 ;
+	MAIL_STATE_RECV_NEW                  =1 ;
+	MAIL_STATE_HAD_READ					 =2 ;
+	MAIL_STATE_COUNT                     =3 ;
+}
+
+enum MailType
+{
+	MAIL_PLATFROM =1;
+	MAIL_SYSMAIL =2;
+	MAIL_PLATFROMFIX =3;
+	MAIL_PLATGIFT =4;
+	MAIL_JUST_TIPS = 5;
+}
+
+enum MailSendType
+{
+	MAIL_SEND_ONLINE =1;
+	MAIL_SEND_ALL =2;
+}
+
+message Mail_UserMailInfo {
+	required uint64 id						=1;
+	optional uint64 mail_id   				=2;  //ID
+	optional int32 mail_type 				=3;  //事件类型：1，后台邮件, 2系统固定邮件，3后台固定邮件,4后台礼包邮件
+	optional int32 mail_state				=4;  //邮件状态0新邮件，1已收新邮件，2已读
+	optional int32 mail_operate				=5;  //邮件操作0无操作，1添加，2删除,3,更新
+	optional uint64 send_time 				=6;  //发送时间
+	optional string title		  			=7;  //标题，文本,后台邮件使用
+	optional string content		  			=8;  //内容，文本,后台邮件使用
+	optional int32 title_id		  			=9;  //标题，文本,固定邮件使用
+	optional int32 content_id		  		=10;  //内容，文本,固定邮件使用
+	optional string items		  			=11;  //附件
+	optional bool  is_take					=12;  //是否已领取附件
+}
+
+//SMSG_MAIL_HASNEWMAIL 该协议不需要请求
+message GS2C_Mail_NewMail {           
+	repeated Mail_UserMailInfo new_mail =1;
+}
+
+//SMSG_MAIL_GETMAILLIST_RESPON
+message GS2C_Mail_MailList {
+	repeated Mail_UserMailInfo mail_list  = 1;
+}
+
+//CMSG_MAIL_READMAIL
+message C2GS_Mail_ReadMail {  
+	repeated uint64 mail_ids =1;
+} 
+
+//CMSG_MAIL_DELMAIL
+message C2GS_Mail_DelMail {
+	repeated uint64 mail_ids =1; //没有邮件Id则删除所有的邮件。
+}
+
+//SMSG_MAIL_READMAIL_RESPON //SMSG_MAIL_DELMAIL_RESPON
+message GS2C_Mail_Option_respon {
+	message opt_result {
+		required uint64 opt_id   =1; //邮件id 
+		required int32 opt_res   =2; // 1-操作成功； 2-操作失败
+	}
+	repeated opt_result opts_res =1; //用户邮件操作的结果
+} 
+
+//CMSG_EXCHANGE_GIFT_CODE
+message C2GS_Exchange_Gift_Code {
+	required string giftCode =1; 
+}
+
+//CMSG_MAIL_RECVMAILAWARD
+message C2GS_Mail_RecvMailAward {
+	required uint64 mail_id =1; 
+}
+
+//SMSG_MAIL_RECVMAILAWARD_RESPON
+message GS2C_Mail_RecvMailAward {
+	required uint64 mail_id =1; //
+	required int32 opt_res =2; //操作结果 -1 不支持的操作; 0-领取成功; 1-邮件不存在; 2-邮件无奖; 3-邮件奖励已经领取过 4-领取失败 5,背包空间不足
+}

@@ -1,0 +1,17 @@
+/************************************************************************/
+/*Add by:zhoulunhao													*/
+/*Email	:zhoulunhao@hotmail.com											*/
+/************************************************************************/
+#pragma once
+
+#include "def/TypeDef.h"
+struct PassStageRewardStruct;
+class Player;
+class PlayerPassStageRewardDB
+{
+public:
+	static void SendInfoToDB(Player& player,const uint32 id,PassStageRewardStruct& ref,uint32 operate_type);
+	static void SendInfoToDB(Player& player,const uint32 table_id,const uint32 is_take_reward,const uint32 stage_is_passed
+		,const uint32 stage_level,uint32 operate_type);
+	static void SendDeleteInfoToDb(Player& player,uint32 operate_type);
+};

@@ -1,0 +1,568 @@
+/************************************************************************/
+/*Add by:zhoulunhao													*/
+/*Email	:zhoulunhao@hotmail.com											*/
+/************************************************************************/
+
+#include "SeigeForceLog.h"
+#include "Reinforcement/ReinforceTableMgr.h"
+#include "Fuben.pb.h"
+#include "System.h"
+#include "Enum.pb.h"
+#include "seige_force_defines.h"
+#include "character/Character.h"
+#include "reward/reward.h"
+#include "utility/Utility.h"
+#include "../object/Player.h"
+#include "CrossLogic/ItemCharacterLogic.h"
+#include "CrossLogic/PlayerSeigeForceArmyDB.h"
+#include "Combat/CombatGroup.h"
+#include "Combat/CombatObj.h"
+#include "character/CharacterAttr.h"
+#include "Map/WorldMap.h"
+#include "Reinforcement/Reinforce.h"
+#include "Map/city/city.h"
+#include "Reinforcement/ReinforceMgr.h"
+#include "quest/QuestLogger.h"
+#include "BaseDefineMgr.h"
+#include "BaseDefine.pb.h"
+#include "Rank.pb.h"
+#define SIEGE_ARMY_MAX_LEVEL 80/// just use in GM_* functions.
+SeigeForceLog::SeigeForceLog()
+{
+	
+}
+
+void SeigeForceLog::LoadFrom(const pb::GxDB_Seige_Force_Info_Pack& msg)
+{
+	for(int i = 0;i < msg.info_size();++i)
+	{
+		const pb::Seige_Force_info& info = msg.info(i);
+		LogOfSeigeArmy& ref = log_of_seige_army_map_[info.army_id()];
+		ref.cur_all_times = info.cur_all_times();
+		ref.left_times = info.left_times();
+		ref.level = info.level();
+		ref.cur_exp = info.cur_exp();
+		ref.skill_id = info.skill_id();
+		for(int j = 0;j <info.specific_ids_size();++j)
+		{
+			ref.specific_ids.push_back(info.specific_ids(j));
+		}
+		for(int j = 0;j < info.terrain_size();++j)
+		{
+			ref.terrains.push_back(info.terrain(j));
+		}
+	}
+}
+
+void SeigeForceLog::SaveTo(Player* player,pb::GS2C_Seige_Force_All_Info& msg)
+{
+	for(LogOfSeigeArmyMap::iterator iter = log_of_seige_army_map_.begin();iter != log_of_seige_army_map_.end();++iter)
+	{
+		pb::Seige_Force_info* info = msg.add_info();
+		SaveTo(*info,iter->first,iter->second);
+	}
+}
+
+void SeigeForceLog::SaveTo(Player* player,pb::GS2C_Seige_Force_Level_Up_Rsp& msg,const uint32 siege_army_id)
+{
+	if(!ArmyIsHave(siege_army_id))
+	{
+		msg.set_result(pb::OPERATE_DONOT_HAVE_ARMY);
+		return;
+	}
+	LogOfSeigeArmy& ref = log_of_seige_army_map_[siege_army_id];
+	const SiegeArmyUp* siege_army_up = sSeigeArmyForceMgr.getSiegeArmyUp(siege_army_id,ref.level);
+	const CharSiegeArmy* char_seige_army = sSeigeArmyForceMgr.getCharSiegeArmy(siege_army_id);
+	if(siege_army_up && char_seige_army)
+	{
+		if(siege_army_up->levelExp() == 0)
+		{
+			NLOG("Siege Army has max level!");
+			msg.set_result(pb::OPERATE_FAILED);
+			return;
+		}
+		if(!sReward.Change(*player,siege_army_up->getCostMaterial()))
+		{
+			msg.set_result(pb::OPERATE_ITEM_NOT_ENOUGH);
+			return;
+		}
+		msg.set_result(pb::OPERATE_SUCCESS);
+		int critical = System::RandWeight(siege_army_up->getCritical());
+		uint32 exp_of_this_time = siege_army_up->delvlopExp() * critical;
+		msg.set_critical(critical);
+		msg.set_exp_of_this_time(exp_of_this_time);
+		ref.cur_exp += exp_of_this_time;
+		if(ref.cur_exp >= siege_army_up->levelExp())
+		{
+			++ref.level;
+			ref.cur_exp -= siege_army_up->levelExp();
+			bool has_modify = false;
+			for(IntPairVec::const_iterator iter = char_seige_army->specificIds().begin();iter != char_seige_army->specificIds().end();++iter)
+			{
+				if((int)ref.level >= iter->second)
+				{
+					has_modify = true;
+					if(std::find(ref.specific_ids.begin(),ref.specific_ids.end(),iter->first) == ref.specific_ids.end())///don't find ,then insert.
+					{
+						ref.specific_ids.push_back(iter->first);
+					}
+				}
+			}
+			if(has_modify)
+			{
+				CharAttrReCalculator(ref);
+				ItemCharacterLogic::ReCalculateBattleAttr(player,siege_army_id);
+			}
+		}
+		player->setMilitaryPower();
+		PlayerSeigeForceArmyDB::SendInfoToDB(*player,siege_army_id,this,ref);
+		SaveTo(*msg.mutable_change_info(),siege_army_id,ref);
+	}
+	else
+	{
+		msg.set_result(pb::OPERATE_FAILED);
+	}
+}
+
+void SeigeForceLog::SaveTo(Player* player,pb::GS2C_Seige_Force_Buy_Army_Rsp& msg,const uint32 siege_army_id)
+{
+	msg.set_army_id(siege_army_id);
+	if(!sSeigeArmyForceMgr.IsValidArmyId(siege_army_id))
+	{
+		msg.set_result(pb::OPERATE_ARMY_ID_INVALID);
+		return;
+	}
+	const CharSiegeArmy* char_seige_army = sSeigeArmyForceMgr.getCharSiegeArmy(siege_army_id);
+	if(char_seige_army)
+	{
+		if(ArmyIsHave(siege_army_id))
+		{
+			msg.set_result(pb::OPERATE_BUY_HAS_DONE);
+			return;
+		}
+		if(char_seige_army->unlockType() == UNLOCK_USE_DIAMOND)
+		{
+			IntPair pair_cost;
+			Utility::SplitStr(char_seige_army->unlockCost(),pair_cost,'|');
+			if(char_seige_army->discountLastTime() * ONE_HOUR_SECOND + (uint64)player->GetRegistTime() >= sOS.TimeSeconds())
+			{
+				if(!player->TryDeductCurrency(pb::IR_SEIGE_ARMY_FORCE_COST,eSysGold,pair_cost.second))//discount
+				{
+					msg.set_result(pb::OPERATE_GOLD_NOT_ENOUGH);
+					return;
+				}
+			}
+			else
+			{
+				if(!player->TryDeductCurrency(pb::IR_SEIGE_ARMY_FORCE_COST,eSysGold,pair_cost.first))
+				{
+					msg.set_result(pb::OPERATE_GOLD_NOT_ENOUGH);
+					return;
+				}
+			}
+		}
+		else if(char_seige_army->unlockType() == UNLOCK_USE_ITEM)
+		{
+			IntPairVec vec;
+			Utility::SplitStr2(char_seige_army->unlockCost(),vec);
+			for(IntPairVec::iterator iter = vec.begin();iter != vec.end();++iter)
+			{
+				iter->second *= -1;
+			}
+			if(!sReward.Change(*player,vec))
+			{
+				msg.set_result(pb::OPERATE_ITEM_NOT_ENOUGH);
+				return;
+			}
+		}
+
+		LogOfSeigeArmy ref;
+		ref.cur_all_times = char_seige_army->fightTimes();
+		ref.left_times = char_seige_army->fightTimes();
+		ref.skill_id = char_seige_army->skillId();
+		ref.terrains.resize(char_seige_army->fightTerrain().size(),0);
+		std::copy(char_seige_army->fightTerrain().begin(),char_seige_army->fightTerrain().end(),ref.terrains.begin());
+		log_of_seige_army_map_.insert(std::make_pair(siege_army_id,ref));
+		PlayerSeigeForceArmyDB::SendInfoToDB(*player,siege_army_id,this,ref);
+		msg.set_result(pb::OPERATE_SUCCESS);
+	}
+	else
+	{
+		msg.set_result(pb::OPERATE_FAILED);
+	}
+}
+
+void SeigeForceLog::SaveTo(Player* player,pb::GS2C_Seige_Force_Use_Army_Rsp& msg,const uint32 siege_army_id,const uint32 group_unique_id,uint32 cityid)
+{
+	using namespace Combat;
+	msg.set_army_id(siege_army_id);
+	if(!sSeigeArmyForceMgr.IsValidArmyId(siege_army_id))
+	{
+		msg.set_result(pb::OPERATE_ARMY_ID_INVALID);
+		return;
+	}
+	if(!ArmyIsHave(siege_army_id))
+	{
+		msg.set_result(pb::OPERATE_DONOT_HAVE_ARMY);
+		return;
+	}
+	if(!CanAddSeigeArmy(siege_army_id)) 
+	{
+		msg.set_result(pb::OPERATE_NOT_ENOUGH_LEFT_TIMES);
+		return;
+	}
+	bool ret = false;
+	if(player->m_questLogger->HasQuest(GET_BASE_DEF_UINT(pb::BD_QUEST_TEMP_OPEN_ATTACK_CITY_TROOP)))
+	{
+		if(Combat::CombatGroup* com_group = Combat::CombatGroup::FindGroup(group_unique_id))
+		{
+			Reinforce* reinforce = sReinforceMgr.CreateReinforceMgr(player,siege_army_id);
+			if(reinforce)
+			{
+				if(reinforce->soldiers.empty())
+				{
+					LLOG("important bug!!! soldier is empty!!!!");
+					msg.set_result(pb::OPERATE_ADD_REINFORCE_ERR);
+					return;
+				}
+				if(!com_group->canCallSeigeArmy(Combat::CT_Teach_Map,player->GetCountryId()))
+				{
+					msg.set_result(pb::OPERATE_SEIGE_ARMY_COUNT_LIMIT);
+					return;
+				}
+				ret = com_group->AddReinforceToAttack(*reinforce);
+				if(!ret)
+				{
+					msg.set_result(pb::OPERATE_ADD_REINFORCE_ERR);
+					delete reinforce;
+					return;
+				}
+			}
+			else
+			{
+				msg.set_result(pb::OPERATE_ADD_REINFORCE_ERR);
+				return;
+			}
+
+		}
+		else
+		{
+			msg.set_result(pb::OPERATE_ADD_REINFORCE_ERR);
+			return;
+		}
+	}
+	else
+	{
+		if(City* city = sWorldMap.GetCity(cityid))
+		{
+			if(Combat::CombatGroup* com_group = Combat::CombatGroup::FindGroup(group_unique_id))
+			{
+				if(city->GetCombatGroup() == com_group)
+				{
+					if(!com_group->canCallSeigeArmy(Combat::CT_Country,player->GetCountryId(),city->GetCountryId()))//非教学类型就行
+					{
+						msg.set_result(pb::OPERATE_SEIGE_ARMY_COUNT_LIMIT);
+						return;
+					}
+					Reinforce* reinone = sReinforceMgr.CreateReinforceMgr(player,siege_army_id);
+					if(reinone)
+					{
+						ret = city->ReinforceEnter(*reinone);
+						if(!ret)
+						{
+							msg.set_result(pb::OPERATE_ADD_REINFORCE_ERR);
+							delete reinone;
+							return;
+						}
+						else
+						{
+							if(!TryDecreaseTimes(player,siege_army_id))
+							{
+								msg.set_result(pb::OPERATE_NOT_ENOUGH_LEFT_TIMES);
+								return;
+							}
+						}
+						msg.set_result(pb::OPERATE_SUCCESS);
+						return;
+					}
+					else
+					{
+						msg.set_result(pb::OPERATE_ADD_REINFORCE_ERR);
+						return;
+					}	
+				}
+				else
+				{
+					msg.set_result(pb::OPERATE_ADD_REINFORCE_ERR);
+					return;
+				}
+			}
+			else
+			{
+				msg.set_result(pb::OPERATE_ADD_REINFORCE_ERR);
+				return;
+			}
+		}
+	}
+}
+
+void SeigeForceLog::SaveTo(pb::Seige_Force_info& info,const uint32 siege_army_id,const LogOfSeigeArmy& ref)
+{
+	info.set_army_id(siege_army_id);
+	info.set_cur_all_times(ref.cur_all_times);
+	info.set_cur_exp(ref.cur_exp);
+	info.set_left_times(ref.left_times);
+	info.set_level(ref.level);
+	info.set_skill_id(ref.skill_id);
+	for(VecUint::const_iterator Iter = ref.specific_ids.begin();Iter != ref.specific_ids.end();++Iter)
+	{
+		if(*Iter == 0) continue;
+		info.add_specific_ids(*Iter);
+	}
+	for(VecUint::const_iterator Iter = ref.terrains.begin();Iter !=ref.terrains.end();++Iter)
+	{
+		if(*Iter == 0) continue;
+		info.add_terrain(*Iter);
+	}
+	info.set_military_power(getMilitaryPowerBySiegeArmyId(siege_army_id));
+}
+
+void SeigeForceLog::SaveToMsg(pb::SiegeArmyMsg& msg)
+{
+	for(LogOfSeigeArmyMap::iterator iter = log_of_seige_army_map_.begin();iter != log_of_seige_army_map_.end();++iter)
+	{
+		pb::SiegeArmyInfo * siege_army_info = msg.add_siege_army_info();
+		siege_army_info->set_siege_char_id(iter->first);
+		siege_army_info->set_siege_lv(iter->second.level);
+	}
+}
+
+void SeigeForceLog::GivePlayerFirstSeigeArmy(Player* player,const int login_days)
+{
+	const CharSiegeArmyMap& char_seige_army_map = sSeigeArmyForceMgr.getCharSiegeArmyMap();
+	for(CharSiegeArmyMap::const_iterator iter = char_seige_army_map.begin();iter != char_seige_army_map.end();++iter)
+	{
+		if(iter->second->unlockType() == UNLOCK_USE_LOGIN_DAY && login_days >= ::atoi(iter->second->unlockCost().c_str()))
+		{
+			if(log_of_seige_army_map_.find(iter->first) != log_of_seige_army_map_.end())
+			{
+				continue;
+			}
+			LogOfSeigeArmy ref;
+			ref.cur_all_times = iter->second->fightTimes();
+			ref.left_times = iter->second->fightTimes();
+			ref.skill_id = iter->second->skillId();
+			ref.terrains.resize(iter->second->fightTerrain().size(),0);
+			std::copy(iter->second->fightTerrain().begin(),iter->second->fightTerrain().end(),ref.terrains.begin());
+			log_of_seige_army_map_.insert(std::make_pair(iter->first,ref));
+			PlayerSeigeForceArmyDB::SendInfoToDB(*player,iter->first,this,ref);
+		}
+	}
+}
+
+
+void SeigeForceLog::CharAttrReCalculator(LogOfSeigeArmy& ref )
+{
+	for(VecUint::iterator Iter = ref.specific_ids.begin();Iter != ref.specific_ids.end();++Iter)
+	{
+		const SiegeArmySpecific* siege_specific = sSeigeArmyForceMgr.getSiegeArmySpecific(*Iter);
+		if(siege_specific)
+		{
+			switch (siege_specific->specificType())
+			{
+			case CHANGE_SKILL_ID:
+				ref.skill_id = siege_specific->getSpecificParameter()[0];
+				break;
+			case CHANGE_TERRAIN:
+				ref.terrains.resize(siege_specific->getSpecificParameter().size(),0);
+				std::copy(siege_specific->getSpecificParameter().begin(),siege_specific->getSpecificParameter().end(),ref.terrains.begin());
+				break;
+			case CHANGE_DAILY_TIMES:
+				ref.left_times += siege_specific->getSpecificParameter()[0] - ref.cur_all_times;
+				ref.cur_all_times = siege_specific->getSpecificParameter()[0];
+				break;
+			default:
+				break;
+			}
+		}
+	}
+}
+
+
+void SeigeForceLog::CalculateCharacterAttr(const uint32 siege_army_id,CharacterAttr* attr)
+{
+	if(siege_army_id != 0)
+	{
+		if(!ArmyIsHave(siege_army_id)) return;
+		LogOfSeigeArmy& ref = log_of_seige_army_map_[siege_army_id];
+		for(VecUint::iterator Iter = ref.specific_ids.begin();Iter != ref.specific_ids.end();++Iter)
+		{
+			const SiegeArmySpecific* siege_specific = sSeigeArmyForceMgr.getSiegeArmySpecific(*Iter);
+			if(siege_specific)
+			{
+				switch (siege_specific->specificType())
+				{
+				case ADD_ALL_ATTR:
+					if(attr)
+					{
+						uint32 temp = (uint32)attr->GetAttr(siege_specific->getSpecificParameter()[0]) * ( 100 + siege_specific->getSpecificParameter()[1]) / 100;
+						attr->SetAttr(siege_specific->getSpecificParameter()[0],(float)temp);
+					}
+					break;
+				default:
+					break;
+				}
+			}
+		}
+	}
+	else {
+		for(LogOfSeigeArmyMap::iterator iter = log_of_seige_army_map_.begin();iter != log_of_seige_army_map_.end();++iter)
+		{
+			for(VecUint::iterator Iter = iter->second.specific_ids.begin();Iter != iter->second.specific_ids.end();++Iter)
+			{
+				const SiegeArmySpecific* siege_specific = sSeigeArmyForceMgr.getSiegeArmySpecific(*Iter);
+				if(siege_specific)
+				{
+					switch (siege_specific->specificType())
+					{
+					case ADD_ALL_ATTR:
+						if(attr)
+						{
+							uint32 temp = (uint32)attr->GetAttr(siege_specific->getSpecificParameter()[0]) * ( 100 + siege_specific->getSpecificParameter()[1]) / 100;
+							attr->SetAttr(siege_specific->getSpecificParameter()[0],(float)temp);
+						}
+						break;
+					default:
+						break;
+					}
+				}
+			}
+		}
+	}
+}
+
+void SeigeForceLog::ResetSiegeTimes(Player* player)
+{
+	for(LogOfSeigeArmyMap::iterator iter = log_of_seige_army_map_.begin();iter != log_of_seige_army_map_.end();++iter)
+	{
+		iter->second.left_times = iter->second.cur_all_times;
+		PlayerSeigeForceArmyDB::SendInfoToDB(*player,iter->first,this,iter->second);
+	}
+}
+
+bool SeigeForceLog::TryDecreaseTimes(Player* player,const uint32 siege_army_id)
+{
+	if(!ArmyIsHave(siege_army_id)) return false;
+	LogOfSeigeArmy& ref = log_of_seige_army_map_[siege_army_id];
+	if(ref.left_times == 0)
+	{
+		return false;
+	}
+	--ref.left_times;
+	PlayerSeigeForceArmyDB::SendInfoToDB(*player,siege_army_id,this,ref);
+	return true;
+}
+
+
+bool SeigeForceLog::CanAddSeigeArmy(const uint32 siege_army_id)
+{
+	if(!ArmyIsHave(siege_army_id)) return false;
+	LogOfSeigeArmy& ref = log_of_seige_army_map_[siege_army_id];
+	return ref.left_times > 0;
+}
+
+bool SeigeForceLog::ArmyIsHave(const uint32 siege_army_id) const
+{
+	return log_of_seige_army_map_.find(siege_army_id) != log_of_seige_army_map_.end();
+}
+
+LogOfSeigeArmy* SeigeForceLog::GetLogOfSeigeArmyStruct(const uint32 siege_army_id)
+{
+	///if(!ArmyIsHave(army_id)) return NULL;
+	LogOfSeigeArmyMap::iterator iter = log_of_seige_army_map_.find(siege_army_id);
+	if(iter != log_of_seige_army_map_.end())
+	{
+		return &iter->second;
+	}
+	return NULL;
+}
+
+void SeigeForceLog::FillAllSeigeArmy()
+{
+	const CharSiegeArmyMap& char_seige_map = sSeigeArmyForceMgr.getCharSiegeArmyMap();
+	for(CharSiegeArmyMap::const_iterator iter = char_seige_map.begin();iter != char_seige_map.end();++iter)
+	{
+		const CharSiegeArmy* char_seige_army = sSeigeArmyForceMgr.getCharSiegeArmy(iter->first);
+		if(char_seige_army)
+		{
+			LogOfSeigeArmy ref;
+			ref.cur_all_times = char_seige_army->fightTimes();
+			ref.left_times = char_seige_army->fightTimes();
+			ref.skill_id = char_seige_army->skillId();
+			ref.terrains.resize(char_seige_army->fightTerrain().size(),0);
+			std::copy(char_seige_army->fightTerrain().begin(),char_seige_army->fightTerrain().end(),ref.terrains.begin());
+			log_of_seige_army_map_.insert(std::make_pair(iter->first,ref));
+		}
+	}	
+}
+
+void SeigeForceLog::GM_LevelUp(Player* player,const uint32 siege_army_id,const uint32 level)
+{
+	if(!ArmyIsHave(siege_army_id))
+	{
+		return;
+	}
+	LogOfSeigeArmy& ref = log_of_seige_army_map_[siege_army_id];
+	//const SiegeArmyUp* siege_army_up = sSeigeArmyForceMgr.getSiegeArmyUp(armyId,ref.level);
+	const CharSiegeArmy* char_seige_army = sSeigeArmyForceMgr.getCharSiegeArmy(siege_army_id);
+	if(char_seige_army)
+	{
+		ref.level = level;
+		if(ref.level > SIEGE_ARMY_MAX_LEVEL)
+		{
+			ref.level = SIEGE_ARMY_MAX_LEVEL;
+		}
+		bool has_modify = false;
+		for(IntPairVec::const_iterator iter = char_seige_army->specificIds().begin();iter != char_seige_army->specificIds().end();++iter)
+		{
+			if((int)ref.level >= iter->second)
+			{
+				has_modify = true;
+				if(std::find(ref.specific_ids.begin(),ref.specific_ids.end(),iter->first) == ref.specific_ids.end())///don't find ,then insert.
+				{
+					ref.specific_ids.push_back(iter->first);
+				}
+			}
+		}
+		if(has_modify)
+			ItemCharacterLogic::ReCalculateBattleAttr(player);
+		
+		PlayerSeigeForceArmyDB::SendInfoToDB(*player,siege_army_id,this,ref);
+	}
+}
+
+void SeigeForceLog::ClearLogOfSeigeMap()
+{
+	if(!log_of_seige_army_map_.empty())
+	{
+		log_of_seige_army_map_.clear();
+	}
+}
+
+const uint32 SeigeForceLog::getMilitaryPowerBySiegeArmyId(const uint32 siege_army_id)
+{
+	if(!ArmyIsHave(siege_army_id))
+		return 0;
+	LogOfSeigeArmy& ref = log_of_seige_army_map_[siege_army_id];
+	return sSeigeArmyForceMgr.GetFightValue(siege_army_id,ref.level);
+}
+
+const uint32 SeigeForceLog::GetSiegeMilitaryPower()
+{
+	uint32 seige_military_power = 0;
+	for(LogOfSeigeArmyMap::iterator iter = log_of_seige_army_map_.begin();iter != log_of_seige_army_map_.end();++iter)
+	{
+		seige_military_power += getMilitaryPowerBySiegeArmyId(iter->first);
+	}
+	return seige_military_power;
+}

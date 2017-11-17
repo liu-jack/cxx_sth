@@ -1,0 +1,164 @@
+#ifndef LOGIN_DATA_MGR_H__
+#define LOGIN_DATA_MGR_H__
+
+
+#include "Singleton.h"
+
+#include "MySqlTableCache.h"
+#include "PlayerTable.h"
+#include "StageLevelTable.h"
+#include "FuBenTable.h"
+#include "WorldMapEvent.h"
+#include "MarketTable.h"
+#include "SmithyTable.h"
+#include "AltarTable.h"
+#include "BaoQiTable.h"
+#include "DungeonTable.h"
+#include "MapLogicTable.h"
+#include "TechnologyTable.h"
+#include "ItemTable.h"
+#include "CharacterTable.h"
+#include "MailTable.h"
+#include "EventTable.h"
+#include "QuestTable.h"
+#include "SellTable.h"
+#include "GuildInfo.h"
+#include "../PlayerBaseData.h"
+#include "ActiveTable.h"
+#include "PvPRankTable.h"
+//#include "ServerGobalValueTable.h"
+#include "ModuleTable.h"
+#include "global/CountryTable.h"
+#include "global/PalaceTable.h"
+#include "StageCrusadeTable.h"
+#include "DailyQuestTable.h"
+#include "GrowUpQuestTable.h"
+#include "SignUpTable.h"
+#include "PassStageRewardGoldTable.h"
+#include "ActivityStarBoxTable.h"
+#include "global/ActivityControlTable.h"
+#include "ZhengWuTable.h"
+#include "GeneralReward.h"
+#include "WorldFightTable.h"
+#include "SeigeForceTable.h"
+#include "ContinueOccupyCityTable.h"
+#include "global/ActivityCountryOccupyCityTable.h"
+#include "CongratulateTable.h"
+#include "DbproxyDataDefine.h"
+
+#undef LOAD_TAB
+#define LOAD_TAB(tab_name) TABLE_TYPEDEF(tab_name)
+    
+LOAD_ALL_TAB
+    
+
+TABLE_TYPEDEF( EventRecodeTable);
+
+TABLE_TYPEDEF( GuildInfoTable);
+TABLE_TYPEDEF( GuildMemberInfoTable);
+
+class PlayerData;
+class DbProxyDataMgr: public Singleton<DbProxyDataMgr>
+{
+private:
+	friend class Singleton<DbProxyDataMgr> ;
+
+private:
+	DbProxyDataMgr( void ) ;
+
+public:
+	~DbProxyDataMgr( void ) ;
+
+
+
+public:
+	void InitData( int dbproxId ) ;
+public:
+	bool GetHadThisPlayerInDB( const std::string &name ) ;
+	bool GetHadThisPlayerInDB( const uint64 playerId );
+	bool GetHadThisPlayerInDBLocked( const uint64 playerId );
+	bool GetHadThisSdkAccountPlayer( const uint64 playerId, const std::string &sdkAccount ) ;
+	void GetSameCountryNum(IntPairVec& vec);
+	uint32 GetDbProxyId( void ) {   return m_dbproxyId; }
+
+	bool GetPlayerIds( std::set< uint64>& idSet,const char* sqlSrc = NULL);
+	bool AddNewPlayerToTable( PlayerTable &newPlayer ) ;
+	void GetMapLogicRecord( MapLogicTableCacheType& tmpTable, uint64 playerId);
+	uint64 GetPlayerIdByName( const std::string &name ) ;
+
+	void GetPlayerList( PlayerTableCacheType& tmpTable, uint64 accountId, uint32 regionId, uint32 serverId ) ;
+
+	void UnLoadPlayerData( PlayerData *pPlayerData ) ;
+
+	PlayerData* LoadPlayerData( uint64 playerId) ;
+	PlayerData* LoadPlayerData( uint64 accountId, uint64 playerId) ;
+	bool LoadPlayerTable(const std::string &playerTableSql,std::vector<PlayerTable*>& vecPlayerTable);
+	PlayerData * LoadOnePlayerData(PlayerTable *pPlayerTable);
+	PlayerTable * GetPlayerTable(PlayerTableCacheType& tableCache,uint64 playerId);
+	void LoadPlayerData( const std::string &playerTableSql,std::vector<PlayerData*> &vecPlayerData ) ;
+
+    template < typename T >
+    boost::shared_ptr<CMysqlTableCache<T>> GetTable();
+
+
+	void AddPlayerBaseData( PlayerData *pPlayerData ) ;
+
+	void RemovePlayerBaseData( uint64 playerId ) ;
+
+	void CheckPlayerBaseDataCacheCount( void ) ;
+	void CheckAndRemoveExpiredPlatformMail();
+	pb::MsgPlayerBaseData* GetPlayerBaseData( uint64 playerId, uint32 regionId, uint32 serverId );
+	bool LoadPlayerBaseData( uint64 playerId, pb::MsgPlayerBaseData& baseData );
+	
+	void LoadGlobalData();
+	GloabalDataPtr GetOrLoadGlobalData();
+	void LoadSessionGlobalData(SessionDataPtr& sesPtr);
+	SessionDataPtr GetOrLoadSessionData(const SessionPairId &pairId);
+	//PvPRankTable* GetPlayerPvPRank( uint64 playerId ) ;
+
+	
+	template< class T >
+	void LoadTableByServerLimit(  int regionId, int serverId, std::vector< T* > &vec ) ;
+	template< class T>
+	T*   SaveAndAddTableEntry(T* pTable);
+	//void LoadPvPRank( int regionId, int serverId, std::vector< PvPRankTable* > &vec ) ;
+	//void LoadGobalValue( int regionId, int serverId, std::vector< ServerGobalValueTable* > &vec ) ;
+public:  
+	/*EventRecodeTableCache         m_EventRecodeTable;
+	GuildInfoTableCache           m_GuildInfoTable;
+	GuildMemberInfoTableCache     m_GuildMemberInfoTable;*/
+	PlayerBaseInfoMap			  m_PlayerBaseInfoMap;
+
+private:
+	uint32                        m_dbproxyId;
+	SessionDataMap                m_sessionDataMap;
+	GloabalDataPtr                m_gloabalDataPtr;
+
+private:
+
+#undef LOAD_TAB
+#define LOAD_TAB(tab_name)  tab_name##Cache m_##tab_name;
+
+    LOAD_ALL_TAB
+
+
+};
+
+template< class T>
+T* DbProxyDataMgr::SaveAndAddTableEntry( T* pTable )
+{
+	if (pTable)
+	{
+		if (pTable->GetKey() == 0)
+		{
+			pTable->SetDbIncreaseId( GetTable<T>()->IncreaseMaxId());
+		}
+		return GetTable<T>()->SaveAndAddEntry(pTable);
+	}
+	return NULL;
+}
+
+#define sDataMgr (DbProxyDataMgr::Instance())
+
+
+#endif

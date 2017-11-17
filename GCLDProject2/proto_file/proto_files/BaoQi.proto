@@ -1,0 +1,88 @@
+package pb;
+import "CommomDef.proto";
+
+message BaoQiPro
+{
+    required uint32     level   =1;
+    required uint32     exp     =2;
+    required uint32     star    =3;
+    optional uint32     have_hole =4;
+    optional uint32     gem     =5;  // itemId
+}
+
+message UsedItem
+{
+	optional uint32 itemId = 1;
+	optional uint32 count = 2;
+	optional uint64 used_time = 3;
+}
+message GS2C_BaoQi_All_Info
+{
+    repeated BaoQiPro   property   =1;
+	repeated UsedItem  	item_used = 2;
+}
+message GS2C_BaoQi_Exp_Inc_History
+{
+    required uint32     id   =1; //0起始
+    
+    repeated uint32     inc_val_lst     =2;
+}
+
+enum BaoQiErrType
+{
+	Err_BaoQi_PassStage	= 1;	//没有通关
+	Err_BaoQi_Resource	= 2;	//资源不足
+}
+
+message C2GS_BaoQi_Create
+{
+    required uint32     id   =1;
+}
+
+message GS2C_BaoQi_Create
+{
+	optional bool isCreateSuccess = 1;
+	optional BaoQiErrType retErr = 2;
+}
+
+message C2GS_BaoQi_Buy_Item //购买材料
+{
+    required uint32     id   =1;
+}
+message C2GS_BaoQi_AddExp
+{
+    required uint32     id   =1;
+}
+message C2GS_BaoQi_LevelUp
+{
+    required uint32     id   =1;
+}
+message C2GS_BaoQi_StarUp
+{
+    required uint32     id   =1;
+}
+
+
+//宝石打孔、装备、拆卸
+
+// CMSG_BAO_QI_PUNCH
+// SMSG_BAO_QI_PUNCH
+message C2GS_BaoQi_Punch
+{
+    required uint32     id   =1;
+}
+
+// CMSG_BAO_QI_KNIT_GEM
+// SMSG_BAO_QI_KNIT_GEM
+message C2GS_BaoQi_KnitGem
+{
+    required uint32     id   =1;
+    required uint32     gem  =2;  // itemId
+}
+
+// CMSG_BAO_QI_UNKNIT_GEM
+// SMSG_BAO_QI_UNKNIT_GEM
+message C2GS_BaoQi_UnKnitGem
+{
+    required uint32     id   =1;
+}

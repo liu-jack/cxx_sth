@@ -1,0 +1,87 @@
+package pb;
+import "CommomDef.proto";
+
+enum Msg_AC_Return
+{
+	AC_Success		= 1;	//通用成功
+	AC_Fail			= 2;	//通用失败
+	AC_No_Resource		= 3;	//资源不足
+	AC_IS_IN_AC		= 4;	//已经在自动国战中，不能重复自动国战
+	AC_IS_NOT_IN_AC		= 5;	//没有在国战中
+	AC_DES_CITY_ERR		= 6;
+	AC_HERO_ERR		= 7;
+}
+
+message C2GS_Quick_Training
+{
+	optional uint32 trainid			= 1;
+	repeated uint32 heroid			= 2;
+}
+
+message C2GS_Start_Auto_Country_War
+{
+	optional uint32 cityid			= 1;
+	repeated uint32 heroid			= 2;
+	optional bool   isUseGoldAddSoldier	= 3;	//是否使用钻石征兵
+	optional bool	isAutoCallUp		= 4;	//是否自动征召
+}
+
+message C2GS_Reauto_Country_War
+{
+	optional uint32 heroid			= 1;
+	optional bool	isJoinAuto		= 2;	//是加入还是退出
+}
+
+//改变目标城池
+message C2GS_Change_Target_City
+{
+	optional uint32 cityid			= 1;
+}
+
+// 返回 自动国战信息
+message GS2C_Auto_Country_War_Info
+{
+	required bool is_begin = 1;
+	optional bool isShutDown = 2;
+	optional Struct_Auto_Country_War detailData = 3;
+}
+
+message Struct_Auto_Country_War
+{
+	optional uint32 target_city = 1;
+	repeated uint32 heroid = 2;
+	optional uint64 end_time = 3;
+	optional uint32 killCount = 4;
+	optional uint32 expCount = 5;
+	optional uint32 occupyCount = 6;
+}
+
+message GS2C_AC_Army_Info
+{
+	optional uint32 heroid = 1;		//狂战者	m_charid
+	optional bool killorbekilled = 2;	//true:kill 击杀/死亡
+	optional string killname = 3;		//玩家A
+	optional uint32 protoid = 4;		//狂战士	protoid
+	optional uint32 damage = 5;		//20000兵力
+
+}
+
+message GS2C_QuickTraining_Ret
+{
+	optional Msg_AC_Return ret = 1;
+}
+
+message GS2C_Start_AC_Ret
+{
+	optional Msg_AC_Return ret = 1;
+}
+
+message GS2C_REAUTO_HERO_Ret
+{
+	optional Msg_AC_Return ret = 1;
+}
+
+message GS2C_Change_Des_Ret
+{
+	optional Msg_AC_Return ret = 1;
+}

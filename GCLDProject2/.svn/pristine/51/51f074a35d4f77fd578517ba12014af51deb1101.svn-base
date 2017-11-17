@@ -1,0 +1,51 @@
+package pb;
+
+//////////////////////////////////////////////////////////////
+//////////客户端发送的消息
+//请求矿信息列表
+message C2GS_MineCampList
+{
+	required uint32 mine_field_id = 1;	//矿区ID,分为1 2 3 4 5
+}
+
+//玩家对矿的处理
+message C2GS_Player_DealMine 
+{
+	required uint32 player_id = 1;		//玩家ID
+	repeated uint32 mine_field_id = 2;	//矿区ID,分为1 2 3 4 5
+	required uint32 mine_placeid = 3;	//矿位置ID, 0:国家矿，1-16:普通矿
+	required uint32 deal_id = 4;		//操作ID, 1:占领 2:抢收 3:放弃
+}
+
+///////////////////////////////////////////////////////////////
+/////服务器发送的消息
+message Struct_CountryMine_Info
+{
+	required uint32 country		= 1;//所属国家//0为空 1匈奴-虫族 2罗马-人族 3大汉-神族 4蛮族,
+	required uint32 state		= 2; //0:不可开采(已经开采过后为不可开采，非本国也不可开采) 1:可开采
+}
+
+message Struct_NormalMine_Info
+{
+	required uint32 player_id	= 1; //占领的玩家ID，没有则为0
+	required uint32 player_name	= 2; //占领的玩家名
+	required uint32 country		= 3;//所属国家//0为空 1匈奴-虫族 2罗马-人族 3大汉-神族 4蛮族,
+	required uint32 state		= 4; //0:空状态(无玩家时) 1:未抢收 2:抢收
+	required uint32 lefttime	= 5; //占领剩余时间
+	required uint32 res1_num	= 6; //资源1产量
+	required uint32 res2_num	= 7; //资源2产量
+}
+
+//矿信息列表
+message GS2C_MineCampList
+{
+	required Struct_CountryMine_Info country_info = 1; //国家矿信息
+	repeated Struct_NormalMine_Info normal_info = 2; //普通矿信息数组，16个
+}
+
+//处理矿
+message GS2C_DealMine
+{
+	required uint32	res1_gain	= 1;	//资源1收益，占领和抢收时没收益为0，放弃下发资源产量，下同
+	required uint32	res2_gain	= 2;	//资源1收益
+}

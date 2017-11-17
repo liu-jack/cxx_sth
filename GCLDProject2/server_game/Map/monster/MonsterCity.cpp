@@ -1,0 +1,192 @@
+#include "MonsterCity.h"
+#include "Base.h"
+#include "../../object/Player.h"
+#include "../country/country.h"
+#include "../../reward/reward.h"
+#include "datastruct/struct_monster_city.h"
+#include "../../Palace/PalaceMgr.h"
+#include "OS.h"
+#include "../../Npc/NpcMgr.h"
+#include "../../Npc/Npc.h"
+#include "../PlayerMapLogic.h"
+#include "Country.pb.h"
+#include "../WorldMap.h"
+#include "../../CrossLogic/PlayerMapLogicDB.h"
+#include "BaseDefine.pb.h"
+#include "BaseDefineMgr.h"
+#include "Congratulate/Table/CongratulateTableMgr.h"
+
+#define Donation_Money_One_Times			(GET_BASE_DEF_INT(pb::BD_INVEST_WILD_COST_SILVER))
+#define Donation_Reward_Exp_One_Times		(GET_BASE_DEF_UINT(pb::BD_INVADE_WILD_GET_PLAYER_EXP))
+#define Invade_Cnt_One_Day					(GET_BASE_DEF_UINT(pb::BD_WILD_INVADE_TIMES_PER_DAY))
+#define Donation_CD							(GET_BASE_DEF_UINT(pb::BD_WILD_INVADE_MAX_COOLDOWN_TIME))
+#define Clear_Donation_CD_Gold				(GET_BASE_DEF_INT(pb::BD_CLEAR_WILD_INVEST_TIME_COST_GOLD))
+#define MAX_INTIMACY_LEVELUP				(GET_BASE_DEF_UINT(pb::BD_MAX_INTIMACY_LEVELUP))
+#define WILD_OPEN_NEED_COUNTRY_LEVEL		(GET_BASE_DEF_UINT(pb::BD_WILD_OPEN_NEED_COUNTRY_LEVEL))
+#define ONE_MINUTE_SECOND 60
+MonsterCity::MonsterCity()
+{
+    ZeroMemoryThis;
+
+    for (int i = 0; i < MAX_PLAYER_COUNTRY_ID; ++i)
+    {
+        m_CountryLst[i].MonsterLevel = 1;
+    }
+}
+void MonsterCity::SaveTo(pb::MonsterCityLst& msg)
+{
+    for (int i = 0; i < MAX_PLAYER_COUNTRY_ID; ++i)
+    {
+        pb::MonsterCity* pInfo = msg.add_list();
+        pInfo->set_donation_money(m_CountryLst[i].donationMoney);
+        pInfo->set_friend_val(m_CountryLst[i].friendVal);
+        pInfo->set_moster_level(m_CountryLst[i].MonsterLevel);
+        pInfo->set_invade_cnt(m_CountryLst[i].invadeCnt);
+        pInfo->set_today_invade_count(m_CountryLst[i].today_invade_count);
+    }
+}
+
+void MonsterCity::SaveTo(const Info& info,pb::MonsterCity& msg)
+{
+	msg.set_donation_money(info.donationMoney);
+	msg.set_friend_val(info.friendVal);
+	msg.set_moster_level(info.MonsterLevel);
+	msg.set_invade_cnt(info.invadeCnt);
+	msg.set_today_invade_count(info.today_invade_count);
+}
+
+void MonsterCity::LoadForm(const pb::MonsterCityLst& msg)
+{
+    for (int i = 0; i < MAX_PLAYER_COUNTRY_ID && i < msg.list_size(); ++i)
+    {
+        const pb::MonsterCity& info = msg.list(i);
+		if(info.moster_level() != 0)
+		{
+			m_CountryLst[i].MonsterLevel = info.moster_level();
+		}
+        m_CountryLst[i].friendVal = info.friend_val();
+        m_CountryLst[i].donationMoney = info.donation_money();
+        m_CountryLst[i].invadeCnt = info.invade_cnt();
+        m_CountryLst[i].today_invade_count = info.today_invade_count();
+    }
+}
+bool MonsterCity::Donate(Player& player,Country& myCountry,Country& dest_country,pb::GS2C_Monster_City_Donate& msg)
+{
+    Info& info = m_CountryLst[dest_country.id - 1];
+	uint64 timeNow = sOS.TimeSeconds();
+	if(player.m_worldMapLogic->m_monsterDonateTime < timeNow)
+		player.m_worldMapLogic->m_monsterDonateTime = timeNow;
+	uint32 timeDiff =(uint32)(player.m_worldMapLogic->m_monsterDonateTime - timeNow);
+	if(myCountry.GetLevel() < WILD_OPEN_NEED_COUNTRY_LEVEL || info.invadeCnt >= Invade_Cnt_One_Day || timeDiff >= Donation_CD)
+	{
+		SaveTo(info,*msg.mutable_info());
+		msg.set_cdendtime(player.m_worldMapLogic->m_monsterDonateTime);
+		return false;
+	}
+    if (sReward.Change(player, Reward::Coin_Silver, -Donation_Money_One_Times))
+    {
+		pb::StReward * reward = msg.mutable_reward();
+		reward->set_type(Reward::PlayerExp);
+		reward->set_value(Donation_Reward_Exp_One_Times);
+		//player.AddXP(Donation_Reward_Exp_One_Times);
+        if (const Table_MonsterCity* table = sMonsterCityTable(info.MonsterLevel))
+        {
+            info.donationMoney += Donation_Money_One_Times;
+            player.m_worldMapLogic->m_monsterDonateTime += ONE_MINUTE_SECOND;
+			msg.set_cdendtime(player.m_worldMapLogic->m_monsterDonateTime);
+            if (info.donationMoney >= table->m_db.donation_max)
+            {
+				info.invadeCnt++;
+				info.donationMoney = 0;
+            }
+            PlayerMapLogicDB::SendBaseToDb(player, *player.m_worldMapLogic.get());
+			SaveTo(info,*msg.mutable_info());
+            return true;
+        }
+    }
+	SaveTo(info,*msg.mutable_info());
+	msg.set_cdendtime(player.m_worldMapLogic->m_monsterDonateTime);
+	return false;
+}
+bool MonsterCity::ClearDonateCD(Player& player)
+{
+    if (sReward.Change(player, Reward::Coin_Gold, -Clear_Donation_CD_Gold))
+    {
+        player.m_worldMapLogic->m_monsterDonateTime = sOS.TimeSeconds();
+        PlayerMapLogicDB::SendBaseToDb(player, *player.m_worldMapLogic.get());
+        return true;
+    }
+    return false;
+}
+bool MonsterCity::StartInvade(Player& player,Country& dest_country,pb::GS2C_Monster_City_Invade_Rsp& msg,const uint32 mycountryLevel)
+{
+    const int myCountryId = player.GetCountryId();
+    int myOfficeId = sPalaceMgr(myCountryId)->GetOfficeId(player.GetGuid());
+	Info& info = m_CountryLst[dest_country.id - 1];
+    if (myOfficeId <= 0 || myOfficeId > 5 || mycountryLevel < WILD_OPEN_NEED_COUNTRY_LEVEL)
+	{
+		SaveTo(info,*msg.mutable_info());
+		msg.set_ret(pb::M_OPERATE_OFFICE_ID_NOT_MATCH);
+		return false;
+	}
+    if (info.today_invade_count >= Invade_Cnt_One_Day) 
+	{
+		SaveTo(info,*msg.mutable_info());
+		msg.set_ret(pb::M_OPERATE_NO_TODAY_INVADE_TIME);
+		return false;
+	}
+
+    if (info.invadeCnt > 0)
+    {
+        if (const Table_MonsterCity* table = sMonsterCityTable(info.MonsterLevel))
+        {
+            const std::vector<int>& lst = table->city_lst[dest_country.id - 1];
+
+            for (std::vector<int>::const_iterator it = lst.begin(); it != lst.end(); ++it)
+            {
+                for (uint32 i = 0; i < table->m_db.npc_num; ++i)
+                {
+                    if (Npc* pNpc = sNpcMgr.CreateNpc(table->m_db.npc_id, table->m_db.npc_lv, MONSTER_COUNTRY_ID, sWorldMap.GetCity(*it)))
+                    {
+                        //pNpc->MoveTo(*it);
+                    }
+                }
+            }
+			info.friendVal+= table->m_db.increase_intimacy;
+			if(info.friendVal >= MAX_INTIMACY_LEVELUP)
+			{
+				if(mycountryLevel > info.MonsterLevel)
+				{
+					info.MonsterLevel++;
+					info.friendVal = 0;
+				}
+			}
+			info.invadeCnt--;
+			info.today_invade_count++;
+        }
+		SaveTo(info,*msg.mutable_info());
+		msg.set_ret(pb::M_OPERATE_SUCCESS);
+        return true;
+    }
+	SaveTo(info,*msg.mutable_info());
+	msg.set_ret(pb::M_OPERATE_NO_INVADE_TIME);
+	return false;
+}
+void MonsterCity::RefreshTodayInvadeCnt(const uint32 country_id)
+{
+	if(country_id == pb::COUNTRY_GOD)
+	{
+		m_CountryLst[pb::COUNTRY_MAN-1].today_invade_count = 0;
+		m_CountryLst[pb::COUNTRY_WORM-1].today_invade_count = 0;
+	}
+	else if(country_id == pb::COUNTRY_WORM)
+	{
+		m_CountryLst[pb::COUNTRY_MAN-1].today_invade_count = 0;
+		m_CountryLst[pb::COUNTRY_GOD-1].today_invade_count = 0;
+	}
+	else if(country_id == pb::COUNTRY_MAN)
+	{
+		m_CountryLst[pb::COUNTRY_WORM-1].today_invade_count = 0;
+		m_CountryLst[pb::COUNTRY_GOD-1].today_invade_count = 0;
+	}
+}

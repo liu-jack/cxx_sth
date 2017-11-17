@@ -1,0 +1,18 @@
+
+
+#include "PlayerSeigeForceArmyDB.h"
+#include "../object/Player.h"
+#include "Opcode.pb.h"
+#include "ServerOpcode.pb.h"
+#include "../server_client/DbProxyServerClient.h"
+#include "seige_force/SeigeForceLog.h"
+#include "Fuben.pb.h"
+
+
+void PlayerSeigeForceArmyDB::SendInfoToDB(Player& player,const uint32 armyId,SeigeForceLog* log,const LogOfSeigeArmy& ref)
+{
+	pb::Seige_Force_info info;
+	log->SaveTo(info,armyId,ref);
+	sDbProxyClient.SendPlayerPack(player, pb::SG2D_SEIGE_FORCE_DATA_UPDATE, info);
+}
+

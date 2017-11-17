@@ -1,0 +1,4 @@
+HandleOpcode(CMSG_ASK_TEACH_REC)
+HandleOpcode(CMSG_REQUEST_TEACH)
+HandleOpcode(CMSG_RUSH_TEACH)
+HandleOpcode(CMSG_FRESH_TEACH_TASK)

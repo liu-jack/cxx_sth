@@ -1,0 +1,78 @@
+#ifndef ACCOUNT_H__
+#define ACCOUNT_H__
+
+#include "structDef.h"
+
+
+namespace pb
+{
+	class CRegisterAccount ;
+}
+
+//set byte alignment 
+#pragma pack(push,1)
+
+struct AccountInfo : public BaseStruct
+{
+public:
+	INIT_GAMEDATA( AccountInfo ) ;
+
+public:
+	static const bool HasIndex()
+	{
+		return true;
+	}
+
+	const Key& GetKey( void ) const
+	{
+		return id ;
+	} 
+
+	static const char* GetDbIncreaseIdName()
+	{
+		return "id";
+	}
+
+	static const char* GetLogicalKeyName( void )
+	{
+		return "id" ;
+	}
+
+	static const char* GetTableName()
+	{
+		return "accounts";
+	}
+
+	static const char* GetFormat()
+	{
+		return "bssssttuusuuutu";
+	}
+
+	void ReadFrom( const pb::CRegisterAccount &info ) ;
+	bool IsForbiden() const;
+
+public:
+	IdType      id ;
+	std::string account ;
+	std::string password ;
+	std::string deviceId ;
+	std::string phoneNumber ;
+	time_t      regTime ;
+	time_t      lastLoginTime ;
+	uint32      channelId ;
+	uint32      platformId ;
+	std::string lastIp ;
+	uint32      lastRegionId ;
+	uint32      lastServerId ;
+	uint32      lockReason ;
+	time_t      lockTime;
+	uint32      accountType ;
+
+} ;
+
+
+
+#pragma pack(pop)
+
+#endif
+

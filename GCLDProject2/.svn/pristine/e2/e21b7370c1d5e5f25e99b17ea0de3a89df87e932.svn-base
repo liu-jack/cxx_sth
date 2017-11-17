@@ -1,0 +1,96 @@
+package pb;
+import "Quest.proto";
+
+enum UpStarResult
+{
+	UpStarComplete 		= 1;			//升星完成
+	UpStarResourceEmpty	= 2;			//资源不足
+	UpStarTriggerDecline = 3;			//升星条件不满足
+	UpStarAlreadyDown	= 4;			//重复研究
+	UpStarResultElse	= 5;			//其他原因
+	UpStarIdInvalid			=6;
+}
+
+enum SpeedUpResult
+{
+	SpeedUpComplete				= 1;		//完成
+	SpeedUpResourceEmpty		= 2;		//资源不足
+	SpeedUpTriggerDecline 		= 3;		//加速条件不满足
+	SpeedUpAlreadyDown			= 4;		//重复研究
+	SpeedUpResultElse			= 5;		//其他
+	SpeedUpIdInvalid			=6;
+}
+
+enum FinishResult
+{
+	FinishComplete			= 1;		//完成
+	StudyUnDown				= 2;		//研究时间不到
+	StudyAlreadyDown		= 3;		//重复研究
+	StudyTriggerDecline 		= 4;	//研究条件不满足
+	FinishResultElse		= 5;		//其他
+	FinishIdInvalid			=6;
+}
+
+
+message TechnologyStudy
+{
+    required uint32 tec_id          = 1;
+	required uint32 star_cnt 		= 2;
+	required uint64 end_time		= 3;
+	required uint32 is_finish_study = 4;// 是否完成研究 1，完成，0，没有完成
+	optional uint32 table_id		= 5;//secince_proto table_id
+}
+//message FinishMask
+//{
+   // optional Uint32List finish_masks = 1;
+    //optional uint32 count = 2;
+//}
+
+message GxDB_Technology_All_Info
+{
+	repeated TechnologyStudy   study_info   = 2; //正在研究的科技
+}
+
+message GS2C_Technology_All_Info
+{
+	repeated TechnologyStudy   study_info   = 1; //正在研究的科技
+}
+
+message C2GS_Technology_UpStar	//客户端申请升星
+{
+	required uint32 id 	= 1;	//科技号
+}
+message C2GS_Technology_Study
+{
+	required uint32 id = 1;
+}
+message GS2C_Technology_Study
+{
+	required uint32 id = 1;// 科技ID
+	optional uint32 isStudyStart = 2;//科技是否开始研究
+	required uint64 end_time = 3;//研究完成时间
+}
+message GS2C_Technology_UpStar //申请升星结果
+{
+	required UpStarResult	result			= 1;		//申请结果
+	optional uint32 		id 				= 2;		//申请科技号
+	optional uint32			starnum			= 3;		//升星后星数
+}
+
+message C2GS_Technology_SpeedUp	//申请加速（立刻完成）
+{
+    required uint32 id  = 1;
+}
+
+message GS2C_Technology_SpeedUp //申请加速
+{
+	required SpeedUpResult	result			= 1;		//加速结果
+	optional uint32 		id 				= 2;		//加速科技号
+}
+
+message GS2C_Technology_Finish	//返回研究结果
+{
+	required FinishResult	result			= 1;		//研究结果
+	optional uint32 			id 				= 2;		//研究号
+}
+

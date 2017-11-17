@@ -1,0 +1,122 @@
+/************************************************************************/
+/*Add by:zhoulunhao													*/
+/*Email	:zhoulunhao@hotmail.com											*/
+/************************************************************************/
+
+
+#include "ExploitBoxProto.h"
+#include "utility/Utility.h"
+
+ExploitBoxProto::ExploitBoxProto(const DB_ExploitBoxProto& exploitbocproto)
+:m_exploitboxproto(exploitbocproto){
+
+}
+
+uint32 ExploitBoxProto::ID() const{
+	return m_exploitboxproto.id;
+}
+uint32 ExploitBoxProto::ExploitLevel() const{
+	return m_exploitboxproto.exploit_level;
+}
+bool ExploitBoxProto::MatchExploitRequire(uint32 lv){
+	return lv >= m_exploitboxproto.need_exploit;
+}
+uint32 ExploitBoxProto::RewardBoxNum() const{
+	return m_exploitboxproto.reward_box_num;
+}
+uint32 ExploitBoxProto::RewardExBoxNum() const{
+	return m_exploitboxproto.reward_exbox_num;
+}
+
+uint32 ExploitBoxProto::GetNeedExploitValue() const{
+	return m_exploitboxproto.need_exploit;
+}
+
+uint32 ExploitBoxProto::KillGetExploit() const
+{
+	return m_exploitboxproto.kill_get_exploit;
+}
+ChallengeRank::ChallengeRank(const DB_ChallengeRank& challangeRank)
+:m_challengerank(challangeRank){}
+
+uint32 ChallengeRank::ID() const{
+	return m_challengerank.id;
+}
+bool ChallengeRank::MatchVictoryTimes(uint32 need_times) const{
+	return need_times >= m_challengerank.victory_times;
+}
+
+uint32 ChallengeRank::get_victory_times() const
+{
+	return m_challengerank.victory_times;
+}
+
+
+const uint32 ChallengeRank::RewardItemId() const{
+	return m_challengerank.reward_item_id;
+}
+const uint32 ChallengeRank::RewardItemnNum() const{
+	return m_challengerank.reward_item_num;
+}
+const uint32 ChallengeRank::TitleId() const{
+	return m_challengerank.title_id;
+}
+const uint32 ChallengeRank::TitleQuilty() const{
+	return m_challengerank.title_quilty;
+}
+const std::string ChallengeRank::Comment() const{
+	return m_challengerank.comment;
+}
+AttackCityRank::AttackCityRank(const DB_AttackCityRank& attackcityrank)
+:m_attackcityrank(attackcityrank){}
+
+
+uint32 AttackCityRank::ID() const{
+	return m_attackcityrank.id;
+}
+
+uint32 AttackCityRank::Level() const{
+	return m_attackcityrank.level;
+}
+uint32 AttackCityRank::AttackCityNumReq() const{
+	return m_attackcityrank.occupy_num;
+}
+
+const uint32 AttackCityRank::RewardItemId() const
+{
+	return m_attackcityrank.reward_item_id;
+}
+const uint32  AttackCityRank::RewardItemnNum() const{
+	return m_attackcityrank.reward_item_num;
+}
+const uint32  AttackCityRank::TitleId() const{
+	return m_attackcityrank.title_id;
+}
+const uint32  AttackCityRank::TitleQuilty() const{
+	return m_attackcityrank.title_quilty;
+}
+const std::string  AttackCityRank::Comment() const{
+	return m_attackcityrank.comment;
+}
+
+FightRankReward::FightRankReward(const DB_FightRankReward& db)
+:db_(db)
+{
+	Utility::SplitStr2(db_.rank_list,reward_);
+	Utility::SplitStr(db_.rank_area,rank_area_,',');
+}
+
+uint32 FightRankReward::Id() const
+{
+	return db_.id;
+}
+
+const IntPairVec& FightRankReward::GetRankReward() const
+{
+	return reward_;
+}
+
+const IntPair& FightRankReward::GetRankPair() const
+{
+	return rank_area_;
+}

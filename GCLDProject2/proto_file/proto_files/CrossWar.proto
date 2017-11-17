@@ -1,0 +1,295 @@
+package pb;
+import "CommomDef.proto";
+import "City.proto";
+import "Character.proto";
+import "Country.proto";
+
+//0	未开启阶段
+//1	筹备阶段
+//2	预览阶段
+//3	战斗阶段
+//4	领奖阶段
+
+enum CROSS_RET
+{
+	Cro_Common_Suc = 0;
+	Cro_Common_Err = 1;
+
+	Cro_War_Closed = 2;				//跨服战未开启
+	Cro_War_State_Dismatch = 3;		//状态不匹配
+	Cro_War_Donata_Troops_Max = 4;	//捐赠征召令达到上限
+	Cro_War_Cost_Lack = 5;			//所需消耗不足
+	Cro_War_Donata_Shadows_Max = 6;	//捐赠征召令达到上限	
+	Cro_War_Reward_IsTake = 7;		//任务奖励已领
+	Cro_war_Player_Not_In_Lst = 8;	//没有玩家记录
+	Cro_War_Task_Not_Finished = 9;	//任务没有完成
+	Cro_War_Task_Id_Dismatch = 10;	//任务id不匹配
+	Cro_War_Offical_Err = 11;	//购买所需官职位不满足
+	Cro_War_UpLimit = 12;		//购买已达上限
+
+	Cro_War_Destroy = 13;		//国家已经被占领
+	Cro_War_No_Hammer = 14;		//没有攻城锤
+	Cro_War_Is_Same_Country = 15;	//不能攻击自己国家
+	Cro_War_Hero_Err = 16;		//武将错误
+	Cro_War_City_Not_Link = 17;	//城池与首都不相连
+	Cro_War_Cant_Rush = 18;		//不能突进攻打首都
+}
+
+//分配服务器时记录的国家大略信息
+message Devide_Country_Info
+{
+	optional uint32 orig_country_id = 1;	//本地国家id
+	optional uint32 devide_country_id = 2;	//跨服国家id
+	optional uint32 unique_index_id = 3;	//跨服国家标识符
+	optional uint32 pros_degree = 4;		//繁荣度
+	optional uint32 country_durable = 5;	//都城耐久值
+	optional string server_name = 6;		//原服务器名（暂时传id）
+	optional uint32 server_id = 7;		//服务器id
+}
+
+message GS2L_Devide_Country_Infos
+{
+	repeated Devide_Country_Info countrys = 1;
+}
+
+//国家都城耐久值变化
+message GS2C_Cross_Update_Country_Durable
+{
+	optional uint32 CrossCountryID	= 1;		//	
+	optional uint32 CountryDurable = 2;			//耐久值
+	optional uint32 AttCountryId = 3;		//攻击国家
+}
+
+//状态  服务器之间通知也用这个  
+message GS2C_Notice_CrossWar_State
+{
+	required CROSS_STATE CurState	= 1;
+	optional uint64 StateEndTime	= 2;
+	optional uint32 CrossCountryID	= 3;		//SMSG_NOTICE_CROSS_START填充
+}
+
+//游戏服务器与跨服服务器之间更新玩家值
+message GS2R_Update_Player_Value
+{
+	optional uint32	index		= 1;
+	optional uint32 val		= 2;
+}
+
+//游戏服务器与跨服服务器之间更新武将经验
+message GS2R_Update_Player_Character_Exp
+{
+	optional uint32 charid = 1;
+	optional uint32 addExp = 2;
+}
+
+message Country_Cross_Star_info
+{
+	optional uint32 countryid = 1;	//国家id
+	optional uint32 starNum = 2;	//星数
+	optional bool	isDestroied = 3;//是否被攻占
+}
+
+message Country_Stars_Update
+{
+	repeated Country_Cross_Star_info update_stars = 1;
+}
+
+//进入跨服战场的返回消息，应包含所有跨服信息
+message GS2C_Enter_Cross_War
+{
+	required uint32         error_code = 1; // 错误类型  CxGS_ERROR_CODE
+	optional GS2C_City_All_Info cityInfo = 2;
+	optional GS2C_CharacterStorage 	character_info 	= 3;//武将列表
+	optional uint32		country_id 		= 4;//国家id
+	repeated Country_Cross_Star_info cross_country_stars = 5;//三个国家星数信息
+	optional uint32		constantID = 6;//跨服杀敌任务的id
+	optional uint64		doubleKillEndTime	= 7;	//双倍杀敌结束时间
+	optional uint32		hammerNum	= 8;	//拥有攻城锤数量
+	optional uint64		shieldEndTime = 9;	//防护盾截止时间
+	optional bool	hasTakeStarAward	= 10;	//是否领取星数奖励
+	optional GS2C_Country_Info countrys = 11;
+}
+
+message C2GS_Use_Cross_Troops
+{
+	optional uint32 destCityId = 1;
+}
+
+message CR2G_Country_Awards
+{
+	optional uint32 unique_index_id = 1;
+	optional uint32 defanceAwardToExp = 2;		//防守成功奖励国家经验
+	optional uint32 AttackAwardToExp = 3;		//灭国成功奖励国家经验
+}
+
+message UpdateAwardsChange
+{
+	optional uint32 itemid = 1;
+	optional uint32 num = 2;
+}
+
+message SC2G_Update_Award_Change
+{
+	repeated UpdateAwardsChange awards = 1;
+}
+
+//领取星数奖励回复
+message GS2C_TakeStarAwardRet
+{
+	optional CROSS_RET ret = 1;
+}
+
+//----------- 以下我修改 与Opcode对应 ------------------------------
+
+enum Donate_Type
+{
+	Office_Troops = 0;	//官员令
+	Shadow_Troops = 1;	//幻影
+}
+
+//捐赠
+//物资数据
+message GS2C_Cross_Donation_Data
+{
+	optional Donate_Type item_type = 1;	//0:官员令， 1:幻影
+	optional uint32 count = 2;		//当前数量	//总数量
+}
+
+//所有捐赠物资数据
+message GS2C_Cross_Donation_Datas
+{
+	repeated GS2C_Cross_Donation_Data donation_datas = 1;
+}
+
+//捐赠物资
+message GC2S_Donate_Goods
+{
+	optional Donate_Type item_type = 1;		//0:官员令， 1:幻影
+}
+
+//捐赠物资回复
+message GS2C_DONATE_RET
+{
+	optional Donate_Type item_type = 1;
+	optional CROSS_RET ret = 2;
+	optional uint32 count = 3;  //当前数量	//总数量
+}
+
+
+//灭国任务
+//灭国任务信息
+message GS2C_Cross_Destroy_Task_Info
+{
+	optional uint32 task_id = 1; 	//任务ID
+	optional uint32 progress = 2;	//进度值
+	optional uint32 is_take = 3;	//奖励领取情况：0未领1已领
+}
+
+//所有灭国任务信息
+message GS2C_Cross_Destroy_Task_Infos
+{
+	repeated GS2C_Cross_Destroy_Task_Info task_list = 1;
+}
+
+//领取灭国任务奖励
+message GC2S_Take_Destroy_Task_Award
+{
+	optional uint32 task_id = 1;
+}
+
+//领取灭国任务奖励 回复
+message GS2C_Take_Destroy_Task_Award_Ret
+{
+	optional CROSS_RET ret = 1;
+	optional GS2C_Cross_Destroy_Task_Info task_info = 2;
+}
+
+message C2CR_Attack_Capital
+{
+	optional uint32 hero_in_city	= 1;	//武将当前所处在的城池
+	optional uint32 hero_id		= 2;		//武将id
+	optional uint32 dest_city_id	= 3;	//攻击的城池id
+}
+
+
+//杀敌任务
+//杀敌任务信息（分阶段有奖励）
+message GS2C_Cross_Kill_Task_Info
+{
+	//optional uint32 count = 1; 			//杀敌数量
+	//optional uint32 reward_flag = 2; 	//奖励领取标记( 按位表示 1<<n )
+	
+	optional uint32 task_id = 1; 	//任务ID
+	optional uint32 progress = 2;	//进度值
+	optional uint32 is_take = 3;	//奖励领取情况：0未领1已领
+}
+
+//领取杀敌任务奖励
+message GC2S_Take_Kill_Task_Award
+{
+	optional uint32 phase_index = 1;  //任务阶段 任务id
+}
+
+//领取杀敌任务奖励 回复
+message GS2C_Take_Kill_Task_Award_Ret
+{
+	optional CROSS_RET ret = 1;
+	optional GS2C_Cross_Kill_Task_Info task_info = 2;
+}
+
+enum ArsenalType
+{
+	Hammer = 1;
+	KillTroops = 2;
+	Shield = 3;
+}
+
+//军火库道具
+//军火库道具信息
+message GS2C_Cross_Ammo_Info
+{
+	optional ArsenalType itemType = 1;		//道具类型
+	optional uint32 remain_num = 2;		//剩余次数
+}
+
+//军火库所有信息
+message GS2C_Cross_Ammo_Infos
+{
+	repeated GS2C_Cross_Ammo_Info task_list = 1;
+}
+
+//购买军火
+message GC2S_Buy_Ammo
+{
+	optional ArsenalType itemType = 1;		//道具类型
+}
+
+//购买军火回复
+message GS2C_Buy_Ammo_Rsp
+{
+	optional CROSS_RET ret = 1;	
+	optional uint64 playerid = 2;
+	optional GS2C_Cross_Ammo_Info ammo_info = 3;
+	optional uint64 KillTimeEndtime = 4;	//双倍杀敌结束时间 仅在购买双倍杀敌成功时有赋值
+	optional uint32 hammerNum = 5;		//攻城锤数量 仅在购买成功有赋值
+	optional uint64 shieldEndTime = 6;	//防护盾结束时间
+}
+
+//使用攻城锤
+message GS2C_Use_Attack_Hummer
+{
+	optional uint32 country_id = 1; //攻击的国家id
+	optional uint32 heroid = 2;	//charid
+}
+
+message GS2C_Attack_Result	//攻击结果 攻城锤与突进公用
+{
+	optional CROSS_RET ret = 1;
+	optional uint32 hammerNum = 2;	//剩余攻城锤数量
+}
+
+//杀敌排名信息
+message GS2C_Cross_Rank_Info
+{
+	optional uint32 rank_num = 1; //排名
+}

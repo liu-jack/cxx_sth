@@ -1,0 +1,556 @@
+package pb;
+import "Item.proto";
+import "Character.proto";
+////Chat//////////////////////////////////////////////////
+enum CHAT_TYPE
+{
+	CHAT_COUNTRY = 1; //国家
+	CHAT_WORLD = 2; //世界
+	CHAT_SYSTEM  = 3; //系统
+	CHAT_COMBAT_BC = 4;	//战报
+	CHAT_TYPE_COUNT = 5; 
+}
+
+message GS2C_Chat_Respon
+{
+	required CHAT_TYPE   type    = 1; 
+	optional uint64      from_guid = 2;
+	optional uint64      to_guid = 3;
+	optional string      from_name  = 4;
+	optional string      to_name  = 5;
+	optional int32  	 from_vip_lv   = 6; 
+	optional int32  	 to_vip_lv   = 7; 
+	optional int32  	 from_card_proid   = 8;
+	optional int32  	 to_card_proid   = 9; 
+	optional int32       facial_id = 10;
+	optional string      chat_info    = 11;
+	optional uint64 	 send_time 	=12;  //发送时间
+}
+
+message C2GS_Chat
+{
+	required CHAT_TYPE   type    = 1; 
+	optional uint64      to_guid = 2;
+	optional string      to_name = 3;
+	optional int32       vip_level = 4;
+	optional int32       card_proid = 5;
+	optional int32       facial_id = 6;
+	optional string      chat_info   = 7;
+	optional uint64 	 send_time 	=8;  //发送时间
+}
+
+message GxDB_ChatInfoData
+{
+	optional uint64 expire_time 				=1;  //可保存时间数
+	optional GS2C_Chat_Respon chat 				=2;
+}
+///////////////////PlayerInfo////////////////////////////
+
+message MsgPlayerBaseInfo
+{
+	optional uint64 playerId = 1;//玩家guid
+	optional string player_name = 2; //角色名
+	optional uint64 guild_id  = 3;// 公会ID
+	optional string guild_name  = 4;// 公会名字
+	optional uint32 level = 5; //等级
+	optional uint32 vip_level = 6;// vip level.
+	optional bool 	isonline = 7;//是否在线
+	optional uint64 last_login = 8; //最后在线时间
+	optional uint32 power = 9;
+	optional uint32 card_proid = 10;//玩家头像
+}
+
+message MsgPlayerTeamInfo
+{
+	optional GS2C_Bag               bag_info        =1; 
+	optional GS2C_CharacterStorage  character_info  =2;               
+}
+
+enum MsgPlayerBaseDataType
+{
+	PALYER_BASE_DATA_ALL                =0 ;
+	PLAYER_BASE_DATA_JUST_PVP_BASE_INFO =1 ;
+}
+
+message MsgPlayerBaseData
+{
+	optional MsgPlayerBaseInfo info       =1;
+	optional MsgPlayerTeamInfo team_info  =2;             
+}
+
+message GS2C_Get_Player_Info_Respone
+{
+	optional uint32  result = 1;  //1,success 2,not found,3,is forbidden player, 4,is your ignore player
+	optional MsgPlayerBaseData info = 2;
+	required uint64  	your_guid = 3;
+}
+
+////Friend//////////////////////////////////////////////////
+message C2GS_Friend_Ap_Opearate
+{
+	repeated uint64 	friends = 1;
+	required uint64  	your_guid = 2;
+	required bool       is_send = 3;
+}
+
+message GS2C_Friend_Ap_Opearate_Res
+{
+	message opt_result {
+		required uint64 opt_id   =1; //好友id 
+		required bool   is_succeed =2; // true-操作成功； false-操作失败
+	}
+	repeated opt_result  op_infos = 1;
+	required uint64  	your_guid = 2;
+	required bool       is_send = 3;
+}
+
+
+enum ENUM_FRIEND_TYPE
+{
+	FRIEND_TYPE_FRIEND     =0 ;
+	FRIEND_TYPE_IGNORES    =1 ;
+	FRIEND_TYPE_INVITERS   =2 ;
+	FRIEND_TYPE_RECOMMENDS =3 ;
+	FRIEND_TYPE_COUNT      =4 ;	
+}
+
+message Friend_list_Record
+{
+	optional string friend_name     = 1;
+	optional uint64 friend_guid     = 2;
+	optional uint32 head_icon       = 3;
+	optional uint32 vip_level       = 4;
+	optional uint32 level           = 5;
+	optional uint32 power           = 6;
+	optional string guild_name      = 7;
+	optional uint32 friend_type     = 8;//0:friend,1:ignores,2:inviters:3:recommends
+	optional bool   is_send_ap      = 9;
+	optional bool   is_receive_ap   = 10;   
+	optional bool   is_online       = 11;
+	optional uint64 last_onlin_time = 12; //最后在线时间
+	optional uint64 request_time    = 13;//好友请求时间
+}
+
+message C2GS_FriendAdd
+{
+	required uint32             add_method         = 1;  //1:guid,2:id,3:name;
+	optional string             add_name           = 2;
+	optional uint64             add_guid           = 3;
+	optional uint32             add_id             = 4;
+	required bool               is_add             = 5[default = true]; // true is add friend; false is ignore friend;
+	required uint64             your_guid          = 6;
+	optional Friend_list_Record record             = 7;//when is_add is false
+	optional bool               is_from_add_pannel = 8;
+}
+
+message GS2C_FriendAdd_Result
+{
+	optional uint32 errorCode = 1; //0,success 1,Is you friend 2,not exit player 3,failed 4,is youself,5,your list full ,6 have invited
+}
+
+message C2GS_FriendAdd_Respon
+{
+	required bool 	 	        is_accept = 1;
+	required Friend_list_Record record    = 2;
+	required uint64  	        your_guid = 3;
+}
+
+message GS2C_FriendAdd_Respon
+{
+	required bool               is_accept  = 1 [default = true];  //true is add success , false by failed;
+	optional Friend_list_Record record     = 2;
+	optional uint32             errorCode  = 3;  //0,success.1,reach they max friends, 2,they offline,3,not friend 4,failed,5,reach they max ignores,6,reach your max friend
+	required bool               is_add     = 4[default = true]; // true is add friend; false is ignore friend;
+	optional bool               is_reply   = 5[default = false]; //false is form the add, true is form the add replay
+}
+
+message C2GS_FriendDel
+{
+	optional uint64 del_guid           = 1;
+	required bool   is_for_friend_list = 2[default = true]; // true is del form friend list; false is from ignore list;
+	required uint64 your_guid          = 3;
+}
+
+message GS2C_FriendDel_Respon
+{
+	required bool   is_suscess         = 1;
+	required bool   is_for_friend_list = 2[default = true]; // true is del form friend list; false is from ignore list;
+	optional uint64 friend_guid        = 3;
+}
+
+message GS2C_FriendListInfo
+{
+	repeated Friend_list_Record friends  =1;  
+}
+
+enum FRIEND_SEARCH_TYPE
+{
+	FRIEND_SEARCH_IN_FRIEND      =0; // 0 搜索好友
+	FRIEND_SEARCH_PLAYER         =1; // 1 搜索玩家
+	FRIEND_SEARCH_RECOMMENDATION =2; // 2搜索推荐玩家(过滤掉好友)
+}
+
+message C2GS_Friend_Search
+{
+	required uint32 search_type       =1; // 暂时只用到  FRIEND_SEARCH_RECOMMENDATION 类型
+	optional bool   is_search_by_name =2;
+	optional string search_name       =3;
+	optional uint64 search_id         =4;
+	optional uint64 your_guid         =5;
+	optional uint32 max_count         =6; // 最大返回玩家个数（过滤掉自己）
+}
+
+enum FRIEND_SEARCH_TYPE_RESULT
+{
+	FRIEND_SEARCH_RESULT_SUCCESS =1 ;
+	FRIEND_SEARCH_RESULT_FAIL    =2 ;	
+}
+
+message GS2C_Friend_Search_Respone
+{
+	optional uint32             search_result  = 1;  //1,success 2,not found,3,is forbidden player, 4,is your ignore player
+	repeated Friend_list_Record search_players = 2;
+	optional uint64             your_guid      = 3;
+}
+
+message GxDB_FriendInfo
+{
+	optional  Friend_list_Record   my_info     = 1;
+	optional  GS2C_FriendListInfo  friend_list = 2;
+	optional  string               send_ap_ids = 3;
+}
+
+
+/////////////////////////////////////////////Guild begin///////////////////////////////////////////////////
+
+message GxDB_GuildInfo
+{
+	required uint64 guild_id  = 1;// 公会ID
+	required uint32 icon  = 2;// 公会徽章
+	required string name  = 3;// 公会名字
+	optional uint64 create_time  = 4;// 公会创建时间
+	optional uint32 level  = 5;// 公会等级
+	optional uint32 exp  = 6;// 公会经验
+	optional uint32 prestige  = 7;// 公会威望值
+	optional uint32 active  = 8;// 公会活跃值
+	optional string notice  = 9;// 公会公告
+	optional uint64 notice_time  = 10;//公会公告创建时间
+	optional uint64 notice_creater_id  = 11;//公会公告创建者
+	optional string notice_creater_name  = 12;//公会公告创建者
+	optional uint64 guild_owner_id = 13;// 公会所有者ID
+	optional string guild_owner_name = 14;// 公会所有者ID
+	optional uint32 members_count  = 15;// 当前公会人数
+	optional uint32 members_limit  = 16;// 公会限定人数
+	optional uint32 score  = 17;      //公会综合分数
+	optional uint64 last_rank_time  = 18;//上次排名时间
+	optional GS2C_Guild_Dynamic_Event_Log  logs = 19; //公会动态
+}
+
+message GxDB_GMember_Info
+{
+	optional uint64 playerId = 1;//玩家guid
+	optional string player_name = 2; //角色名
+	optional uint64 guild_id  = 3;// 公会ID
+	optional string guild_name  = 4;// 公会名字
+	optional uint32 title = 5; //成员头揳:TA_MASTER，会长，TA_SUBMASTER，副会长 TA_OFFICER,管理 TA_MEMBER会员
+	optional uint64 joinTime = 6;//加入公会时间
+	optional uint64 lastActiveTime = 7; //最后一次活跃时间
+	optional uint32 guildcontributions = 8; //公会贡献
+	optional uint32 level = 9; //等级
+	optional bool 	isonline = 10;//是否在线
+	optional uint32 vip_level = 11;// vip level.
+	optional bool 	request_flag = 12;// 是否为申请加入公会
+	optional bool 	invite_flag = 13;// 主动邀请，被动邀请。
+	optional uint64 request_expire_time = 14; //请求有效期
+	optional uint32 power = 15;
+	optional uint32 head_icon = 16;//玩家头像
+	repeated uint64 is_send_ap = 17;
+	repeated uint64 is_receive_ap = 18;
+}
+
+message GxDB_Guild_Member
+{
+	repeated GxDB_GMember_Info  memberinfo = 1;
+}
+
+message GxDB_Guild
+{
+	optional uint64 guild_id  = 1;// 公会ID
+	optional GxDB_GuildInfo guild_info = 2; //公会信息
+	optional GxDB_Guild_Member members_info = 3; //成员列表
+	optional GxDB_Guild_Member request_list = 4; //请求列表
+}
+
+message GxDB_Guilds
+{
+	repeated GxDB_Guild  guildinfos = 1;
+}
+
+message C2GS_Guild_Leaderboard_Search
+{
+	optional string  key = 1;//搜索公会时的关键字
+	optional uint32  key_id = 2;//搜索公会时的关键字
+	required uint64  your_guid = 3;
+	required bool is_leaderboard = 4 [default = true];//true搜索排行榜 false搜索公会
+	optional bool is_by_name = 5; //搜索公会时有用，true:通过名字，false通过公会Id
+}
+
+message GS2C_Guild_Leaderboard_Search
+{
+	repeated GxDB_GuildInfo guild_infos = 1;
+	optional bool is_leaderboard = 2 [default = true]; //true搜索排行榜 false搜索公会
+}
+
+message C2GS_Guild_Player_Search
+{
+	required bool 	is_member = 1 [default = true];//true搜索公会内玩家false搜索公会外玩家
+	optional string 	search_name = 2;
+	required uint64  	your_guid = 3;
+	required uint32 max_count   = 4;//最大返回玩家个数
+	required uint64 guild_id   = 5;//公会Id.
+}
+
+message GS2C_Guild_Player_Search_Respone
+{
+	optional uint32 search_result = 1;  //1,success 2,not found
+	repeated GxDB_GMember_Info  memberinfos = 2;
+	required bool 	is_member = 3 [default = true];//true搜索公会内玩家false搜索公会外玩家
+	required uint64  your_guid = 4;
+}
+
+message C2GS_Guild_Add
+{
+	required string guild_name = 1;//公会名
+	optional string notice = 2;//公告
+	required uint32 icon = 3; //徽章
+	required uint64  your_guid = 4;
+}
+
+message GS2C_Guild_Add_Respon
+{
+	required int32 add_result = 1;//创建结果 0，创建失败，1,创建成功  2,金钱不够 3，等级不够，4：重复的公会名，5，空的公会名，6，名字太长,7,已有公会
+	optional GxDB_Guild guild = 2;
+}
+
+message GS2C_Guild_Change
+{
+	required uint64 playerId = 1;//玩家guid
+	required string name  = 2;// 公会名字
+}
+
+message GS2C_Get_Guild_Info_Respon
+{
+	required bool  isGet = 1;
+	optional GxDB_Guild guild = 2;
+}
+
+message C2GS_GuildInvite
+{
+	optional bool       is_by_guid = 1 [default = true];
+	optional bool       is_by_guild = 2 [default = false];
+	optional string     invitee_name = 3;
+	optional uint64    invitee_guid = 4;//当is_by_guild为true时，为公会的guid,当为false时为被邀请者的guid
+	required uint64  your_guid = 5;
+}
+
+message GS2C_GuildInvite
+{
+	required uint64  inviter_guid = 1;
+	required string   inviter_name = 2;
+	optional bool	  is_invite = 3 [default = true];
+	optional string   guild_name  = 4;// 公会名字
+	optional uint32 	title = 5; //成员头揳:TA_MASTER，会长，TA_SUBMASTER，副会长 TA_OFFICER,管理 TA_MEMBER会员
+	optional uint64   to_guid = 6;
+}
+
+message C2GS_GuildInviteResponse
+{
+	required bool 	is_accept = 1;
+	required uint64  inviter_guid = 2;
+	required uint64  your_guid = 3;
+}
+
+message GS2C_GuildInviteResponse
+{
+	required bool 	is_accept = 1;
+	repeated uint64  player_guids = 2;
+	optional int32   erro_code    = 3;//0，失败，1.成功，2已在你的公会中3不在线，4已有公会，5不存在此玩家，6你的公会已满，7该玩家已被别人邀请8，你已经邀请过了该玩家,9你没有邀请权限,10对方的公会已满，11对方拒绝12公会不存在13，你没有审批权限
+}
+
+message C2GS_GuildInviterApproval
+{
+	required bool 	is_accept = 1;
+	required uint64  inviter_guid = 2;
+	required uint64  your_guid = 3;
+}
+
+message GS2C_GuildInviterApprovalResponse
+{
+	required bool 	is_accept = 1;
+	repeated uint64  player_guids = 2;
+	optional int32   erro_code    = 3;//0，失败，1.成功，2已在你的公会中3不在线，4已有公会，5不存在此玩家，6你的公会已满，7该玩家已被别人邀请8，你已经邀请过了该玩家,9你没有邀请权限,10对方的公会已满，11对方拒绝12公会不存在13，你没有审批权限
+}
+
+message GS2C_GuildInvite_Repeat
+{
+	required uint64   cur_guild_guid = 1;
+	required string   cur_guild_name = 2;
+	required uint64   new_guild_guid = 3;
+	required string   new_guild_name = 4;
+	required uint64   inviterId = 5;
+	required uint64   inviteeId = 6;
+	optional bool	  is_invite = 7 [default = true];//false,你被别人邀请，true你是主动申请。
+}
+
+message C2GS_GuildInvite_Repeat_Operate
+{
+	optional bool	  is_replace = 1 [default = false];
+	required uint64   cur_guild_guid = 2;
+	required string   cur_guild_name = 3;
+	required uint64   new_guild_guid = 4;
+	required string   new_guild_name = 5;
+	required uint64   inviterId = 6;
+	required uint64   inviteeId = 7;
+	optional bool	  is_invite = 8 [default = true];//false,你被别人邀请，true你是主动申请。
+	required uint64   your_guid = 9;
+}
+
+message GS2C_GuildInvite_Repeat_Operate_Respon
+{
+	optional bool	  is_replace = 1 [default = false];
+}
+
+message C2GS_GuildQuit
+{
+	required uint64  quit_member_guid = 1;
+	required uint64  your_guid = 2;
+}
+
+message GS2C_GuildQuit_Respon
+{
+	required uint32    quit_result = 1;//0失败，1成功，3，你不在公会,4，你是会长，请先任命副会长再退。
+}
+
+message GS2C_GuildMemberQuit
+{
+	required bool	  is_kicked = 1 [default = false];
+	required uint64  quit_guid = 2; 
+	optional bool	  is_disband = 3 [default = false];
+	optional bool	  is_quit = 4 [default = false];
+}
+
+message GS2C_GuildDisband
+{
+	required bool is_kicked = 1 [default = false];
+	optional bool is_disband = 2 [default = false];
+	optional bool is_quit = 3 [default = false];
+}
+
+message C2GS_GuildUpdate
+{
+	required uint32    				update_flag = 1;
+	optional GxDB_Guild				guild = 2;
+	required uint64  				your_guid = 3;
+}
+
+message GS2C_GuildUpdate
+{
+	required uint32    				update_flag = 1;
+	optional GxDB_Guild				guild = 2;
+	required uint64  				update_guid = 3;
+}
+
+message C2GS_Guild_Autority_Operate
+{
+	required uint64    				target_guid = 1;
+	required string   				target_name = 2;
+	required uint64  				your_guid = 3;
+	required string  				your_name = 4;
+	optional uint32    				operate_type = 5;//TAT_NONE:只是更新，TAT_G_KICKMEMBER：踢人。。
+}
+
+message GS2C_Guild_Autority_Operate_Respon
+{
+	required uint64    				target_guid = 1;
+	required string   				target_name = 2;
+	required uint64  				operater_guid = 3;
+	required string  				operater_name = 4;
+	optional uint32    				operate_type = 5;//TAT_NONE:只是更新，TAT_G_KICKMEMBER：踢人。。
+	required uint32    				operate_result = 6;//0失败，1成功，2玩家不在公会，3，你不在公会。
+}
+
+message C2GS_GuildUpdate_Member
+{
+	required uint32    				update_flag = 1;
+	optional GxDB_GMember_Info		member = 2;
+	required uint64  				your_guid = 3;
+}
+
+message GS2C_GuildUpdate_Member
+{
+	required uint32    				update_flag = 1;
+	optional GxDB_GMember_Info		member = 2;
+}
+
+message GS2C_Update_Respon
+{
+	required uint32    				update_result = 1;//0失败，1成功，2玩家不在公会，3，你不在公会。
+}
+
+message C2GS_GuildName_Check
+{
+	required string  				guild_name = 1;
+	required uint64  				your_guid = 2;
+}
+
+message GS2C_GuildName_Check_Respon
+{
+	required bool    				is_can_use = 1;
+}
+
+message GS2C_Guild_Notify
+{
+	required uint32    				notify_type = 1;//1,第一次申请加入公会，2，已被同意加入公会3,被拒绝加入公会,4,该公会已解散
+	optional uint64  				approval_guid = 2;
+	optional string  				approval_name = 3;
+}
+
+enum GUILD_DYNAMIC_EVENT
+{
+	GUILD_EVENT_NORMAL      = 1;//普通字符串消息
+	GUILD_EVENT_JOIN 		= 2; //加入了公会
+	GUILD_EVENT_LEAVE 		= 3;//已离开公会
+	GUILD_EVENT_CHANGE_POSITION = 4;//职位转变
+	GUILD_EVENT_CHANGE_NAME = 5;//把公会名称改为
+	GUILD_EVENT_CHANGE_ICON = 6;//更改了公会徽章
+	GUILD_EVENT_CHANGE_NOTICE = 7;//把公告改为
+	GUILD_EVENT_MEMBER_GET_ITEM = 8;//获得物品
+	GUILD_EVENT_MEMBER_BUY_ITEM = 9;//购买了物品
+	GUILD_EVENT_MEMBER_CREAT_ITEM = 10;//制造了物品
+}
+
+message GS2C_Guild_Dynamic_Event
+{
+	optional GUILD_DYNAMIC_EVENT event_type = 1;
+	optional uint64				 guild_id = 2;
+	optional string  			 guild_name = 3;
+	optional uint64				 player_id = 4;
+	optional string  			 player_name = 5;
+	optional uint32				 id_value = 6;//包含职位，和物品baseId，徽章等
+	optional string				 str_value = 7;
+	optional uint64				 event_time = 8;
+	optional uint64 			 item_guid = 9; 
+}
+
+message GS2C_Guild_Dynamic_Event_Log
+{
+	repeated GS2C_Guild_Dynamic_Event guild_evens = 1;
+}
+
+message GS2G_GuildUpdate
+{
+	required uint32 type = 1;
+	required uint64 guild_id = 2;
+	optional string guild_name = 3;
+}
+//////////////////////////////////////////////Guild  end///////////////////////////////////

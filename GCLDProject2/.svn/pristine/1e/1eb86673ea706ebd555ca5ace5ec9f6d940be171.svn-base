@@ -1,0 +1,206 @@
+/************************************************************************/
+/*Add by:zhoulunhao													*/
+/*Email	:zhoulunhao@hotmail.com											*/
+/************************************************************************/
+#include "ActivityRank/table/ActivityRankTableMgr.h"
+#include "utility/Utility.h"
+#include "DbTool.h"
+#include "utility/STLUtility.h"
+#include "session/PlayerPool.h"
+#include "ActivityControl/ActivityMgr.h"
+#include "SysEvent/SysEventMgr.h"
+#include "reward/reward.h"
+#include "def/ConstDef.h"
+CountryMatch::CountryMatch(const DB_CountryMatch& db)
+:db_(db)
+,reward_()
+{
+	Utility::SplitStr2(db_.reward,reward_);
+}
+
+const IntPairVec& CountryMatch::getReward() const
+{
+	return reward_;
+}
+
+OccupationMatch::OccupationMatch(const DB_OccupationMatch& db)
+:db_(db)
+,reward_()
+,rank_()
+{
+	Utility::SplitStr2(db_.reward,reward_);
+	Utility::SplitStr(db_.ranking,rank_,',');
+}
+
+const IntPairVec& OccupationMatch::getReward() const
+{
+	return reward_;
+}
+
+const IntPair& OccupationMatch::getRank() const
+{
+	return rank_;
+}
+
+AddSoliderMatch::AddSoliderMatch(const DB_AddSoliderMatch& db)
+:db_(db)
+,reward_()
+,rank_()
+{
+	Utility::SplitStr(db_.ranking,rank_,',');
+	Utility::SplitStr2(db_.reward,reward_);
+}
+
+const IntPairVec& AddSoliderMatch::getReward() const
+{
+	return reward_;
+}
+
+const IntPair& AddSoliderMatch::getRank() const
+{
+	return rank_;
+}
+
+void ActivityRankTableMgr::Init()
+{
+	FOREACH_DB_ITEM(a,DB_CountryMatch)
+	{
+		CountryMatch *country_match = new CountryMatch(*a);
+		activity_rank_country_match_map_[a->country] = country_match;
+	}
+	FOREACH_DB_ITEM(b,DB_OccupationMatch)
+	{
+		OccupationMatch *occupy_match = new OccupationMatch(*b);
+		activity_rank_occupation_match_map_[b->id] = occupy_match;
+	}
+	FOREACH_DB_ITEM(c,DB_AddSoliderMatch)
+	{
+		AddSoliderMatch *solider_match = new AddSoliderMatch(*c);
+		activity_rank_add_solider_match_map_[c->id] = solider_match;
+	}
+}
+
+const IntPairVec* ActivityRankTableMgr::getRewardByCountryRank(const uint32 countryRank) const
+{
+	ActivityRankCountryMatchMap::const_iterator iter = activity_rank_country_match_map_.find(countryRank);
+	if(iter != activity_rank_country_match_map_.end())
+	{
+		return &iter->second->getReward();
+	}
+	return NULL;
+}
+
+const IntPairVec* ActivityRankTableMgr::getRewardByRankId(const uint32 type,const int rankId) const
+{
+	if(rankId == 0) return NULL;
+	if(type == TYPE_OF_ADD_SOLIDER)
+	{
+		for(ActivityRankAddSoliderMatchMap::const_iterator iter = activity_rank_add_solider_match_map_.begin();iter != activity_rank_add_solider_match_map_.end();++iter)
+		{
+			if(rankId >= iter->second->getRank().first && rankId <= iter->second->getRank().second)
+			{
+				return &iter->second->getReward();
+			}
+		}
+	}
+	else if(type == TYPE_OF_OCCUPATION)
+	{
+		for(ActivityRankOccupationMatchMap::const_iterator iter = activity_rank_occupation_match_map_.begin();iter != activity_rank_occupation_match_map_.end();++iter)
+		{
+			if(rankId >= iter->second->getRank().first && rankId <= iter->second->getRank().second)
+			{
+				return &iter->second->getReward();
+			}
+		}
+	}
+	return NULL;
+}
+
+
+void ActivityRankTableMgr::InitializationRankMap()
+{
+#ifdef _MMO_SERVER_
+	bool activity_add_soldier = false,activity_personal_occupation = false;
+	if(sActivityMgr.IsActivityActive(pb::ACTIVITY_ADD_SOLIDER_RANK))
+	{
+		activity_add_soldier = true;
+	}
+	if(sActivityMgr.IsActivityActive(pb::ACTIVITY_OCCUPATION_RANK))
+	{
+		activity_personal_occupation = true;
+	}
+	uint32 value_occupy_city = 0,value_add_soldier = 0;
+	FOREACH_PLAYERPTR(PlayerId, playerPtr)
+	{
+		const string &name = playerPtr->CharName();
+		value_occupy_city = playerPtr->GetAttrUint(pb::PLAYER_FIELD_ACTIVITY_OCCUPY_CITY_NUM);
+		value_add_soldier = playerPtr->GetAttrUint(pb::PLAYER_FIELD_ACTIVITY_ADD_SOLDIER);
+		RankSort temp1(playerPtr->GetCountryId(),value_occupy_city,playerPtr->GetLevel(),playerPtr->GetVipLevel(),playerPtr->GetGuid());
+		RankSort temp2(playerPtr->GetCountryId(),value_add_soldier,playerPtr->GetLevel(),playerPtr->GetVipLevel(),playerPtr->GetGuid());
+		if(activity_personal_occupation && value_occupy_city != 0)
+		{
+			occupation_rank_map_[temp1] = name;
+		}
+		if(activity_add_soldier && value_add_soldier != 0)
+		{
+			add_solider_rank_map_[temp2] = name;
+		}
+	}
+#endif
+}
+
+void ActivityRankTableMgr::GiveOccupationRewardWhenActivityEnd()
+{
+	if(occupation_rank_map_.empty()) return;
+	//MutexGuard lock(mutex_);
+	size_t count = 1;
+	ranksortMap::const_iterator iter = occupation_rank_map_.begin();
+	for(;iter != occupation_rank_map_.end() && iter->first.ranknum_ != 0;++iter,++count)
+	{
+		const IntPairVec* reward = getRewardByRankId(TYPE_OF_OCCUPATION,count);
+		if(reward)
+		{
+			PlayerPtr player = sPlayerPool.GetPtrByPlayerId(iter->first.playerid_);
+			if(player)
+			{
+				sReward.Change(*player,*reward);
+				string items;
+				Utility::PacketItemsToString(items,*reward);
+#ifdef _MMO_SERVER_
+				if(!items.empty())
+					sSysEventMgr.SendJustTipsMail(iter->first.playerid_,EVENT_TYPE_PERSONAL_OCCUPATION,items);
+#endif
+				player->SetValueInt(pb::PLAYER_FIELD_ACTIVITY_OCCUPY_CITY_NUM,0);
+			}
+		}
+	}
+	occupation_rank_map_.clear();
+}
+
+void ActivityRankTableMgr::GiveAddSoldierRewardWhenActivityEnd()
+{
+	if(add_solider_rank_map_.empty()) return;
+	//MutexGuard lock(mutex_);
+	size_t count = 1;
+	ranksortMap::const_iterator iter = add_solider_rank_map_.begin();
+	for(;iter != add_solider_rank_map_.end() && iter->first.ranknum_ != 0;++iter,++count)
+	{
+		const IntPairVec* reward = getRewardByRankId(TYPE_OF_ADD_SOLIDER,count);
+		if(reward)
+		{
+			PlayerPtr player = sPlayerPool.GetPtrByPlayerId(iter->first.playerid_);
+			if(player)
+			{
+				sReward.Change(*player,*reward);
+				string items;
+				Utility::PacketItemsToString(items,*reward);
+#ifdef _MMO_SERVER_
+				if(!items.empty())
+					sSysEventMgr.SendJustTipsMail(iter->first.playerid_,EVENT_TYPE_ADD_SOLDIER,items);
+#endif
+				player->SetValueInt(pb::PLAYER_FIELD_ACTIVITY_ADD_SOLDIER,0);
+			}
+		}
+	}
+	add_solider_rank_map_.clear();
+}

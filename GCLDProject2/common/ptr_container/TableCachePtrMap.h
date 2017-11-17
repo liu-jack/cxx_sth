@@ -1,0 +1,222 @@
+#ifndef _TABLECACHEPTRMAP_DEFINE_
+#define _TABLECACHEPTRMAP_DEFINE_
+
+#include <map>
+#include <boost/shared_ptr.hpp>
+#include "def/TypeDef.h"
+#include "def/MmoAssert.h"
+#include "mysql_common/MySqlTableCache.h"
+#include "mysql_common/MySqlSingleton.h"
+#include "ModMarker.h"
+// for test
+#include "Logger.h"
+template<class Table>
+class TableCachePtrMap : public ModMarker<typename Table::Key >
+{
+public:
+	typedef typename Table::Key  KType;
+	typedef CMysqlTableCache<Table> CurCacheType;
+	typedef boost::shared_ptr<CurCacheType> CurPtrCache;
+	typedef typename CMysqlTableCache<Table>::MapItr CurCacheTypeMItr;
+private:
+	CurPtrCache m_tableCache;
+public:
+    ~TableCachePtrMap()
+    {
+		JustRemoveAllFromCache();
+    }
+
+	void SetUnmodified()
+	{
+		ModMarker<KType>::SetUnmodified();
+	}
+
+	void SetModifiedID(KType id)
+	{
+		ModMarker<KType>::SetModifiedID(id);
+	}
+
+	void SetIDUnModified(KType id)
+	{
+		ModMarker<KType>::SetIDUnModified(id);
+	}
+
+	bool IsIDModified(KType id) const
+	{
+		return ModMarker<KType>::IsIDModified(id);
+	}
+
+	bool HasModified() const
+	{
+		return ModMarker<KType>::HasModified();
+	}
+
+	void InitDb(uint32 dbIdPre = 1)
+	{
+		m_tableCache.reset(new CurCacheType());
+		m_tableCache->SetDB(&sDatabase);
+		m_tableCache->InitMaxId(dbIdPre);
+	}
+
+	bool LoadDatas(const char* szSource = NULL, LOAD_FLAG flagLoad = FlagCleanupReload)
+	{
+		if (m_tableCache)
+		{
+			if(m_tableCache->LoadData(szSource,flagLoad))
+			{
+				SetUnmodified();
+				return true;
+			}
+		}
+		else
+		{
+			MASSERT(false,"No Init TableCachePtrMap Db!");
+		}
+		return false;
+	}
+
+	CurPtrCache GetTablePtrCache()
+	{
+		if (m_tableCache.get())
+		{
+			return m_tableCache;
+		}
+		else
+		{
+			LoadDatas(NULL,FlagCleanupReload);
+			return m_tableCache;
+		}
+	}
+
+	CurPtrCache GetFreshPtrCache()
+	{
+		LoadDatas(NULL,FlagCleanupReload);
+		return m_tableCache;
+	}
+
+    Table* GetElement( KType id )
+    {
+        return GetTablePtrCache()->GetEntryByKey(id);
+    }
+
+    bool Contain( KType id ) 
+    {
+        return GetTablePtrCache()->CanFindByKey(id);
+    }
+
+
+    Table* AddAndAddToCache( Table* table)
+    {
+        if(table == NULL) return NULL;
+		if (Contain(table->GetKey()))
+		{
+			NLOG( "Table %s Already Contain Key",Table::GetTableName());
+			return NULL;
+		}
+		else
+		{
+			table->SetDbIncreaseId( GetTablePtrCache()->IncreaseMaxId());
+			Table* newPtr = GetTablePtrCache()->SaveAndAddEntry( table);
+			//ASSERT( newPtr != NULL );
+			return newPtr;
+		}
+    }
+
+    bool DeleteEntry( KType id)
+    {
+        Table* gTable = GetElement( id );
+        if (gTable != NULL)
+        {
+             if(GetTablePtrCache()->RemoveAndDeleteEntry(gTable))
+			 {
+				 SetIDUnModified(id);
+				 return true;
+			 }
+        }
+        return false;
+    }
+
+    bool DeleteEntry( Table* table)
+    {
+		SetIDUnModified(table->GetKey());
+		if(GetTablePtrCache()->RemoveAndDeleteEntry(table))
+		{
+			return true;
+		}
+		return false;
+    }
+
+	void JustRemoveFromCache( Table* table )
+	{
+		SetIDUnModified(table->GetKey());
+        GetTablePtrCache()->RemoveKeyEntry(table);
+	}
+
+	void JustRemoveFromCacheByKey( KType id )
+	{
+		SetIDUnModified(id);
+		GetTablePtrCache()->RemoveEntryByKey(id);
+	}
+
+	void JustRemoveAllFromCache()
+	{
+        SetUnmodified();
+        GetTablePtrCache()->Cleanup();
+		m_tableCache.reset();
+	}
+
+	bool RemoveAllEntryAndCache()
+	{
+		bool isdel = GetTablePtrCache()->RemoveAndDeleteAllEntry(false);
+		if (isdel)
+		{
+			SetUnmodified();
+			m_tableCache.reset();
+		}
+		return isdel;
+	}
+
+    void SaveMod()
+    {
+        for_each( ModMarker<KType>::ModIdBegin(),
+            ModMarker<KType>::ModIdEnd(),
+            boost::bind(&TableCachePtrMap::SaveElement, this, _1 ));
+        SetUnmodified();
+    }
+
+	bool SwapValue( const KType &lId, const KType &rId )
+	{
+		ASSERT( lId != rId ) ;
+
+		if (!Contain(lId) || !Contain(rId))
+		{
+			return false;
+		}
+		std::swap( GetElement(lId), GetElement(rId) ) ;
+		return true ;
+	}
+
+    void SaveOneMod(Table *pTable )
+	{
+        ASSERT( pTable !=NULL ) ; 
+        if ( pTable->GetIncreaseId() == 0)
+        {
+            pTable->SetDbIncreaseId( GetTablePtrCache()->IncreaseMaxId());
+        }
+		SetIDUnModified(pTable->GetKey());
+        GetTablePtrCache()->WriteEntry( pTable );
+	}
+
+private:
+    void SaveElement( KType id) 
+    {
+        Table* table = GetElement( id);
+        if ( table)
+        {
+            GetTablePtrCache()->WriteEntry( table);
+        } 
+    }
+
+};
+
+#endif //_CACHEPTRMAP_DEFINE_

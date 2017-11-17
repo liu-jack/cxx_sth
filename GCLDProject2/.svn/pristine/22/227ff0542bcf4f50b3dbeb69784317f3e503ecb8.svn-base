@@ -1,0 +1,252 @@
+#include "../object/Player.h"
+
+#include "memory_buffer/NetPack.h"
+
+#include "utility/MsgTool.h"
+#include "mysqldata.h"
+
+#include "item/ItemArray.h"
+#include "session/PlayerPool.h"
+#include "CrossLogic/PlayerItemLogic.h"
+#include "CrossLogic/ItemCharacterLogic.h"
+
+#include "Opcode.pb.h"
+#include "Item.pb.h"
+#include "Character.pb.h"
+
+#include "BaseDefineMgr.h"
+#include "BaseDefine.pb.h"
+#include "Loot/LootList.h"
+#include "quest/IQuestLogger.h"
+#include "CrossLogic/ActivityOccupyCityDB.h"
+#include "Congratulate/Table/CongratulateTableMgr.h"
+#include "Congratulate/CongratulateRewardLog.h"
+#include "CrossLogic/PlayerCongratulateDB.h"
+#include "utility/Utility.h"
+#ifdef  _MMO_SERVER_
+#include "fuben/FubenLog.h"
+#endif
+using namespace pb;
+
+
+namespace PlayerHandle
+{
+    extern void SendOpcodeWithErrCode( Player* player, int opcode, pb::CxGS_ERROR_CODE err_code);
+}
+
+OpHandler( CMSG_ALL_BAG)
+{
+    if ( !m_bag.get())
+        return;
+    
+    GS2C_Bag msg;
+    //m_bag->SaveTo( msg);
+	m_bag->WriteAllItemTo(msg);
+    Send( SMSG_ALL_BAG, msg);
+}
+
+OpHandler( CMSG_ITEM_USE)
+{
+    if ( !m_bag.get())
+        return;
+
+    uint32 id = 0, count = 0;
+    pack >> id >> count; 
+
+    Item* item = m_bag->MutableItem(id);
+    if ( item == NULL)
+        return;
+
+    pb::GS2C_ItemUse msg;
+
+    CxGS_ERROR_CODE err_code = (CxGS_ERROR_CODE)PlayerItemLogic::UseItem( this, id, msg, count);
+    msg.set_err_code( err_code);
+    Send( SMSG_ITEM_USE_RESP, msg);
+}
+
+
+OpHandler( CMSG_EQUIP_LEVEL_UP)
+{  
+ /*   uint32 itemId = 0, itemUpgradeTimes = 0;
+    pack >> itemId >> itemUpgradeTimes;*/
+    
+    return;
+}
+
+OpHandler( CMSG_EQUIP_REINFORCE_UP)
+{
+ /*   pb::C2GS_UseItemsToTarget msg;
+    pack >> msg;*/
+
+ /*   pb::CxGS_ERROR_CODE  err_code = (pb::CxGS_ERROR_CODE)PlayerItemLogic::EquipReinforceUp( this, msg);
+    PlayerHandle::SendOpcodeWithErrCode(this, SMSG_EQUIP_REINFORCE_UP_RESP, err_code);*/
+}
+
+OpHandler( CMSG_ACC_LEVEL_UP)
+{
+ /*   pb::C2GS_ItemUp msg;
+    pack >> msg; 
+
+    pb::CxGS_ERROR_CODE err_code = (pb::CxGS_ERROR_CODE)PlayerItemLogic::AccLevelUp( this, msg);
+    PlayerHandle::SendOpcodeWithErrCode(this, SMSG_ACC_LEVEL_UP_RESP, err_code);*/
+}
+
+
+OpHandler( CMSG_REBIRTH_ITEM)
+{
+   
+
+}
+
+OpHandler( CMSG_DECOMPOSE_ITEM)
+{
+    /*pb::Uint32List itemSlotIdList;
+    pack >> itemSlotIdList;
+
+    pb::CxGS_ERROR_CODE last_err = ErrCommonSuccess;
+    LootList lootList;
+    for ( int i = 0; i < itemSlotIdList.values_size(); ++i)
+    {
+        pb::CxGS_ERROR_CODE err = (pb::CxGS_ERROR_CODE)PlayerItemLogic::DecomposeItem(this, itemSlotIdList.values(i), lootList);
+        if ( err != ErrCommonSuccess)
+        {
+            last_err = err;
+        }
+    }
+    pb::GS2C_LootList msg;
+    if ( lootList.PickAllMoneyAndItems(this, msg, pb::IR_CYCLE_GET))
+    {
+        Send( pb::SMSG_ITEM_GET_LIKE_LOOT, msg);
+    }
+
+    PlayerHandle::SendOpcodeWithErrCode(this, SMSG_DECOMPOSE_ITEM_RESP, last_err);*/
+}
+
+
+OpHandler( CMSG_ITEM_EQUIP_TO_CHARACTER)
+{
+    uint32 itemId = 0, equipSlotId = 0, charId = 0;
+    pack >> charId >> equipSlotId >> itemId;
+
+    CxGS_ERROR_CODE err_code = (CxGS_ERROR_CODE)ItemCharacterLogic::EquipItemToCharacter( this, itemId, charId, equipSlotId);
+    if ( err_code == ErrCommonSuccess)
+    {
+        if (m_characterStorage->IsInBatterArray( charId))			//如果是招募的武将，则属性改变
+        {
+            ItemCharacterLogic::ReCalculateBattleAttr( this);
+#ifdef  _MMO_SERVER_
+			if(!m_questLogger->GetQuestFinished(GET_BASE_DEF_INT( pb::BD_AUTO_DRAFT_FOR_END_MAIN_QUEST))
+				&& (int)m_fubenLog->m_curStageID <= GET_BASE_DEF_INT( pb::BD_AUTO_DRAFT_FOR_END_STAGE_LEVEL))
+			{
+				if (Character* character = m_characterStorage->MutableCharacter(charId))
+				{
+					if(!character->isFighting)
+					{
+						character->RecoverFullSoldier();
+						m_characterStorage->SetModifiedID(character->GetID());
+					}
+				}
+			}
+#endif
+        }
+    }
+    PlayerHandle::SendOpcodeWithErrCode(this, SMSG_ITEM_EQUIP_TO_CHARACTER_RESP, err_code);
+}
+
+OpHandler( CMSG_COMPOSE_ACC)
+{
+    uint32 accId = 0;
+    pack >> accId;
+
+   /* pb::GS2C_ItemUse itemUseMsg;
+    CxGS_ERROR_CODE err_code = (CxGS_ERROR_CODE)PlayerItemLogic::ComposeAcc( this, accId, itemUseMsg);    
+    itemUseMsg.set_err_code( err_code);  
+
+    Send( SMSG_COMPOSE_ACC_RESP, itemUseMsg);    */
+}
+
+
+OpHandler( CMSG_SUIT_COMPLEX)
+{
+	uint32 suitProId = 0;
+	pack >> suitProId;
+
+	CxGS_ERROR_CODE err_code = (CxGS_ERROR_CODE)PlayerItemLogic::SuitComplex( this, suitProId);    
+	PlayerHandle::SendOpcodeWithErrCode(this, SMSG_SUIT_COMPLEX, err_code); 
+	if(err_code == pb::ErrCommonSuccess)
+	{
+
+		uint32 before_rank = 0;
+		uint32 table_id = sCongratulateMgr.GetTableId(CONGRATULATE_TYPE_SUIT,suitProId,before_rank);
+		pb::GS2C_Achieve_Congratulate msg;
+		pb::C2GS_Congratulate_Accept * info = msg.mutable_info();
+		info->set_suit_id(suitProId);
+		info->set_congratulate_type(CONGRATULATE_TYPE_SUIT);
+		info->set_table_id(table_id);
+		msg.set_to_player_name(CharName());
+		char player_id[256] = {0};
+		Utility::convert(player_id,GetGuid());
+		info->set_to_player_id(player_id);
+		info->set_operate_type(pb::DATA_UPDATE);
+		char time_now[256] = {0};
+		Utility::convert(time_now,sOS.TimeSeconds());
+		info->set_active_time(time_now);
+		m_CongratulateLog->SetAchieve(table_id);
+		CongratulateLogDB::SendInfoToSelfCongratulateDb(*this,*m_CongratulateLog,table_id);
+		const LogicItemProto* logic_proto = sItemMgr.Find(suitProId);
+		if(logic_proto)
+		{
+			if(logic_proto->Isprisuit())
+			{
+				sCongratulateMgr.suit_pri[suitProId-SUIT_PRI_ITEM_ID_BASE]++;
+				if(sCongratulateMgr.suit_pri[suitProId-SUIT_PRI_ITEM_ID_BASE] <= before_rank)
+				{
+					info->set_rank(sCongratulateMgr.suit_pri[suitProId-SUIT_PRI_ITEM_ID_BASE]);
+				}
+				ActivityOccupyCityDB::SendUpdateInfoToDb( suitProId << CONGRATULATE_TYPE_SUIT,sCongratulateMgr.suit_pri[suitProId-SUIT_PRI_ITEM_ID_BASE]);
+			}
+			if(logic_proto->Ismidsuit())
+			{
+				sCongratulateMgr.suit_mid[suitProId-SUIT_MID_ITEM_ID_BASE]++;
+				if(sCongratulateMgr.suit_mid[suitProId-SUIT_PRI_ITEM_ID_BASE] <= before_rank)
+				{
+					info->set_rank(sCongratulateMgr.suit_mid[suitProId-SUIT_PRI_ITEM_ID_BASE]);
+				}
+				ActivityOccupyCityDB::SendUpdateInfoToDb( suitProId << CONGRATULATE_TYPE_SUIT,sCongratulateMgr.suit_mid[suitProId-SUIT_MID_ITEM_ID_BASE]);
+			}
+			if(logic_proto->Isadvsuit())
+			{
+				sCongratulateMgr.suit_adv[suitProId-SUIT_ADV_ITEM_ID_BASE]++;
+				if(sCongratulateMgr.suit_adv[suitProId-SUIT_PRI_ITEM_ID_BASE] <= before_rank)
+				{
+					info->set_rank(sCongratulateMgr.suit_adv[suitProId-SUIT_PRI_ITEM_ID_BASE]);
+				}
+				ActivityOccupyCityDB::SendUpdateInfoToDb( suitProId << CONGRATULATE_TYPE_SUIT,sCongratulateMgr.suit_adv[suitProId-SUIT_ADV_ITEM_ID_BASE]);
+			}
+			sPlayerPool.BroadcastMsgToAllPlayerByCountry(pb::SMSG_ACHIEVE_CONGRATULATE,msg,GetCountryId(),GetGuid());
+		}
+
+	}
+}
+
+OpHandler( CMSG_COMPOSE_GEM)
+{
+	uint32 soltId = 0;
+	pack >> soltId;
+	CxGS_ERROR_CODE err_code = (CxGS_ERROR_CODE)PlayerItemLogic::ComposeGem( this, soltId);
+	PlayerHandle::SendOpcodeWithErrCode(this, SMSG_COMPOSE_GEM_RESP, err_code);   
+}
+
+OpHandler( CMSG_DECOMPOSE_GEM)
+{
+	uint32 soltId = 0;
+	pack >> soltId;
+	CxGS_ERROR_CODE err_code = (CxGS_ERROR_CODE)PlayerItemLogic::DecomposeGem( this, soltId);     
+	PlayerHandle::SendOpcodeWithErrCode(this, SMSG_DECOMPOSE_GEM_RESP, err_code);   
+}
+
+OpHandler( CMSG_BUY_BAG_CAPACITY)
+{
+	CxGS_ERROR_CODE err_code = (CxGS_ERROR_CODE)PlayerItemLogic::BuyBagCapacity( this);     
+	PlayerHandle::SendOpcodeWithErrCode(this, SMSG_BUY_BAG_CAPACITY_RESP, err_code);
+}

@@ -1,0 +1,176 @@
+
+package pb;
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// 公用结构
+
+enum Data_Operate
+{
+	DATA_UPDATE                         =1;
+	DATA_INSERT                         =2;
+	DATA_DEL                            =3;
+}
+
+message PlayerShowData
+{
+    optional uint64 player_id   	 =1;
+    optional uint32 level       	 =2;
+	optional uint32 vip_lv  		= 5;
+    optional string name        	 =3;
+    optional uint64 player_head_id   =4;
+	optional uint32 military_power = 6;//战力
+}
+
+message EMPTY_PACK
+{
+}
+//--------------------------------------------------------------------------
+// Pair
+message PairValue
+{
+	optional uint32 first  =1;
+	optional uint32 second =2;
+}
+message PairValueInt
+{
+	optional int32 first  =1;
+	optional int32 second =2;
+}
+message PairTime
+{
+    optional uint32 first  =1;
+    optional uint64 second =2;
+}
+message PairValueUint64
+{
+	optional uint64 first  =1;
+	optional uint64 second =2;
+}
+message PairString
+{
+    optional string first  =1;
+    optional string second =2;
+}
+
+message PairBool
+{
+    optional uint32 first  =1;
+    optional bool   second =2;
+}
+//--------------------------------------------------------------------------
+// values 对象属性数组
+message Int32List
+{
+    repeated int32 values = 1;
+}
+
+message Uint32List
+{
+    repeated uint32 values = 1;
+}
+
+message Uint64List
+{
+    repeated uint64 values = 1;
+}
+
+message FloatList
+{
+	repeated float values =1 ;
+}
+
+message StringList
+{
+	repeated string values =1;
+}
+
+message ObjectFullValue
+{
+	optional Int32List  int32_values  = 1;// 对象值列表
+	optional Uint64List uint64_values = 2;// 对象值列表
+	optional FloatList  float_values  = 3;// 对象值列表
+	optional StringList string_values = 4;// 对象值列表
+}
+
+
+//--------------------------------------------------------------------------
+// 对象属性数组更新
+message Int32ListUpdate
+{
+	required uint32 bit_count  = 1; // 位数目
+	repeated uint32 bit_masks  = 2; // 位掩码
+	repeated int32  values     = 3; // 值 
+}
+
+message Uint64ListUpdate
+{	
+	optional uint32 bit_count = 1; // 位数目
+	repeated uint32 bit_masks = 2; // 位掩码
+	repeated uint64 values    = 3; // 值
+}
+
+message FloatListUpdate
+{
+	optional uint32 bit_count = 1; // 位数目
+	repeated uint32 bit_masks = 2; // 位掩码
+	repeated float  values    = 3; // 值
+}
+
+
+message StringListUpdate
+{
+	optional uint32 bit_count = 1; // 位数目
+	repeated uint32 bit_masks = 2; // 位掩码
+	repeated string values    = 3; // 值
+}
+
+message ObjectValueUpdate
+{
+	optional Int32ListUpdate  update_int32   =1;
+	optional Uint64ListUpdate update_uint64   =2;
+	optional FloatListUpdate  update_float   =3;
+	optional StringListUpdate update_string  =4;
+}
+
+message GS2C_LootList
+{
+    repeated PairValue item_id_count = 1;
+    repeated PairValue curency_type_count = 2;
+    optional uint32    player_exp    = 3;
+    optional uint32    char_exp      = 4;
+}
+
+message GS2C_ItemLootList
+{
+    repeated PairValue item_id_value = 1;   
+}
+
+message GS2C_PlayerString
+{
+    required uint32 str_type = 1;
+    required string str = 2;
+}
+
+message GS2C_PlayerStringGroup
+{
+    repeated GS2C_PlayerString player_strings = 1;
+}
+
+
+// 详见 reward.h
+message StReward
+{
+    required uint32 type    = 1; //奖励类型
+    required uint32 value   = 2; //奖励数值
+}
+message StRewards
+{
+    repeated StReward rewards   = 1;
+}
+
+//玩家升级奖励
+message PlayLvUpReward
+{
+	repeated StReward rewards   = 1;
+	required uint32 playerLv = 2;//玩家等级(升级之后)
+}

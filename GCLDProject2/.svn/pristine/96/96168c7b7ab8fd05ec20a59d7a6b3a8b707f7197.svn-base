@@ -1,0 +1,45 @@
+#include "PlayerFuBenDB.h"
+#include "Fuben.pb.h"
+#include "../fuben/FubenLog.h"
+#include "../server_client/DbProxyServerClient.h"
+#include "InterServer.pb.h"
+#include "ServerOpcode.pb.h"
+#include "Combat.pb.h"
+
+
+void PlayerFuBenDB::SendFuBenBaseToDb(Player& player, FubenLog& log)
+{
+    pb::SG2D_UpdataFuBenBase msg;
+    msg.set_cur_fuben_id(log.m_curFubenID);
+    msg.set_cur_stage_id(log.m_curStageID);
+
+    msg.set_op_type(pb::DATA_UPDATE);
+    sDbProxyClient.SendPlayerPack(player, pb::SG2D_UPDATA_FUBEN_BASE, msg);
+}
+void PlayerFuBenDB::SendResourceToDb(Player& player, uint32 stageId, ResourceLog* p)
+{
+    pb::SG2D_UpdataFuBenResource msg;
+    pb::GS2C_Resource_Stage* pStage = msg.mutable_info();
+    pStage->set_stage_id(stageId);
+    pStage->set_times(p->times);
+    pStage->set_data_valid_time(p->validTime);
+	pStage->set_quest_times(p->quest_times);
+
+    msg.set_op_type(pb::DATA_UPDATE);
+    sDbProxyClient.SendPlayerPack(player, pb::SG2D_UPDATA_FUBEN_RESOURCE, msg);
+}
+void PlayerFuBenDB::SendPassStageToDb(Player& player, uint32 stagetype,stage_info*p)
+{
+    pb::Stage_Info msg;
+    msg.set_stage_type(stagetype);
+	msg.set_pass_count(p->pass_count_);
+	msg.set_is_take_reward(p->is_take_rewrd_);
+    sDbProxyClient.SendPlayerPack(player, pb::SG2D_UPDATA_FUBEN_PASSSTAGE, msg);
+}
+
+void PlayerFuBenDB::SendCrusadeToDb(Player& player, FubenLog& log)
+{
+	pb::GxDB_Combat_Crusade msg;
+	log.SaveTo(msg);
+	sDbProxyClient.SendPlayerPack(player, pb::SG2D_CRUSADE_UPDATE, msg);
+}

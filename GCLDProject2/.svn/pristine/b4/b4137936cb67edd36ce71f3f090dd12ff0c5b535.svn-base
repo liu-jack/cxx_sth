@@ -1,0 +1,37 @@
+package pb;
+import "GameServer.proto";
+
+message DB2G_Error
+{
+	optional string info   = 2;
+}
+
+message DB2G_OperateResPon
+{
+	optional uint64 player_guid   = 1;
+	optional string to_name = 2;
+	required bool operate_result  = 3; //true 成功，false失败。
+}
+
+message GxDB_AccountId
+{
+	required string account_name = 1;
+}
+
+message GxDB_AccountData
+{
+	required string		 account_name   = 1;
+	repeated string		 character_name = 2;
+}
+
+message GxDB_CharacterId
+{
+	required uint64     character_id   = 1;
+	optional uint32     region_id      = 2;
+	optional uint32     server_id      = 3;
+	optional uint32     account_id     = 4;
+	optional string     character_name = 5;
+	optional uint32     is_new         = 6 [default =0];
+	optional uint32     is_del         = 7 [default =0];
+	optional string     delete_time    = 8;
+}

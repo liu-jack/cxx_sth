@@ -1,0 +1,756 @@
+
+#include <boost/bind.hpp>
+#include <boost/function.hpp>
+#include <boost/typeof/typeof.hpp>
+#include <stdio.h>
+
+#include "DbProxyDataMgr.h"
+#include "MySqlSingleton.h"
+#include "InterServer.pb.h"
+#include "OS.h"
+
+
+#include "../PlayerData.h"
+#include "../DbProxyServer.h"
+#include "GlobalData.h"
+#include "utility/STLUtility.h"
+#include "Social.pb.h"
+
+
+DbProxyDataMgr::DbProxyDataMgr( void )
+:m_dbproxyId(1)
+{
+}
+
+
+DbProxyDataMgr::~DbProxyDataMgr( void )
+{
+
+}
+
+#undef LOAD_TAB
+#define LOAD_TAB(tab_name) \
+	template <>\
+	boost::shared_ptr<CMysqlTableCache<tab_name>> DbProxyDataMgr::GetTable<tab_name>()\
+    {\
+	    return m_##tab_name;\
+    }
+
+LOAD_ALL_TAB
+
+
+
+void DbProxyDataMgr::InitData( int dbproxId )
+{
+	m_dbproxyId = dbproxId;
+#define INIT_TABLE( TABLE_STRUCT) \
+	TABLE_STRUCT##CacheType::SetDB( &sDatabase ) ; \
+	m_##TABLE_STRUCT.reset(new TABLE_STRUCT##CacheType);\
+	m_##TABLE_STRUCT->InitMaxId(dbproxId) ;\
+
+	INIT_TABLE( GuidInfoTable) ; 
+	INIT_TABLE( EventRecodeTable);
+	INIT_TABLE( GuildInfoTable);
+	INIT_TABLE( GuildMemberInfoTable);
+    INIT_TABLE(CountryBaseTable);
+    INIT_TABLE(CountryCityTable);
+    INIT_TABLE(CountryLevelUpTaskPlayerTable);
+    INIT_TABLE(PalaceOfficeTable);
+	INIT_TABLE(ActivityProtoTable);
+	INIT_TABLE(ActivityPlanTable);
+	INIT_TABLE(ServerOpenTimeTable);
+	INIT_TABLE(ActivityRewardTable);
+	INIT_TABLE(ActivityCountryOccupyCityTable);
+
+#undef LOAD_TAB
+#define LOAD_TAB(tab_name) \
+	tab_name##CacheType::SetDB( &sDatabase ) ; \
+	m_##tab_name.reset(new tab_name##CacheType);\
+	m_##tab_name->InitMaxId(dbproxId) ;\
+
+	LOAD_ALL_TAB
+
+}
+
+
+
+bool DbProxyDataMgr::GetHadThisPlayerInDB( const std::string &name )
+{
+	return PlayerTableCacheType::QueryIsTure( "SELECT 1 FROM %s WHERE name = '%s' LIMIT 1; ", PlayerTable::GetTableName(), name.c_str() ) ;
+}
+
+bool DbProxyDataMgr::GetHadThisPlayerInDB( const uint64 playerId )
+{
+	return PlayerTableCacheType::QueryIsTure( "SELECT 1 FROM %s WHERE playerId =%llu LIMIT 1;", PlayerTable::GetTableName(), playerId ) ;
+}
+
+bool DbProxyDataMgr::GetHadThisPlayerInDBLocked( const uint64 playerId )
+{
+	return PlayerTableCacheType::QueryIsTure( "SELECT 1 FROM %s WHERE  lockReason = 2 AND playerId =%llu LIMIT 1;", PlayerTable::GetTableName(), playerId ) ;
+}
+
+bool DbProxyDataMgr::GetHadThisSdkAccountPlayer( const uint64 playerId, const std::string &sdkAccount )
+{
+	return PlayerTableCacheType::QueryIsTure( "SELECT 1 FROM %s WHERE playerId =%llu AND sdkUserId = '%s' LIMIT 1;", PlayerTable::GetTableName(), playerId, sdkAccount.c_str() ) ;
+}
+
+void  DbProxyDataMgr::GetSameCountryNum(IntPairVec & vec)
+{
+	CMySqlConnection* pConn = sDatabase.GetConnection() ;
+	if( pConn == NULL )
+	{
+		ASSERT( false ) ;
+		return;
+	}
+	CMysqlRstPtr pRst;
+
+	pRst = pConn->QueryFormat("SELECT c.country_id,COUNT(c.country_id) from (SELECT a.playerId,b.country_id FROM %s a,%s b WHERE a.playerId = b.player_id ORDER BY a.LEVEL desc LIMIT 200) as c GROUP BY c.country_id;", PlayerTable::GetTableName(),MapLogicTable::GetTableName());
+	if( pRst && pRst->GetRowCount() > 0 )
+	{
+		Field* pField;
+		do 
+		{
+			pField = pRst->Fetch();
+			if (pField)
+			{
+				Field* f = pField;
+				int countryId = f->GetUInt8();
+				++f;
+				int playerNum = f->GetInt32();
+				vec.push_back(std::make_pair(countryId,playerNum));
+			}
+		}while (pRst->NextRow());
+	}
+	sDatabase.PutConnection( pConn ) ;
+}
+
+bool DbProxyDataMgr::GetPlayerIds( std::set< uint64>& idSet,const char* sqlSrc/* = NULL*/)
+{
+	uint64 playerId =0 ;
+	bool bResult =false ;
+	CMySqlConnection* pConn = sDatabase.GetConnection() ;
+	if( pConn == NULL )
+	{
+		ASSERT( false ) ;
+		return bResult ;
+	}
+	CMysqlRstPtr pRst;
+	if ( sqlSrc != NULL)
+	{
+		pRst = pConn->Query( sqlSrc, strlen( sqlSrc ) );
+	}
+	else
+	{
+		pRst = pConn->QueryFormat("SELECT playerId FROM %s;", PlayerTable::GetTableName());
+	}
+	if( pRst && pRst->GetRowCount() > 0 )
+	{
+		bResult = true;
+		Field* pField;
+		do 
+		{
+			pField = pRst->Fetch();
+			if (pField)
+			{
+				playerId = pField->GetUInt64();
+				idSet.insert(playerId);
+			}
+		}while (pRst->NextRow());
+	}
+	sDatabase.PutConnection( pConn ) ;
+	return bResult ;
+}
+
+
+uint64 DbProxyDataMgr::GetPlayerIdByName( const std::string &name )
+{
+	uint64 playerId =0 ;
+	CMySqlConnection* pConn = sDatabase.GetConnection() ;
+	if( pConn == NULL )
+	{
+		ASSERT( false ) ;
+		return playerId ;
+	}
+
+	std::string sql ;
+	Utility::FormatString( sql, "SELECT playerId FROM %s WHERE name = '%s' LIMIT 1; ", PlayerTable::GetTableName(), name.c_str() ) ;
+	CMysqlRstPtr pResult =pConn->QueryFormat( sql.c_str()) ;
+	if( pResult )
+	{
+		Field* pField = pResult->Fetch();
+		playerId = pField[0].GetUInt64();
+	}
+
+	sDatabase.PutConnection( pConn ) ;
+	return playerId ;
+}
+
+
+bool DbProxyDataMgr::AddNewPlayerToTable( PlayerTable &newPlayer )
+{
+	// 玩家创建使用同步流程
+	newPlayer.id =m_PlayerTable->IncreaseMaxId() ;
+
+	uint64 insertId =m_PlayerTable->WriteEntry( &newPlayer, true ) ;
+	ASSERT( newPlayer.id == insertId ) ;
+
+	return insertId > 0 ;
+}
+
+void DbProxyDataMgr::GetMapLogicRecord( MapLogicTableCacheType& tmpTable, uint64 playerId)
+{
+	std::string sql ;
+	Utility::FormatString( sql, "SELECT * FROM %s WHERE player_id = %llu LIMIT 1; ", MapLogicTable::GetTableName(), playerId) ;
+	tmpTable.SqlLoadAndAddData( sql.c_str() ) ;
+}
+
+void DbProxyDataMgr::GetPlayerList( PlayerTableCacheType& tmpTable, uint64 accountId, uint32 regionId, uint32 serverId )
+{
+	std::string sql ;
+    Utility::FormatString( sql, "SELECT * FROM %s WHERE accountId = %llu AND regionId = %u AND serverId =%u ; ", PlayerTable::GetTableName(), accountId, regionId, serverId ) ;
+	tmpTable.SqlLoadAndAddData( sql.c_str() ) ;
+}
+
+bool DbProxyDataMgr::LoadGuidInfo( uint32 serverId, uint32 regionId, std::map< int, GuidInfoTable > &infos )
+{
+	std::string sql ;
+	Utility::FormatString( sql, "SELECT * FROM %s WHERE server_id =%u AND region_id =%u ; ", GuidInfoTable::GetTableName(), serverId, regionId ) ;
+
+	std::vector<GuidInfoTable*> vecInfo ;
+	sDataMgr.m_GuidInfoTable->SqlLoadAndAddData( sql.c_str(), &vecInfo ) ;
+
+	for( BOOST_AUTO( itr, vecInfo.begin()); itr != vecInfo.end(); ++itr )
+	{
+		infos[(*itr)->type] =**itr ;
+	}
+
+	return true ;
+}
+
+
+void DbProxyDataMgr::UnLoadPlayerData( PlayerData *pPlayerData )
+{
+	ASSERT( pPlayerData != NULL ) ;
+	if( pPlayerData == NULL )
+	{
+		return ;
+	}
+
+	pPlayerData->m_unloadCount++;
+
+	DLOG( "DbProxyDataMgr::UnLoadPlayerData( player id: %llu )", pPlayerData->GetPlayerId() ) ;
+
+	// 缓存基础数据
+	//AddPlayerBaseData( pPlayerData ) ;
+
+#undef LOAD_TAB
+#define LOAD_TAB(tab_name) \
+    pPlayerData->m_##tab_name.RemoveContentFromCache();
+
+    LOAD_ALL_PLAYER_KEY_TAB
+
+
+#undef LOAD_TAB
+#define LOAD_TAB(tab_name) \
+	pPlayerData->m_##tab_name.RemoveAllEntry();
+
+	LOAD_ALL_PLAYER_MAP_TAB         
+
+}
+
+
+
+
+namespace{
+	void GetTableSql( string& outSql,const char* tableName, uint64 playerId)
+	{
+		char buffer[128];
+		sprintf( buffer, "SELECT * FROM %s WHERE player_id =%llu ", tableName, playerId);
+		outSql.assign(buffer);
+	}
+
+	void AppendWhere( std::string& SQLstr, const char* columnName, const std::set<uint32>& inIds)
+	{
+		if ( inIds.empty())
+			return;
+		std::set<uint32>::const_iterator it = inIds.begin();
+		std::stringstream ss;
+		ss << "where " << columnName << " in (" << *it++;
+		while( it != inIds.end() )
+		{
+			ss << ", "<< *it++;
+		}
+		ss << ")";
+	}
+
+    template< class TablePtrVec, class PlayerMapTable >
+    void CopyVecToPlayerMapTable( TablePtrVec& vec, PlayerMapTable& maptable)
+    {
+        for ( BOOST_AUTO( it , vec.begin()); it != vec.end(); ++it )
+        {
+            maptable.AddToPtrMap( *it);
+        }
+    }
+}
+
+PlayerData* DbProxyDataMgr::LoadPlayerData( uint64 playerId)
+{
+	PlayerTable *pPlayerTable = m_PlayerTable->GetEntryByKey(playerId);
+	if( pPlayerTable != NULL )
+	{
+		PlayerData * pPData = LoadOnePlayerData(pPlayerTable);
+		if (pPData)
+		{
+			return pPData;
+		}
+	}
+
+	std::string sql ;
+	Utility::FormatString( sql, "SELECT * FROM %s WHERE lockReason != 2  AND playerId =%llu LIMIT 1; ", PlayerTable::GetTableName(), playerId ) ;
+
+
+	std::vector<PlayerData*> vecPlayerData ;
+	LoadPlayerData( sql, vecPlayerData ) ;
+	ASSERT( vecPlayerData.size() <= 1 ) ;
+
+	return !vecPlayerData.empty() ?  vecPlayerData[0] : NULL ;
+}
+
+
+PlayerData* DbProxyDataMgr::LoadPlayerData( uint64 accountId, uint64 playerId)
+{
+	PlayerTable *pPlayerTable = m_PlayerTable->GetEntryByKey(playerId);
+	if( pPlayerTable != NULL )
+	{
+		PlayerData * pPData = LoadOnePlayerData(pPlayerTable);
+		if (pPData)
+		{
+			return pPData;
+		}
+	}
+
+	std::string sql ;
+	Utility::FormatString( sql, "SELECT * FROM %s WHERE lockReason != 2  AND playerId =%llu AND accountId =%llu LIMIT 1; ", PlayerTable::GetTableName(), playerId, accountId ) ;
+
+
+	std::vector<PlayerData*> vecPlayerData ;
+	LoadPlayerData( sql,vecPlayerData ) ;
+	ASSERT( vecPlayerData.size() <= 1 ) ;
+
+	return !vecPlayerData.empty() ?  vecPlayerData[0] : NULL ;
+}
+
+bool DbProxyDataMgr::LoadPlayerTable(const std::string &playerTableSql,std::vector<PlayerTable*>& vecPlayerTable)
+{
+	if( !m_PlayerTable->SqlLoadAndAddData( playerTableSql.c_str(), &vecPlayerTable, FlagReload ) )
+	{
+		return false;
+	}
+	return true;
+}
+
+PlayerData * DbProxyDataMgr::LoadOnePlayerData(PlayerTable *pPlayerTable)
+{
+	if (pPlayerTable == NULL)
+	{
+		return NULL;
+	}
+	uint64 playerId =pPlayerTable->playerId ;
+	PlayerData *pPlayerData =new PlayerData( playerId) ;
+	pPlayerData->m_loadCount++;
+	// 移除玩家基本缓存数据
+	//RemovePlayerBaseData( playerId ) ;
+	pPlayerData->m_PlayerTable.SetContent( pPlayerTable ) ;
+	std::string sql ;
+
+#undef LOAD_TAB
+#define LOAD_TAB(tab_name) \
+	GetTableSql(sql, tab_name::GetTableName(), playerId);\
+	vector< tab_name*> vec##tab_name;\
+	if (m_##tab_name->SqlLoadAndAddData(sql.c_str(), &vec##tab_name, FlagReload)){\
+	pPlayerData->m_##tab_name.SetContent(vec##tab_name[0]);\
+	}
+	LOAD_ALL_PLAYER_KEY_TAB2
+
+#undef LOAD_TAB
+#define LOAD_TAB(tab_name) \
+	GetTableSql(sql, tab_name::GetTableName(), playerId);\
+	vector< tab_name*> vec##tab_name;\
+	m_##tab_name->SqlLoadAndAddData(sql.c_str(), &vec##tab_name, FlagReload);\
+	CopyVecToPlayerMapTable( vec##tab_name, pPlayerData->m_##tab_name);
+	LOAD_ALL_PLAYER_MAP_TAB
+
+	return pPlayerData;
+}
+
+void DbProxyDataMgr::LoadPlayerData( const std::string &playerTableSql,std::vector<PlayerData*> &vecPlayerData )
+{
+	
+	std::vector<PlayerTable*> vecPlayerTable ;
+	if (!LoadPlayerTable(playerTableSql,vecPlayerTable))
+	{
+		return;
+	}
+	vecPlayerData.reserve( vecPlayerData.size() + vecPlayerTable.size() ) ;
+	BOOST_AUTO( itrBeg, vecPlayerTable.begin() );
+	BOOST_AUTO( itrEnd, vecPlayerTable.end() );
+	for( ; itrBeg != itrEnd; ++itrBeg )
+	{
+		PlayerTable *pPlayerTable =*itrBeg ;
+		PlayerData* tempData = LoadOnePlayerData(pPlayerTable);
+		if (tempData)
+		{
+			vecPlayerData.push_back( tempData ) ;
+		}
+	}
+}
+
+PlayerTable * DbProxyDataMgr::GetPlayerTable(PlayerTableCacheType& tableCache,uint64 playerId)
+{
+	std::string playerTableSql ;
+	Utility::FormatString( playerTableSql, "SELECT * FROM %s WHERE  playerId =%llu LIMIT 1; ", PlayerTable::GetTableName(), playerId ) ;
+	std::vector<PlayerTable*> vecPlayerTable ;
+	if( !tableCache.SqlLoadAndAddData( playerTableSql.c_str(), &vecPlayerTable, FlagReload ) )
+	{
+		return NULL;
+	}
+	ASSERT( vecPlayerTable.size() == 1 ) ;
+	PlayerTable *pPlayerTable = vecPlayerTable.front() ;
+	ASSERT( playerId == pPlayerTable->playerId ) ;
+	return pPlayerTable;
+}
+
+bool DbProxyDataMgr::LoadPlayerBaseData( uint64 playerId, pb::MsgPlayerBaseData& baseData)
+{
+	PlayerTableCacheType    temp_PlayerTable;
+	PlayerTable *pPlayerTable = GetPlayerTable(temp_PlayerTable,playerId);
+	if (pPlayerTable == NULL || pPlayerTable->lockReason == 2)
+	{
+		return false;
+	}
+
+	PlayerData aPlayerData( playerId) ;
+
+	// 移除玩家基本缓存数据
+	RemovePlayerBaseData( playerId ) ;
+	aPlayerData.m_PlayerTable.SetContent( pPlayerTable ) ;
+	std::string sql ;
+
+	//////////////////////////////////////////////////////////////////////////
+	GetTableSql(sql, BattleArrayTable::GetTableName(), playerId);
+	std::vector<BattleArrayTable*> vecBattleArray ;
+	BattleArrayTableCacheType  temp_BattleArrayTable;
+	if( temp_BattleArrayTable.SqlLoadAndAddData( sql.c_str(), &vecBattleArray, FlagReload ) )
+	{
+		aPlayerData.m_BattleArrayTable.SetContent(vecBattleArray[0]) ;
+	}
+
+	//////////////////////////////////////////////////////////////////////////
+	std::set<uint32> charIds;
+	aPlayerData.GetBattleArray(charIds);
+
+    //===========================
+	CharacterTableCacheType temp_CharacterTable;
+	GetTableSql(sql, CharacterTable::GetTableName(), playerId);
+	AppendWhere(sql, "char_id", charIds);
+	vector< CharacterTable*> vecCharacterTable;
+	temp_CharacterTable.SqlLoadAndAddData(sql.c_str(), &vecCharacterTable, FlagReload);
+
+#ifdef _DEBUG
+	size_t preCharSize =m_CharacterTable->Size() ;
+#endif
+
+    CopyVecToPlayerMapTable( vecCharacterTable, aPlayerData.m_CharacterTable);
+
+#ifdef _DEBUG
+	ASSERT( m_CharacterTable->Size() >= preCharSize ) ;
+#endif
+
+    //===========================
+    //CharacterTrainingTableCache temp_CharacterTrainingTable;
+    //GetTableSql(sql, CharacterTrainingTable::GetTableName(), playerId);
+    //AppendWhere(sql, "char_id", charIds);
+    //vector< CharacterTrainingTable*> vecCharacterTrainingTable;
+    //temp_CharacterTrainingTable.SqlLoadAndAddData(sql.c_str(), &vecCharacterTrainingTable, FlagReload);
+    //CopyVecToPlayerMapTable( vecCharacterTrainingTable, aPlayerData.m_CharacterTrainingTable);
+	CharacterJueXingTableCacheType temp_CharacterJueXingTable;
+	GetTableSql(sql, CharacterJueXingTable::GetTableName(), playerId);
+	AppendWhere(sql, "char_id", charIds);
+	vector< CharacterJueXingTable*> vecCharacterJueXingTable;
+	temp_CharacterJueXingTable.SqlLoadAndAddData(sql.c_str(), &vecCharacterJueXingTable, FlagReload);
+	CopyVecToPlayerMapTable( vecCharacterJueXingTable, aPlayerData.m_CharacterJueXingTable);
+	//////////////////////////////////////////////////////////////////////////
+	std::set<uint32> equipIds;
+	aPlayerData.GetEquip(charIds, equipIds);
+
+    //===========================
+	ItemBaseTableCacheType temp_ItemBaseTable;
+	GetTableSql(sql, ItemBaseTable::GetTableName(), playerId);
+	AppendWhere(sql, "slot_id", equipIds);
+	vector< ItemBaseTable*> vecItemBaseTable;
+	temp_ItemBaseTable.SqlLoadAndAddData(sql.c_str(), &vecItemBaseTable, FlagReload);
+    CopyVecToPlayerMapTable( vecItemBaseTable, aPlayerData.m_ItemBaseTable);
+
+	//===========================
+	ItemEquipTableCacheType temp_ItemEquipTable;
+	GetTableSql(sql, ItemEquipTable::GetTableName(), playerId);
+	AppendWhere(sql, "slot_id", equipIds);
+	vector< ItemEquipTable*> vecItemEquipTable;
+	temp_ItemEquipTable.SqlLoadAndAddData(sql.c_str(), &vecItemEquipTable, FlagReload);
+    CopyVecToPlayerMapTable( vecItemEquipTable, aPlayerData.m_ItemEquipTable);
+
+	aPlayerData.WritePlayerInfo(baseData);
+    return true;
+}
+
+
+GlobalData* DbProxyDataMgr::LoadGlobalData(int serverId,int regionId)
+{
+	GlobalData *pGloabalData =new GlobalData( serverId,regionId) ;
+
+	std::string sql ;
+	Utility::FormatString(
+        sql, "SELECT * FROM %s WHERE regionId =%u AND serverId =%u;",
+        PlatfromMailTable::GetTableName(),regionId,serverId) ;
+
+	std::vector< PlatfromMailTable*> vecplatformMail;
+	m_PlatfromMailTable->SqlLoadAndAddData(sql.c_str(), &vecplatformMail, FlagReload);
+	for ( BOOST_AUTO( it , vecplatformMail.begin()); it != vecplatformMail.end(); ++it )
+	{
+		pGloabalData->m_PlatfromMailTable.AddToPtrMap( *it);
+	}
+	Utility::FormatString(sql,"SELECT* FROM %s;",ActivityProtoTable::GetTableName());
+	std::vector<ActivityProtoTable*> vecActivityProto;
+	m_ActivityProtoTable->SqlLoadAndAddData(sql.c_str(),&vecActivityProto,FlagReload);
+	for(BOOST_AUTO( it , vecActivityProto.begin()); it != vecActivityProto.end(); ++it )
+	{
+		pGloabalData->m_ActivityProtoTable.AddToPtrMap(*it);
+	}
+	Utility::FormatString(sql,"SELECT* FROM %s;",ActivityPlanTable::GetTableName());
+	std::vector<ActivityPlanTable*> vecActivityPlan;
+	m_ActivityPlanTable->SqlLoadAndAddData(sql.c_str(),&vecActivityPlan,FlagReload);
+	for(BOOST_AUTO( it , vecActivityPlan.begin()); it != vecActivityPlan.end(); ++it )
+	{
+		pGloabalData->m_ActivityPlanTable.AddToPtrMap(*it);
+	}
+	Utility::FormatString(sql,"SELECT* FROM %s;",ActivityRewardTable::GetTableName());
+	std::vector<ActivityRewardTable*> vecActivityReward;
+	m_ActivityRewardTable->SqlLoadAndAddData(sql.c_str(),&vecActivityReward,FlagReload);
+	for(BOOST_AUTO( it , vecActivityReward.begin()); it != vecActivityReward.end(); ++it )
+	{
+		pGloabalData->m_ActivityRewardTable.AddToPtrMap(*it);
+	}
+	Utility::FormatString(sql,"SELECT* FROM %s;",ServerOpenTimeTable::GetTableName());
+	std::vector<ServerOpenTimeTable*> vecServerOpenTime;
+	m_ServerOpenTimeTable->SqlLoadAndAddData(sql.c_str(),&vecServerOpenTime,FlagReload);
+	for(BOOST_AUTO( it , vecServerOpenTime.begin()); it != vecServerOpenTime.end(); ++it )
+	{
+		pGloabalData->m_ServerOpenTimeTable.AddToPtrMap(*it);
+	}
+
+	Utility::FormatString(sql,"SELECT* FROM %s;",ActivityCountryOccupyCityTable::GetTableName());
+	std::vector<ActivityCountryOccupyCityTable*> vecActivityCountryOccupyCityTable;
+	m_ActivityCountryOccupyCityTable->SqlLoadAndAddData(sql.c_str(),&vecActivityCountryOccupyCityTable,FlagReload);
+	for(BOOST_AUTO( it , vecActivityCountryOccupyCityTable.begin()); it != vecActivityCountryOccupyCityTable.end(); ++it )
+	{
+		pGloabalData->m_ActivityCountryOccupyCityTable.AddToPtrMap(*it);
+	}
+
+/*
+
+	Utility::FormatString( sql, "SELECT\
+										player_friend.id,\
+										player_friend.player_guid,\
+										player_friend.friend_guid,\
+										player_friend.friend_type,\
+										player_friend.is_send_ap,\
+										player_friend.is_receive_ap,\
+										player_friend.request_time\
+										FROM\
+										player\
+										INNER JOIN player_friend ON player.playerId = player_friend.player_guid \
+                                        WHERE player.regionId =%u AND player.serverId =%u;",
+                                        regionId,serverId) ;
+	vector< DB_FriendInfo*> vecEventFriends;
+	m_DB_FriendInfo->SqlLoadAndAddData(sql.c_str(), &vecEventFriends, FlagReload);
+	for ( BOOST_AUTO( it , vecEventFriends.begin()); it != vecEventFriends.end(); ++it )
+	{
+		pGloabalData->AddFriendInfo( *it ) ;
+	}
+	*/
+
+#define LOAD_GLOBAL_TABLE(tabName)\
+    Utility::FormatString(sql, "SELECT * FROM %s WHERE regionId =%u AND serverId =%u;",\
+        tabName::GetTableName(), regionId, serverId);\
+    vector<tabName*> vec##tabName##Records;\
+    m_##tabName->SqlLoadAndAddData(sql.c_str(), &vec##tabName##Records, FlagReload);\
+    for (BOOST_AUTO(it, vec##tabName##Records.begin()); it != vec##tabName##Records.end(); ++it){\
+        pGloabalData->m_##tabName.AddToPtrMap(*it);\
+    }
+
+    LOAD_GLOBAL_TABLE(CountryBaseTable);
+
+    Utility::FormatString(
+        sql, "SELECT * FROM %s WHERE regionId =%u AND serverId =%u;",
+        CountryCityTable::GetTableName(), regionId, serverId);
+    vector< CountryCityTable*> vecCountryCityRecords;
+    m_CountryCityTable->SqlLoadAndAddData(sql.c_str(), &vecCountryCityRecords, FlagReload);
+    for (BOOST_AUTO(it, vecCountryCityRecords.begin()); it != vecCountryCityRecords.end(); ++it)
+    {
+        pGloabalData->m_CountryCityTable[(*it)->country_id-1].AddToPtrMap(*it);
+    }
+
+    // 国家升级任务 蛮族试练 排行榜
+    Utility::FormatString(
+        sql, "SELECT * FROM %s WHERE regionId =%u AND serverId =%u;",
+        CountryLevelUpTaskPlayerTable::GetTableName(), regionId, serverId);
+    vector< CountryLevelUpTaskPlayerTable*> vecCountrLevelUpTaskPlayerRecords;
+    m_CountryLevelUpTaskPlayerTable->SqlLoadAndAddData(sql.c_str(), &vecCountrLevelUpTaskPlayerRecords, FlagReload);
+    for (BOOST_AUTO(it, vecCountrLevelUpTaskPlayerRecords.begin()); it != vecCountrLevelUpTaskPlayerRecords.end(); ++it)
+    {
+        pGloabalData->m_CountryLevelUpTaskPlayerTable[(*it)->country_id - 1].AddToPtrMap(*it);
+    }
+
+    Utility::FormatString(
+        sql, "SELECT * FROM %s WHERE regionId =%u AND serverId =%u;",
+        PalaceOfficeTable::GetTableName(), regionId, serverId);
+    vector<PalaceOfficeTable*> vecPalaceOfficeRecords;
+    m_PalaceOfficeTable->SqlLoadAndAddData(sql.c_str(), &vecPalaceOfficeRecords, FlagReload);
+    for (BOOST_AUTO(it, vecPalaceOfficeRecords.begin()); it != vecPalaceOfficeRecords.end(); ++it)
+    {
+        pGloabalData->m_PalaceOfficeTable[(*it)->country_id - 1].AddToPtrMap(*it);
+    }
+
+	//暂时不出公会版本
+	/*Utility::FormatString( sql, "SELECT * FROM %s WHERE regionId =%u AND serverId =%u;", GuildInfoTable::GetTableName(),regionId,serverId) ;
+	vector< GuildInfoTable*> vecGuildInf;
+	m_GuildInfoTable.SqlLoadAndAddData(sql.c_str(), &vecGuildInf, FlagReload);
+	for ( BOOST_AUTO( it ,vecGuildInf.begin()); it != vecGuildInf.end(); ++it )
+	{
+		MMO_ASSERT( pGloabalData->m_guildInfoMap.find((*it)->guild_id) == pGloabalData->m_guildInfoMap.end());
+		GlobalData::GuildInfo curInfo;
+		curInfo.pInfo = *it;
+		pGloabalData->m_guildInfoMap[(*it)->guild_id] = curInfo;
+	}
+
+
+	Utility::FormatString( sql, "SELECT g.id, g.player_id,g.player_name,g.guild_id,g.guild_name,g.title,g.join_time,g.last_active_time,g.guild_contributions,g.`level`,g.vip_level,\
+											   g.request_flag,g.invite_flag,g.request_expire_time,g.power,g.head_icon,g.is_send_ap,g.is_receive_ap\
+											   FROM player INNER JOIN guild_member AS g ON player.playerId = g.player_id\
+											   WHERE player.regionId = %u AND player.serverId = %u;", regionId,serverId) ;
+	vector< GuildMemberInfoTable*> vecGuildMembInf;
+	m_GuildMemberInfoTable.SqlLoadAndAddData(sql.c_str(), &vecGuildMembInf, FlagReload);
+	for ( BOOST_AUTO( it , vecGuildMembInf.begin()); it != vecGuildMembInf.end(); ++it )
+	{
+		MMO_ASSERT( pGloabalData->m_guildInfoMap.find((*it)->guild_id) != pGloabalData->m_guildInfoMap.end());
+		GlobalData::GuildInfoMap::iterator iterGuildInfo = pGloabalData->m_guildInfoMap.find((*it)->guild_id);
+		if (iterGuildInfo != pGloabalData->m_guildInfoMap.end())
+		{
+			GlobalData::GuildInfo& curGuildInfoMap = iterGuildInfo->second;
+			MMO_ASSERT( curGuildInfoMap.memberMap.find((*it)->player_id) == curGuildInfoMap.memberMap.end());
+			curGuildInfoMap.memberMap[(*it)->player_id] = *it;
+		}
+	}*/
+
+	return pGloabalData;
+}
+
+
+void DbProxyDataMgr::UnLoadGlobalData( GlobalData *pGloabalData )
+{
+	ASSERT( pGloabalData != NULL ) ;
+	if( pGloabalData == NULL )
+	{
+		return ;
+	}
+	// Unload player friend infomation .
+	GlobalData::AllPlayerFriendTableItr afItr = pGloabalData->m_allPlayerFriendTable.begin() ;
+	for( /**/; afItr != pGloabalData->m_allPlayerFriendTable.end(); ++afItr )
+	{
+		afItr->second.UnloadData() ;
+	}
+
+	pGloabalData->m_allPlayerFriendTable.clear() ;
+}
+
+void DbProxyDataMgr::AddPlayerBaseData( PlayerData *pPlayerData )
+{
+	CheckPlayerBaseDataCacheCount() ;
+	BOOST_AUTO( iterTeamInfo , m_PlayerBaseInfoMap.find(pPlayerData->GetPlayerId()));
+	if (iterTeamInfo != m_PlayerBaseInfoMap.end())
+	{
+		m_PlayerBaseInfoMap.erase(iterTeamInfo);
+	}
+	pb::MsgPlayerBaseData* teamInfo = new pb::MsgPlayerBaseData();
+	pPlayerData->WritePlayerInfo(*teamInfo);
+	m_PlayerBaseInfoMap[pPlayerData->GetPlayerId()] = teamInfo;
+}
+
+void DbProxyDataMgr::RemovePlayerBaseData( uint64 playerId )
+{
+	m_PlayerBaseInfoMap.erase(playerId);
+}
+
+void DbProxyDataMgr::CheckPlayerBaseDataCacheCount( void )
+{
+	if( m_PlayerBaseInfoMap.size() >= DbProxyServer::GetMaxCachePlayerBaseDataCount() )
+	{
+		m_PlayerBaseInfoMap.erase(m_PlayerBaseInfoMap.begin());
+	}
+}
+
+pb::MsgPlayerBaseData* DbProxyDataMgr::GetPlayerBaseData(uint64 playerId, uint32 regionId, uint32 serverId )
+{
+	pb::MsgPlayerBaseData* curPlayerTeamInfo = NULL;
+	BOOST_AUTO( iterPlayerInfo , m_PlayerBaseInfoMap.find(playerId));
+	if (iterPlayerInfo != m_PlayerBaseInfoMap.end())
+	{
+		curPlayerTeamInfo = iterPlayerInfo->second;
+	}
+	else
+	{
+		CheckPlayerBaseDataCacheCount();
+		pb::MsgPlayerBaseData* teamInfo = new pb::MsgPlayerBaseData();
+		if (teamInfo)
+		{
+			if(LoadPlayerBaseData(playerId,*teamInfo))
+			{
+				m_PlayerBaseInfoMap[playerId] = teamInfo;
+				curPlayerTeamInfo = teamInfo;
+			}
+			else
+			{
+				delete teamInfo;
+				teamInfo = NULL;
+			}
+		}
+	}
+	return curPlayerTeamInfo;
+}
+
+//PvPRankTable* DbProxyDataMgr::GetPlayerPvPRank( uint64 playerId )
+//{
+//	PvPRankTable *pRank =m_PvPRankTable->GetEntryByKey( playerId ) ;
+//	return pRank ;
+//}
+
+//
+//void DbProxyDataMgr::LoadPvPRank( int regionId, int serverId, std::vector< PvPRankTable* > &vec )
+//{
+//	std::string sql ;
+//
+//	PvPRankTableCache::GetFormat( sql, "SELECT * FROM %s WHERE regionId =%u AND serverId =%u;"
+//		, PvPRankTable::GetTableName(), regionId, serverId ) ;
+//
+//	m_PvPRankTable.SqlLoadAndAddData( sql.c_str(), &vec, FlagReload ) ;
+//}
+//
+//void DbProxyDataMgr::LoadGobalValue( int regionId, int serverId, std::vector< ServerGobalValueTable* > &vec )
+//{
+//	std::string sql ;
+//
+//	ServerGobalValueTableCache::GetFormat( sql, "SELECT * FROM %s WHERE regionId =%u AND serverId =%u;"
+//		, PvPRankTable::GetTableName(), regionId, serverId ) ;
+//
+//	m_ServerGobalValueTable.SqlLoadAndAddData( sql.c_str(), &vec, FlagReload ) ;
+//}

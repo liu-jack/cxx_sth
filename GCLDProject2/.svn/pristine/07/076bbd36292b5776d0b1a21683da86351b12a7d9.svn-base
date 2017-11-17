@@ -1,0 +1,84 @@
+package pb;
+
+import "CommomDef.proto";
+
+
+message CatchHero
+{
+    required uint64    player_id  		=1;
+    required uint32    hero_tid   		=2;
+    optional bool      is_caned   		=3;
+    optional uint64    escape_end_time  =4;
+	optional string    player_name  	=5;
+	optional uint32    hero_lv  		=6;
+	optional uint32    country			=7;
+	optional bool	isShadow		=8;
+}
+
+
+message GS2C_Dungeon_Base
+{
+    optional uint32     dngeon_levle            =1;
+    optional uint32     silver_for_build        =2; //建造时累计的银币
+    optional uint32     cane_levle              =3;
+    optional uint32     cane_exp                =4;
+    optional bool       free_try_cane           =5;
+    optional uint32     cane_temp_levle         =6;
+    optional uint64     cane_temp_time          =7;//本次试用的结束时间
+    optional uint32     today_catch_hero_cnt    =8;
+    optional uint32     catch_hero_cnt_for_exp  =9;
+    optional uint64     catch_hero_time         =10;
+	optional uint32     today_cane_cnt          =11;//今天笞杖的武将数量
+    optional uint32     today_cane_get_exp      =12;//今天笞杖武将获得的总玩家经验
+}
+message GS2C_Dungeon_All_Info
+{
+    optional GS2C_Dungeon_Base          base_info   =1;
+    repeated CatchHero                  catch_hero  =2;
+}
+
+
+message GS2C_Dungeon_Add_Hero
+{
+    required CatchHero  hero                =1;
+}
+message GS2C_Dungeon_Del_Hero
+{
+    required CatchHero  hero                =1;
+}
+
+
+message C2GS_Dungeon_Build_By_Silver
+{
+    required bool       is_fast =1;
+}
+message C2GS_Dungeon_Cane_Fase_LevelUp
+{
+    required uint32     dst_lv =1;
+}
+message C2GS_Dungeon_Try_Cane
+{
+    required uint32     dst_lv =1;
+}
+
+message C2GS_Dungeon_Escape     //自己被抓的武将发起逃跑
+{
+    required uint32    hero_idx   =1;
+}
+message GS2C_Dungeon_Escape     //
+{
+    required uint32    hero_tid     =1;
+    required uint32    need_second  =2;
+}
+message GS2C_HERO_BE_CATCH   //自己武将被抓的消息
+{
+	required uint32    hero_tid                    =1;
+    required uint64    dungeon_owner_player_id     =2;
+}
+
+
+message GS2C_Dungeon_Cane
+{
+	required bool success = 1;
+	required uint32 player_exp = 2;
+}

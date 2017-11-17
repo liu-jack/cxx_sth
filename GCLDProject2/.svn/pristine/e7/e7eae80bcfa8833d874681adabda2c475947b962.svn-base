@@ -1,0 +1,153 @@
+#pragma once
+#include "struct_base.h"
+#pragma pack(push,1)
+
+
+struct DB_StageProto //大关
+{
+    INIT_GAMEDATA(DB_StageProto)
+    static const bool HasIndex()
+    {
+        return true;
+    }
+    const uint32 GetKey() const
+    {
+        return id;
+    }
+    static const char* GetKeyName()
+    {
+        return "id";
+    }
+    static const char* GetTableName()
+    {
+        return "stage_proto";
+    }
+    static const char* GetFormat()
+    {
+        return 	"ususs"
+            "iu"
+            "usu";
+    }
+
+    uint32          id;
+    std::string     comment;
+    uint32          name_id;
+    std::string     file;
+	std::string     bg_name;
+
+    int32           stage_mode;
+    uint32          stage_unlock_level;
+
+    uint32          stage_description_id;
+    std::string     stage_unlock_wujiang;
+    uint32          stage_unlock_description;
+
+};
+struct DB_StageLevel //大关里面的小关
+{
+    INIT_GAMEDATA(DB_StageLevel)
+    static const bool HasIndex()
+    {
+        return true;
+    }
+    const uint32 GetKey() const
+    {
+        return id;
+    }
+    static const char* GetKeyName()
+    {
+        return "id";
+    }
+    static const char* GetTableName()
+    {
+        return "stage_level";
+    }
+    static const char* GetFormat()
+    {
+        return 	"usuusuusiiu"
+            "uuuuuu"
+            "uusufusu";
+    }
+
+    uint32 id;     
+    std::string comment;
+    uint32 name_string_id;
+    uint32 desc_id;
+    std::string  file;
+    uint32 stage_type;
+    uint32 stage_id;
+	std::string  level_icon;
+    int32 stage_posx;
+    int32 stage_posy;
+    uint32 stage_terrain;
+
+
+    uint32 level_reward_exp;
+    uint32 level_reward_curr_type;
+	uint32 level_reward_curr_value;
+    uint32 level_cost_type;
+	uint32 level_cost_ratio;
+	uint32 level_cost_value;
+
+	uint32 level_unlock_level;
+    uint32 level_unlock_guanqia;
+	std::string  level_monsters;
+	uint32 level_reward_item;
+	float level_reward_item_rate;
+	uint32 level_unlock_role;
+	string reward_list;
+	uint32 max_cost_diamond;
+};
+
+
+
+
+
+
+struct BaseRespawn
+{
+	INIT_GAMEDATA( BaseRespawn )
+
+		static const bool HasIndex()
+	{
+		return true;
+	}
+	const uint32 GetKey() const
+	{
+		return id;
+	}
+	static const char* GetKeyName()
+	{
+		return "id";
+	}
+
+	static const char* GetFormat()
+	{
+		return "uuuuuu" "uuuuuuuu" "uuuuuuuuuu" ;
+	}
+
+	enum RESPAWN_TYPE
+	{
+		RESPAWN_ALL = 0,
+		RESPAWN_TO_MIN = 1,
+	};
+
+	enum RESPAWN_CATEG
+	{
+		RESPAWN_ENTRY_ID = 0,
+		RESPAWN_SPAWN_ID = 1,
+	};
+
+	uint32 id;
+	uint32 zone_id ;
+	uint32 respawn_category ;
+	uint32 respawn_type ;
+	uint32 respawn_count_min;
+	uint32 respawn_count_max;
+
+	enum {    RESPAWN_VALUE_COUNT =18,   } ;
+	uint32 respawn_value[RESPAWN_VALUE_COUNT] ;
+} ;
+
+
+#pragma pack(pop)

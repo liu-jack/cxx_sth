@@ -1,0 +1,80 @@
+
+
+/************************************************************************/
+/*Add by:zhoulunhao													*/
+/*Email	:zhoulunhao@hotmail.com											*/
+/************************************************************************/
+#ifndef INCLUDE_WANNA_BE_STRONGER_LOG___H
+#define INCLUDE_WANNA_BE_STRONGER_LOG___H
+
+#include "def/TypeDef.h"
+#include "Quest.pb.h"
+
+namespace pb
+{
+	class GS2C_WannaBeStrongerAllInfo;
+	class GxDB_WannaBeStrongerInfoAllInfo;
+	class WannaBeStrongerBaseInfo;
+	class WannaBeStrongerInfo;
+	class GS2C_WannaBeStrongerRewardRes;
+}
+class Player;
+enum WANNA_BE_STRONGER_TYPE
+{
+	WANNA_BE_S_TYPE_CHARACTER_ZHAO_MU = 1,
+	WANNA_BE_S_TYPE_UNLOCK_CHARACTER,
+	WANNA_BE_S_TYPE_EQUIP_QUAILTY,
+	WANNA_BE_S_TYPE_SHENQI_LEVEL,
+	WANNA_BE_S_TYPE_EQUIP_MIJI,
+};
+struct WannaBeStrongBaseInfo_s
+{
+	uint32 cur_value_;//当前的值  M 
+	uint32 need_value1_;//需要完成的值 N
+	uint32 need_value2_;
+	uint32 quest_type_;
+	WannaBeStrongBaseInfo_s()
+		:cur_value_(0),need_value1_(0),need_value2_(0),quest_type_(0){}
+	WannaBeStrongBaseInfo_s(uint32 cur_value,uint32 need_value1,uint32 need_value2,uint32 quest_type)
+		:cur_value_(cur_value),need_value1_(need_value1),need_value2_(need_value2),quest_type_(quest_type){}
+};
+ 
+typedef std::map<uint32,WannaBeStrongBaseInfo_s> WannaBeStrongBaseInfoMap;
+struct BeStrongerInfo
+{
+	bool is_achieve_;
+	bool is_take_reward_;
+	WannaBeStrongBaseInfoMap wanna_be_strong_base_info_;
+	explicit BeStrongerInfo()
+		:is_achieve_(false),is_take_reward_(false),wanna_be_strong_base_info_(){}
+// 	BeStrongerInfo(const pb::WannaBeStrongerInfo& info)
+// 		:is_achieve_(info.is_achieve()),is_take_reward_(info.is_take_reward())
+// 	{
+// 		for(int i = 0;i < info.base_info_size();++i)
+// 		{
+// 			const pb::WannaBeStrongerBaseInfo& base_info = info.base_info(i);
+// 			wanna_be_strong_base_info_[base_info.quest_id()] = WannaBeStrongBaseInfo_s(base_info.cur_value(),base_info.need_value1(),base_info.need_value2(),base_info.quest_type());
+// 		}
+// 	}
+	BeStrongerInfo(const uint32 quest_id,const uint32 cur_value,const uint32 need_value,const uint32 need_value2,uint32 quest_type)
+		:is_achieve_(false),is_take_reward_(false)
+	{
+		wanna_be_strong_base_info_[quest_id] = WannaBeStrongBaseInfo_s(cur_value,need_value,need_value2,quest_type);
+	}
+};
+typedef std::map<uint32,BeStrongerInfo> WannaBeStrongerInfoMap;
+class WannaBeStrongerLog
+{
+	WannaBeStrongerInfoMap wanna_be_stronger_map_;
+public:
+	WannaBeStrongerLog();
+	void SaveTo(Player& player,pb::GS2C_WannaBeStrongerAllInfo& msg);
+	void LoadFrom(const pb::GxDB_WannaBeStrongerInfoAllInfo& msg);
+	void SaveTo(const uint32 groupId,const BeStrongerInfo &ref,pb::WannaBeStrongerInfo& msg);
+	void UpdateWannaBeStrongerData(Player& player);
+	void TakeRewards(Player& player,const uint32 groupId,pb::GS2C_WannaBeStrongerRewardRes& msg);
+	//const uint32 GetCurValue(const uint32 type) const;
+};
+
+
+#endif ////INCLUDE_WANNA_BE_STRONGER_LOG___H

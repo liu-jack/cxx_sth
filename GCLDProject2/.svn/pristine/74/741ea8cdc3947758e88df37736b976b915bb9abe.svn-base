@@ -1,0 +1,1291 @@
+#include "CombatCalc.h"
+#include "CombatObj.h"
+#include "Base.h"
+#include <math.h>
+#include "System.h"
+#include "Logger.h"
+#include "utility/Utility.h"
+#include "Combat.pb.h"
+#include "datastruct/struct_soldier_food.h"
+#include "../character/Character.h"
+#include "../character/CharacterStorage.h"
+#include "../object/Player.h"
+#include "../session/PlayerPool.h"
+#include "SkillDataMgr.h"
+#include "CombatBuff.h"
+#include "Npc/Npc.h"
+#include "reward/reward.h"
+#include "Activity/Personal/PersonalTask.h"
+#include "Reinforcement/Reinforce.h"
+#include "CombatGroup.h"
+
+#ifdef _SERVER_CROSS_
+#include "server_cross/cross_wall/CrossActivity/CrossKill/CrossKill.h"
+#endif
+
+#define MAX_HURT 9999999
+
+using namespace Combat;
+
+const char STATIC_SKILL_RATE = 25;
+
+float Calc::CommonRatio(TacticEnum typ1, TacticEnum typ2)
+{
+    return Tactic_Common[typ1][typ2] / 100.0f;
+}
+float Calc::CrashRatio(TacticEnum typ1, TacticEnum typ2)
+{
+    char advantageTyp = Tactic_Crash[typ1][typ2];
+
+    return Tactic_CrashRatio[advantageTyp-1] / 100.0f;
+}
+bool Calc::HaveCrashAddition(TacticEnum typ1, TacticEnum typ2)
+{
+    char advantageTyp = Tactic_Crash[typ1][typ2];
+
+    return (advantageTyp == 1 || advantageTyp == 2);
+}
+int Calc::_CalcCommonHurt(CombatObj& attacker, CombatObj& defender, float tacticRatio)
+{
+    Property& aPro = attacker.stPro;
+    Property& dPro = defender.stPro;
+
+    //LLOG("CommonHurt -- attacker:hp(%d),atk(%d),def(%d),tactic(%d)", (int)attacker.Hp(), attacker.stPro.attack, attacker.stPro.defence, attacker.tactic);
+    //LLOG("CommonHurt -- defender:hp(%d),atk(%d),def(%d),tactic(%d)", (int)defender.Hp(), defender.stPro.attack, defender.stPro.defence, defender.tactic);
+
+	double hurt1 = MAX(aPro.attack - dPro.defence, 0);
+
+    double hurt2 = MAX((hurt1*(0.55 + (attacker.Hp()/defender.Hp())*0.5)
+				*(1 + tacticRatio) //战术克制  应该读表
+				*(1 + attacker.terrainPercent/100.0 + attacker.GetTotalFightPercent()/100.0 - defender.guardAddPercent/100.0) //地形加成+buff-对方守卫军加成
+				+ aPro.attackEx - dPro.defenceEx),0); //己方穿刺-对方格挡
+
+	double hurt = MAX((hurt2*((double)attacker.stPro.tong/defender.stPro.tong)),(aPro.attack*0.05));
+	hurt = ceil(hurt) * 3;		//三个方阵的总伤害
+    //hurt *= 3; //三个方阵的总伤害
+
+    //LLOG("CommonHurt -- hurt1(%d), tacticRatio(%f)", (int)hurt, tacticRatio);
+
+    //hurt = MAX(hurt, 0) * aPro.tong / dPro.tong;
+
+    //LLOG("CommonHurt -- hurt2(%d), tong1(%d), tong2(%d)", (int)hurt, aPro.tong, dPro.tong);
+	if(hurt > MAX_HURT)
+		hurt = MAX_HURT;
+    return (int)hurt;
+}
+int Calc::_CalcCrashHurt(CombatObj& attacker, CombatObj& defender)
+{
+    //LLOG("CrashHurt -- attacker:hp(%d),atk(%d),def(%d),tactic(%d)", (int)attacker.Hp(), attacker.stPro.attack, attacker.stPro.defence, attacker.tactic);
+    //LLOG("CrashHurt -- defender:hp(%d),atk(%d),def(%d),tactic(%d)", (int)defender.Hp(), defender.stPro.attack, defender.stPro.defence, defender.tactic);
+
+    double hurt = attacker.Hp() * CrashRatio(attacker.tactic, defender.tactic);
+
+    //LLOG("CrashHurt -- hurt1(%d)", (int)hurt);
+
+    if (HaveCrashAddition(attacker.tactic, defender.tactic))
+    {
+        hurt += attacker.crashAddition;
+        //LLOG("CrashHurt -- hurt2(%d), crashAddition(%d)", (int)hurt, attacker.crashAddition);
+    }
+	hurt = MAX((int)hurt,1);
+
+	if(hurt > MAX_HURT)
+		hurt = MAX_HURT;
+
+    return (int)hurt;
+}
+
+//挂载buff
+void Calc::AttachBuffs(GroupLst& attackers, GroupLst& defenders, uint32 attidx)
+{
+	//LLOG("Calc::AttachBuffs:%d",attidx);
+	CombatObj& rhs = *attackers.front();
+	
+	uint32 skillid = rhs.SkillID();
+	int buffid = sSkillDataMgr.GetBuffIDBySkill(skillid);
+	//LLOG("skillid = %d",skillid);
+	//LLOG("buffid = %d",buffid);
+	if(buffid != 0)	//该技能附带buff
+	{
+		int target = sSkillDataMgr.GetBuffTarget(buffid);
+		int attachRow = sSkillDataMgr.GetBuffRows(buffid);
+		int rowcount = attachRow;
+		//LLOG("target=%d",target);
+		if(target == 1)		//加在敌方身上
+		{
+			uint32 to = attidx==1? 2:1;
+			//LLOG("to=%d",to);
+			GroupLst::iterator it = defenders.begin();
+			int rownum = 0;
+			for(; it != defenders.end(); ++it)
+			{
+				CombatObj* tmpj = (*it);
+				if(rownum < attachRow && rowcount>0)		//总行数小于挂载行数
+				{
+					int rangenum = rowcount>(int)tmpj->soldiers.size()? tmpj->soldiers.size():rowcount;
+					tmpj->m_fightBuff.AddBuff(buffid,rangenum,attidx,to);
+					rownum += tmpj->soldiers.size();
+					rowcount -= rangenum;
+				}
+				else
+					break;
+			}
+		}
+		else if(target == 2)	//加在己方身上
+		{
+			GroupLst::iterator it = attackers.begin();
+			int rownum = 0;
+			for(; it != defenders.end(); ++it)
+			{
+				CombatObj* tmpj = (*it);
+				if(rownum < attachRow && rowcount>0)		//总行数小于挂载行数
+				{
+					int rangenum = rowcount>(int)tmpj->soldiers.size()? tmpj->soldiers.size():rowcount;
+					tmpj->m_fightBuff.AddBuff(buffid,rangenum,attidx,attidx);
+					rownum += tmpj->soldiers.size();
+					rowcount -= rangenum;
+				}
+				else
+					break;
+			}
+		}
+	}
+
+}
+
+//直接技能伤害，特殊效果另外处理  使用技能方，接受伤害的队列，待填充消息，战斗类型
+void Calc::_SkillHurt(CombatGroup* pGroup,CombatObj& attacker, GroupLst& lst, int defenderid, pb::GS2C_Combat_Select_Tactic& msg, CombatType tpy)
+{
+    LLOG("SkillHurt -- attacker:hp(%d),atk(%d),def(%d),tactic(%d),range(%d)", (int)attacker.Hp(), attacker.stPro.attack, attacker.stPro.defence, attacker.tactic, (int)attacker.SkillRange());
+
+    Property& aPro = attacker.stPro;	//攻击属性
+
+	uint8 skillHurtLineCnt = 0;		//造成前几排的伤害
+	int range = 0;
+    GroupLst::iterator it = lst.begin();	//it为武将
+    for (; it != lst.end(); ++it)
+    {
+		CombatObj& defender = *(*it);
+		CombatObj* tmpj = (*it);
+        Property& dPro = defender.stPro;	//防守属性
+
+        LLOG("SkillHurt -- defender:hp(%d),atk(%d),def(%d),tactic(%d)", (int)defender.Hp(), defender.stPro.attack, defender.stPro.defence, defender.tactic);
+
+        double hurt = 0;
+        double diff = MAX(aPro.attack - dPro.defence, 0);	//可造成的伤害差 攻-防
+        //if (diff >= 200) {
+        //    hurt = diff * attacker.SkillRatio() * (1 + attacker.skillPercent / 100.0) + aPro.skillAttack - dPro.skillDefence;
+        //} else {
+        //    hurt = MAX(aPro.skillAttack - dPro.skillDefence, 0)
+        //        *(1 - 1 / (::pow(diff, 1.5) / dPro.defence + 2));
+        //}
+		double minhurt1;
+		double minhurt2;
+		if(!attacker.IsReinforce())	//不是增援部队
+		{
+			minhurt1 = attacker.SkillRatio() * aPro.attack * 0.05 + aPro.skillAttack * 0.1;
+			minhurt2 = diff * attacker.SkillRatio() * (1 + attacker.GetTotalSkillPercent(tpy,defender.GetType()) / 100.0 - defender.GetTotalDeSkillPercent() / 100.0) + aPro.skillAttack - dPro.skillDefence;
+			hurt = 3 * MAX(ceil(minhurt1), ceil(minhurt2));	//三个方阵
+		}
+		else	//增援部队，则伤害另算
+		{
+			Reinforce* rein = dynamic_cast<Reinforce*>(&attacker);
+			if(rein)
+				hurt = 3 * MAX((double)(rein->GetDamage()) * (1+attacker.GetTotalSkillPercent(tpy, tmpj->GetType()) / 100.0),1);
+			else
+				hurt = 1;
+		}
+		
+
+        //LLOG("SkillHurt -- hurt1(%d)", (int)hurt);
+
+        std::vector<int>::iterator itr = defender.soldiers.begin();	//iter为每排兵力
+        for (; itr != defender.soldiers.end(); ++itr)
+        {
+			double damagereal;
+			if(defender.IsReinforce())	//受伤方是攻城部队，则伤害减免90%
+				damagereal = hurt * 0.1;
+			else
+				damagereal = hurt;
+
+            int& hp = *itr;
+            int trueHurt = (hp >= (int)damagereal) ? (int)damagereal : hp;		//未溢出的伤害
+            hp -= (int)damagereal;
+
+            //LLOG("SkillHurt -- trueHurt(%d)", trueHurt);
+
+   //         attacker.killCntOneLoop += trueHurt;
+			//defender.deadCntOneLoop += trueHurt;
+			//attacker.statisticKill += trueHurt;
+			
+			//填充伤害消息
+			pb::Combat_Damage* damageOne = msg.add_damages();
+			damageOne->set_period(1);
+			damageOne->set_group(defenderid);
+			damageOne->set_range(range++);
+			damageOne->set_type(1);
+			damageOne->set_damage((int)trueHurt);
+			damageOne->set_restblood(hp>0? hp:0);
+
+			//填充奖励消息
+			pb::Combat_Reward* awardOne = msg.add_rewards();
+			awardOne->set_group(defenderid);
+			CalcAwardsOneStep(pGroup,attacker,tmpj,awardOne,tpy,1,trueHurt);
+
+			//LLOG("get award side = %d, exp = %d, coin = %d, doHurt = %d",defenderid,awardOne->exp(), awardOne->coin(), trueHurt);
+
+            if (++skillHurtLineCnt >= attacker.SkillRange())
+            {
+                break;
+            }
+        }
+		if(defender.IsPlayer())
+		{
+			Player* player = sPlayerPool.GetByPlayerId(defender.GetPlayerId());
+			::Character* hero = dynamic_cast<::Character*>(&defender);
+			hero->SetCurSolderNum(defender.CurHp());
+			player->m_characterStorage->SetModifiedID(hero->GetID());
+		}
+		if (skillHurtLineCnt >= attacker.SkillRange())
+		{
+			break;
+		}
+    }
+
+	if(attacker.IsReinforce())	//是增援部队，直接挂掉
+	{
+		attacker.soldiers.clear();
+	}
+}
+
+bool Calc::_BuffHurt(CombatGroup* pGroup, GroupLst& attackers, GroupLst& defenders, pb::Combat_Buff_AllInfo& msg, CombatType tpy)
+{
+	//LLOG("Calc::_BuffHurt");
+	bool ret = false;
+	//攻方
+	int endcount = 0;
+	int range = 0;
+	GroupLst::iterator it = attackers.begin();
+	for (; it != attackers.end(); ++it)
+	{
+		if(endcount++  > 10)	//最多10个武将，避免国战太多武将
+			break;
+		CombatObj* tmpj = (*it);
+		if(tmpj->m_fightBuff.HaveBuff(percentdamage))	//有百分比伤害的buff		//不会立即死亡
+		{
+			const BuffInfo* buffone = tmpj->m_fightBuff.GetBuffInfo(percentdamage);
+			if(buffone)
+			{
+				float damagerate = buffone->value1;
+				if(damagerate > 0.0)
+				{
+					int rownum = 0;
+					std::vector<int>::iterator itr = tmpj->soldiers.begin();	//iter为每排兵力
+					for (; itr != tmpj->soldiers.end(); ++itr)
+					{
+						if(rownum <= (int)(buffone->buffRange))
+						{
+							int& hp = *itr;
+							float hurt = hp * damagerate/100;
+							int trueHurt = (hp >= (int)hurt) ? (int)hurt : hp;		//未溢出的伤害
+							hp -= (int)hurt;
+
+							//LLOG("SkillHurt -- trueHurt(%d)", trueHurt);
+
+							//TODO:记录击杀
+							//attacker.killCntOneLoop += trueHurt;
+							//defender.deadCntOneLoop += trueHurt;
+
+							//填充伤害消息
+							pb::Combat_Damage* damageOne = msg.add_damages();
+							damageOne->set_period(4);
+							damageOne->set_group(2);
+							damageOne->set_range(range++);
+							damageOne->set_type(4);
+							damageOne->set_damage((int)trueHurt);
+							damageOne->set_restblood(hp>0? hp:0);
+
+							//填充奖励消息
+							pb::Combat_Reward* awardOne = msg.add_rewards();
+							awardOne->set_group(2);
+							CalcAwardsOneStep(pGroup,*tmpj,tmpj,awardOne,tpy,4,trueHurt);
+
+							if(tmpj->IsPlayer())
+							{
+								Player* player = sPlayerPool.GetByPlayerId(tmpj->GetPlayerId());
+								::Character* hero = dynamic_cast<::Character*>(tmpj);
+								hero->SetCurSolderNum(tmpj->CurHp());
+								player->m_characterStorage->SetModifiedID(hero->GetID());
+							}
+
+						}
+						rownum++;
+					}
+				}
+			}
+		}
+
+		if(tmpj->m_fightBuff.HaveBuff(fixeddamage))
+		{
+			const BuffInfo* buffone = tmpj->m_fightBuff.GetBuffInfo(fixeddamage);
+			if(buffone)
+			{
+				float damagefixed = buffone->value1;
+				if(damagefixed > 0.0)
+				{
+					int rownum = 0;
+					std::vector<int>::iterator itr = tmpj->soldiers.begin();	//iter为每排兵力
+					for (; itr != tmpj->soldiers.end(); ++itr)
+					{
+						if(rownum <= (int)(buffone->buffRange))
+						{
+							int& hp = *itr;
+							float hurt = damagefixed;
+							int trueHurt = (hp >= (int)hurt) ? (int)hurt : hp;		//未溢出的伤害
+							hp -= (int)hurt;
+
+							//LLOG("SkillHurt -- trueHurt(%d)", trueHurt);
+
+							//TODO:记录击杀
+							//attacker.killCntOneLoop += trueHurt;
+							//defender.deadCntOneLoop += trueHurt;
+
+							//填充伤害消息
+							pb::Combat_Damage* damageOne = msg.add_damages();
+							damageOne->set_period(4);
+							damageOne->set_group(2);
+							damageOne->set_range(range++);
+							damageOne->set_type(4);
+							damageOne->set_damage((int)trueHurt);
+							damageOne->set_restblood(hp>0? hp:0);
+
+							//填充奖励消息
+							pb::Combat_Reward* awardOne = msg.add_rewards();
+							awardOne->set_group(2);
+							CalcAwardsOneStep(pGroup,*tmpj,tmpj,awardOne,tpy,4,trueHurt);
+						}
+						rownum++;
+					}
+				}
+			}
+		}
+	}
+
+	//守方
+	endcount = 0;
+	range = 0;
+	it = defenders.begin();
+	for (; it != defenders.end(); ++it)
+	{
+		if(endcount++  > 10)	//最多10个武将，避免国战太多武将
+			break;
+		CombatObj* tmpj = (*it);
+		if(tmpj->m_fightBuff.HaveBuff(percentdamage))	//有百分比伤害的buff		//不会立即死亡
+		{
+			const BuffInfo* buffone = tmpj->m_fightBuff.GetBuffInfo(percentdamage);
+			if(buffone)
+			{
+				float damagerate = buffone->value1;
+				if(damagerate > 0.0)
+				{
+					int rownum = 0;
+					std::vector<int>::iterator itr = tmpj->soldiers.begin();	//iter为每排兵力
+					for (; itr != tmpj->soldiers.end(); ++itr)
+					{
+						if(rownum <= (int)(buffone->buffRange))
+						{
+							int& hp = *itr;
+							float hurt = hp * damagerate/100;
+							int trueHurt = (hp >= (int)hurt) ? (int)hurt : hp;		//未溢出的伤害
+							hp -= (int)hurt;
+
+							//LLOG("SkillHurt -- trueHurt(%d)", trueHurt);
+
+							//TODO:记录击杀
+							//attacker.killCntOneLoop += trueHurt;
+							//defender.deadCntOneLoop += trueHurt;
+
+							//填充伤害消息
+							pb::Combat_Damage* damageOne = msg.add_damages();
+							damageOne->set_period(4);
+							damageOne->set_group(2);
+							damageOne->set_range(range++);
+							damageOne->set_type(4);
+							damageOne->set_damage((int)trueHurt);
+							damageOne->set_restblood(hp>0? hp:0);
+
+							//填充奖励消息
+							pb::Combat_Reward* awardOne = msg.add_rewards();
+							awardOne->set_group(2);
+							CalcAwardsOneStep(pGroup,*tmpj,tmpj,awardOne,tpy,4,trueHurt);
+
+							if(tmpj->IsPlayer())
+							{
+								Player* player = sPlayerPool.GetByPlayerId(tmpj->GetPlayerId());
+								::Character* hero = dynamic_cast<::Character*>(tmpj);
+								hero->SetCurSolderNum(tmpj->CurHp());
+								player->m_characterStorage->SetModifiedID(hero->GetID());
+							}
+
+						}
+						rownum++;
+					}
+				}
+			}
+		}
+
+		if(tmpj->m_fightBuff.HaveBuff(fixeddamage))
+		{
+			const BuffInfo* buffone = tmpj->m_fightBuff.GetBuffInfo(fixeddamage);
+			if(buffone)
+			{
+				float damagefixed = buffone->value1;
+				if(damagefixed > 0.0)
+				{
+					int rownum = 0;
+					std::vector<int>::iterator itr = tmpj->soldiers.begin();	//iter为每排兵力
+					for (; itr != tmpj->soldiers.end(); ++itr)
+					{
+						if(rownum <= (int)(buffone->buffRange))
+						{
+							int& hp = *itr;
+							float hurt = damagefixed;
+							int trueHurt = (hp >= (int)hurt) ? (int)hurt : hp;		//未溢出的伤害
+							hp -= (int)hurt;
+
+							//LLOG("SkillHurt -- trueHurt(%d)", trueHurt);
+
+							//TODO:记录击杀
+							//attacker.killCntOneLoop += trueHurt;
+							//defender.deadCntOneLoop += trueHurt;
+
+							//填充伤害消息
+							pb::Combat_Damage* damageOne = msg.add_damages();
+							damageOne->set_period(4);
+							damageOne->set_group(2);
+							damageOne->set_range(range++);
+							damageOne->set_type(4);
+							damageOne->set_damage((int)trueHurt);
+							damageOne->set_restblood(hp>0? hp:0);
+
+							//填充奖励消息
+							pb::Combat_Reward* awardOne = msg.add_rewards();
+							awardOne->set_group(2);
+							CalcAwardsOneStep(pGroup,*tmpj,tmpj,awardOne,tpy,4,trueHurt);
+						}
+						rownum++;
+					}
+				}
+			}
+		}
+	}
+
+	//头排死亡，
+	if(CheckDead(pGroup,attackers.front(),defenders.front(),msg,false) || CheckDead(pGroup,defenders.front(),attackers.front(),msg,true))
+	{
+		ret = true;
+	}
+
+	RefreshSoldiers(attackers,defenders.front(),msg,false);
+	RefreshSoldiers(defenders,attackers.front(),msg,true);
+
+	return ret;
+}
+
+void Calc::_GetBuffs(GroupLst& attackers, GroupLst& defenders, pb::Combat_Buff_AllInfo& msg)
+{
+	//LLOG("Calc::_GetBuffs1");
+	int endcount = 0;
+	int rowcount = 0;
+	
+	//攻方
+	GroupLst::iterator it = attackers.begin();
+	for (; it != attackers.end(); ++it)
+	{
+		//LLOG("attacker one ");
+		if(endcount++  > 10)	//最多10个武将，避免国战太多武将
+			break;
+		CombatObj* tmpj = (*it);
+		if(!tmpj->m_fightBuff.IsBuffEmpty())		//有buff
+		{
+			//LLOG("have buff");
+			tmpj->m_fightBuff.FillBuffInfoMsg(msg,rowcount);
+		}
+		rowcount += tmpj->soldiers.size();
+	}
+
+	//守方
+	endcount = 0;
+	rowcount = 0;
+	it = defenders.begin();
+	for (; it != defenders.end(); ++it)
+	{
+		//LLOG("defender one ");
+		if(endcount++  > 10)	//最多10个武将，避免国战太多武将
+			break;
+		CombatObj* tmpj = (*it);
+		if(!tmpj->m_fightBuff.IsBuffEmpty())		//有buff
+		{
+			//LLOG("have buff");
+			tmpj->m_fightBuff.FillBuffInfoMsg(msg,rowcount);
+		}
+		rowcount += tmpj->soldiers.size();
+	}
+}
+
+void Calc::_GetBuffs(GroupLst& attackers, GroupLst& defenders, pb::GS2C_Combat_Select_Tactic& msg)
+{
+	//LLOG("Calc::_GetBuffs2");
+	int endcount = 0;
+	int rowcount = 0;
+
+	//攻方
+	GroupLst::iterator it = attackers.begin();
+	for (; it != attackers.end(); ++it)
+	{
+		//LLOG("attacker one ");
+		if(endcount++  > 10)	//最多10个武将，避免国战太多武将
+			break;
+		CombatObj* tmpj = (*it);
+		if(!tmpj->m_fightBuff.IsBuffEmpty())		//有buff
+		{
+			//LLOG("have buff");
+			tmpj->m_fightBuff.FillBuffInfoMsg(msg,rowcount);
+		}
+		rowcount += tmpj->soldiers.size();
+	}
+
+	//守方
+	endcount = 0;
+	rowcount = 0;
+	it = defenders.begin();
+	for (; it != defenders.end(); ++it)
+	{
+		//LLOG("defender one ");
+		if(endcount++  > 10)	//最多10个武将，避免国战太多武将
+			break;
+		CombatObj* tmpj = (*it);
+		if(!tmpj->m_fightBuff.IsBuffEmpty())		//有buff
+		{
+			//LLOG("have buff");
+			tmpj->m_fightBuff.FillBuffInfoMsg(msg,rowcount);
+		}
+		rowcount += tmpj->soldiers.size();
+	}
+}
+//attacker对defender造成伤害，defender获得奖励	attackHurt攻方造成的伤害，defenceHurt守方造成的伤害
+void Calc::CalcAwardsOneStep(CombatGroup* pGroup, CombatObj& attacker, CombatObj* defender, pb::Combat_Reward* awards, CombatType typ, int step, int attackHurt, int defenceHurt)
+{
+	awards->set_period(step);
+	
+	::Character* hero = dynamic_cast<::Character*>(defender);
+	::Character* attacker_hero =  dynamic_cast<::Character*>(&attacker);
+	//if (hero == NULL ) return;
+
+	//计算跨服伤害加成
+	if(hero && !hero->IsShadow())
+	{
+		Player* defPlayer = hero->m_player;
+		if(defPlayer)
+		{
+			defenceHurt *= defPlayer->GetCrossDoubleKill();
+		}
+	}
+
+	if(attacker_hero && !attacker_hero->IsShadow())
+	{
+		Player* attPlayer = attacker_hero->m_player;
+		if(attPlayer)
+		{
+			attackHurt *= attPlayer->GetCrossDoubleKill();
+		}
+	}
+
+
+
+	if(step == 1)		//技能阶段
+	{
+		//if (hero == NULL) return;
+
+		int exp = 0;
+		int expPlayer = 0;
+		int money = 0;
+		IntPairVec tmp;
+
+		if(hero)
+		{
+			const SoldierFoodTable* pTable = SoldierFoodTable::GetTableByLv(hero->soldierLv);
+			MMO_ASSERT(pTable);
+			if (pTable == NULL) return;
+			float needFood = pTable->NeedFood();
+
+			float killRatio = 2;
+			Property& aPro = attacker.stPro;	//攻方属性
+			Property& dPro = defender->stPro;	//守方属性
+			killRatio = (float)aPro.attack / (float)dPro.defence;
+			if(killRatio > 2)
+				killRatio = 2;
+			else if(killRatio < 0.5)
+				killRatio = 1;
+			else
+				killRatio = (killRatio + 1) * 2 / 3;
+
+			float crossTimes = 1.0;
+	#ifdef _SERVER_CROSS_
+			crossTimes = 1.5;
+	#endif
+			if (hero->m_player)
+			{
+				exp = int(attackHurt * needFood * FOOD_TO_EXP[typ] * killRatio * (1 + hero->GetTotalExpPercent(typ) / 100.0 + hero->m_player->GetHerosExpUpPercent()/100.0) * crossTimes);
+				expPlayer = int(attackHurt * needFood * FOOD_TO_EXP[typ] * killRatio * (1 + hero->GetTotalExpPercent(typ) / 100.0 ) * crossTimes);
+				money = (int)ceil(attackHurt * needFood * FOOD_TO_EXP[typ] * killRatio * 0.2);
+			}
+			else
+			{
+				exp = int(attackHurt * needFood * FOOD_TO_EXP[typ] * killRatio * (1 + hero->GetTotalExpPercent(typ) / 100.0) * crossTimes);
+			}
+
+			expPlayer = MAX(expPlayer,1);
+			money = MAX(money,1);
+			if (hero->m_player)
+			{
+				//LLOG("calc %d,%f,%f,%f,%d,%u",attackHurt,needFood,FOOD_TO_EXP[typ],killRatio,hero->GetTotalExpPercent(typ),hero->m_player->GetHerosExpUpPercent());
+			}
+
+			// 远征，不获得经验、奖励
+			if (Crusade == typ) {
+				exp = 0;
+				money = 0;
+				expPlayer = 0;
+			}
+			awards->set_exp(expPlayer);
+			awards->set_coin(money);
+			
+			hero->statisticExp += exp;
+			hero->statisticExpPlayer += expPlayer;
+			hero->statisticMoney += money;
+			hero->statisticDead += attackHurt;//hero->deadCntOneLoop;
+			hero->statisticKill += 0;//hero->killCntOneLoop;
+
+			if(hero->IsPlayer())	//守方是武将，则记录伤亡数，获得经验
+			{
+				pGroup->RecordCombatGainsInfo(hero->m_player->GetGuid(),pb::CombatPlayerExp,expPlayer,tmp);
+				pGroup->RecordCombatGainsInfo(hero->m_player->GetGuid(),pb::CombatDead,attackHurt,tmp);
+			}
+			if(hero->IsReinforce())		//是增援部队，记录获得经验
+			{
+				pGroup->RecordCombatGainsInfo(hero->m_player->GetGuid(),pb::CombatPlayerExp,expPlayer,tmp);
+			}
+		}
+		//hero->deadCntOneLoop += attackHurt;
+		//hero->killCntOneLoop += 0;
+		if(attacker_hero && !attacker_hero->IsShadow())
+		{
+			attacker_hero->statisticKill += attackHurt;
+			attacker_hero->killCntOneLoop += attackHurt;
+			attacker_hero->killOnceAHero += attackHurt;
+		}
+		//attacker.statisticKill += attackHurt;
+		//attacker.killCntOneLoop += attackHurt;
+		uint32 exploittmp = 0;
+		if((typ == Country || typ == Monster )  )
+		{
+			////////zhoulunhao
+			if(attacker_hero && attacker_hero->m_player)
+			{
+				sPersonTask.addProgress(KILL_IN_COUNTRY,attackHurt,*(attacker_hero->m_player));
+#ifdef _SERVER_CROSS_
+				sCrossKill.addProgress(KILL_IN_COUNTRY,attackHurt,*(attacker_hero->m_player));
+#endif
+			}
+			if(attacker_hero && attacker_hero->m_player && !attacker_hero->IsShadow() )
+			{
+				exploittmp = attacker_hero->m_player->HurtToExploit(ENUM_TYPE_KILL,attackHurt);
+			}
+		}
+		if(typ == Country)
+		{
+			if(hero && hero->m_player)
+			{
+				hero->m_player->AddActivityStarBoxExp(expPlayer);
+			}
+		}
+		if(attacker_hero && (attacker_hero->IsPlayer() || attacker_hero->IsReinforce()))	//攻方是武将或增援部队，则记录击杀，功勋
+		{
+			pGroup->RecordCombatGainsInfo(attacker_hero->m_player->GetGuid(),pb::CombatKills,attackHurt,tmp);
+			pGroup->RecordCombatGainsInfo(attacker_hero->m_player->GetGuid(),pb::CombatExploit,exploittmp,tmp);
+		}
+	}
+	else if(step == 2 || step == 3 || step == 4)	//对撞阶段 平砍阶段 buff阶段
+	{
+		//if (hero == NULL) return;
+
+		int exp =0;
+		int expPlayer = 0;
+		int money = 0;
+		IntPairVec tmp;
+
+		if(hero)
+		{
+			const SoldierFoodTable* pTable = SoldierFoodTable::GetTableByLv(hero->soldierLv);
+			MMO_ASSERT(pTable);
+			if (pTable == NULL) return;
+
+			float needFood = pTable->NeedFood();
+
+			//------------------------------------------
+			//计算击杀比
+			float killRatio = 2;
+			if (attackHurt > 0)
+			{
+				killRatio = (float)defenceHurt / (float)attackHurt;	//击杀/死亡
+			}
+			if (Official == typ) //官战
+			{
+				killRatio = (killRatio >= 3) ? 2 : 1 + killRatio / 3;
+			}
+			else
+			{
+				if (killRatio >= 2)
+					killRatio = 2;
+				else if (killRatio <= 0.5)
+					killRatio = 1;
+				else
+					killRatio = (killRatio + 1) * 2 / 3;
+			}
+			//------------------------------------------
+
+			float crossTimes = 1.0;
+	#ifdef _SERVER_CROSS_
+			crossTimes = 1.5;
+	#endif
+
+			if (hero->m_player)
+			{
+				exp = int(attackHurt * needFood * FOOD_TO_EXP[typ] * killRatio * (1 + hero->GetTotalExpPercent(typ) / 100.0 + hero->m_player->GetHerosExpUpPercent()/100.0) * crossTimes);
+				expPlayer = int(attackHurt * needFood * FOOD_TO_EXP[typ] * killRatio * (1 + hero->GetTotalExpPercent(typ) / 100.0 ) * crossTimes);
+				money = (int)ceil(attackHurt * needFood * FOOD_TO_EXP[typ] * killRatio * 0.2);
+			}
+			else
+			{
+				exp = int(attackHurt * needFood * FOOD_TO_EXP[typ] * killRatio * (1 + hero->GetTotalExpPercent(typ) / 100.0) * crossTimes);
+			}
+
+			expPlayer = MAX(expPlayer,1);
+			money = MAX(money,1);
+
+			
+			if (hero->m_player)
+			{
+				//LLOG("calc %d,%f,%f,%f,%d,%u",hero->deadCntOneLoop,needFood,FOOD_TO_EXP[typ],killRatio,hero->GetTotalExpPercent(typ),hero->m_player->GetHerosExpUpPercent());
+			}
+
+			// 远征，不获得经验、奖励
+			if (Crusade == typ) {
+				exp = 0;
+				money = 0;
+				expPlayer = 0;
+			}
+			awards->set_exp(expPlayer);
+			awards->set_coin(money);
+			hero->statisticExp += exp;
+			hero->statisticExpPlayer += expPlayer;
+			hero->statisticMoney += money;
+			hero->statisticDead += attackHurt;//hero->deadCntOneLoop;
+			hero->statisticKill += defenceHurt;//hero->killCntOneLoop;
+			hero->killOnceAHero += defenceHurt;
+		}
+		//hero->deadCntOneLoop += attackHurt;
+		//hero->killCntOneLoop += defenceHurt;
+
+		uint32 exploittmpAtt = 0;
+		uint32 exploittmpDef = 0;
+		if(typ == Country || typ == Monster  )
+		{
+			////////zhoulunhao
+			if(hero && hero->m_player)
+			{
+				sPersonTask.addProgress(KILL_IN_COUNTRY,defenceHurt,*(hero->m_player));
+#ifdef _SERVER_CROSS_
+				sCrossKill.addProgress(KILL_IN_COUNTRY,defenceHurt,*(hero->m_player));
+#endif
+			}
+			if(attacker_hero && attacker_hero->m_player)
+			{
+				sPersonTask.addProgress(KILL_IN_COUNTRY,attackHurt,*(attacker_hero->m_player));
+#ifdef _SERVER_CROSS_
+				sCrossKill.addProgress(KILL_IN_COUNTRY,attackHurt,*(attacker_hero->m_player));
+#endif
+			}
+			if(hero && hero->m_player && !hero->IsShadow())
+			{
+				exploittmpDef += hero->m_player->HurtToExploit(ENUM_TYPE_KILL,defenceHurt);//杀敌产生功勋
+				exploittmpDef += hero->m_player->HurtToExploit(ENUM_TYPE_DEATH,attackHurt);//死兵产生功勋
+			}
+			if(attacker_hero && attacker_hero->m_player && !attacker_hero->IsShadow())
+			{
+				exploittmpAtt += attacker_hero->m_player->HurtToExploit(ENUM_TYPE_KILL,attackHurt);//杀敌产生功勋
+				exploittmpAtt += attacker_hero->m_player->HurtToExploit(ENUM_TYPE_DEATH,defenceHurt);//死兵产生功勋
+			}
+		}
+		if(typ == Country)
+		{
+			if(hero && hero->m_player)
+			{
+				hero->m_player->AddActivityStarBoxExp(expPlayer);
+			}
+		}
+
+		if(hero && hero->IsPlayer())	//守方是武将，则记录伤亡数，获得经验,功勋
+		{
+			pGroup->RecordCombatGainsInfo(hero->m_player->GetGuid(),pb::CombatPlayerExp,expPlayer,tmp);
+			pGroup->RecordCombatGainsInfo(hero->m_player->GetGuid(),pb::CombatDead,attackHurt,tmp);
+			pGroup->RecordCombatGainsInfo(hero->m_player->GetGuid(),pb::CombatExploit,exploittmpDef,tmp);
+		}
+		if(hero && hero->IsReinforce())		//是增援部队，记录获得经验
+		{
+			pGroup->RecordCombatGainsInfo(hero->m_player->GetGuid(),pb::CombatPlayerExp,expPlayer,tmp);
+		}
+
+		if(attacker_hero && (attacker_hero->IsPlayer() || attacker_hero->IsReinforce()))	//攻方是武将或增援部队，则记录击杀，功勋
+		{
+			pGroup->RecordCombatGainsInfo(attacker_hero->m_player->GetGuid(),pb::CombatKills,attackHurt,tmp);
+			pGroup->RecordCombatGainsInfo(attacker_hero->m_player->GetGuid(),pb::CombatExploit,exploittmpAtt,tmp);
+		}
+
+	}
+}
+
+//攻方，守方，攻方造成的伤害，守方造成的伤害
+void Calc::_DoHurt(CombatGroup* pGroup, CombatObj& attacker, CombatObj& defender, int attackerHurt, int defenderHurt, pb::GS2C_Combat_Select_Tactic& msg, CombatType tpy, int step)
+{
+	double damagereal;
+	if(attacker.IsReinforce())	//受伤方是攻城部队，则伤害减免90%
+		damagereal = defenderHurt * 0.1;
+	else
+		damagereal = defenderHurt;
+    int trueHurtDefender = attacker.HurtHp((int)damagereal);		//守方造成的真实伤害
+    defender.killCntOneLoop += trueHurtDefender;
+    attacker.deadCntOneLoop += trueHurtDefender;
+    //LLOG("DoHurt -- attacker:trueHurt(%d)", trueHurt);
+
+	if(defender.IsReinforce())	//受伤方是攻城部队，则伤害减免90%
+		damagereal = attackerHurt * 0.1;
+	else
+		damagereal = attackerHurt;
+    int trueHurtAttacker = defender.HurtHp((int)damagereal);	//攻方造成的真实伤害
+    attacker.killCntOneLoop += trueHurtAttacker;
+    defender.deadCntOneLoop += trueHurtAttacker;
+	//LLOG("DoHurt -- defender:trueHurt(%d)", trueHurt);
+
+	//填充伤害
+	pb::Combat_Damage* damageOne = msg.add_damages();
+	damageOne->set_period(step);
+	damageOne->set_group(2);
+	damageOne->set_range(0);
+	damageOne->set_type(step);
+	damageOne->set_damage(trueHurtAttacker);
+	damageOne->set_restblood((defender.soldiers.front()<0? 0:defender.soldiers.front()));
+
+	pb::Combat_Damage* damageTwo = msg.add_damages();
+	damageTwo->set_period(step);
+	damageTwo->set_group(1);
+	damageTwo->set_range(0);
+	damageTwo->set_type(step);
+	damageTwo->set_damage(trueHurtDefender);
+	damageTwo->set_restblood((attacker.soldiers.front()<0? 0:attacker.soldiers.front()));
+
+	//填充奖励消息
+	pb::Combat_Reward* awardDefender = msg.add_rewards();
+	awardDefender->set_group(2);
+	CombatObj* tmpj = &defender;
+	CalcAwardsOneStep(pGroup,attacker,tmpj,awardDefender,tpy,step,trueHurtAttacker,trueHurtDefender);
+
+	//LLOG("get award side = 2,step = %d, exp = %d, coin = %d, doTurtAtt = %d, doHurtDef = %d",
+	//	step,awardDefender->exp(), awardDefender->coin(),trueHurtAttacker,trueHurtDefender );
+
+	pb::Combat_Reward* awardAttacker = msg.add_rewards();
+	awardAttacker->set_group(1);
+	CombatObj* tmpk = &attacker;
+	CalcAwardsOneStep(pGroup,defender,tmpk,awardAttacker,tpy,step,trueHurtDefender,trueHurtAttacker);
+
+	//LLOG("get award side = 1,step = %d, exp = %d, coin = %d, doTurtAtt = %d, doHurtDef = %d",
+	//	step,awardAttacker->exp(), awardAttacker->coin(),trueHurtDefender,trueHurtAttacker );
+
+	if(attacker.IsPlayer())
+	{
+		Player* player = sPlayerPool.GetByPlayerId(attacker.GetPlayerId());
+		::Character* hero = dynamic_cast<::Character*>(&attacker);
+		hero->SetCurSolderNum(attacker.CurHp());
+		player->m_characterStorage->SetModifiedID(hero->GetID());
+	}
+
+	if(defender.IsPlayer())
+	{
+		Player* player = sPlayerPool.GetByPlayerId(defender.GetPlayerId());
+		::Character* hero = dynamic_cast<::Character*>(&defender);
+		hero->SetCurSolderNum(defender.CurHp());
+		player->m_characterStorage->SetModifiedID(hero->GetID());
+	}
+}
+
+void Calc::Attack(CombatGroup* pGroup, CombatObj* attacker, CombatObj* defender, pb::GS2C_Combat_Select_Tactic& msg, CombatType tpy)
+{
+    //第一次是对撞
+    int attackerHurt = _CalcCrashHurt(*attacker, *defender);	//攻方造成的伤害
+    int defenderHurt = _CalcCrashHurt(*defender, *attacker);	//守方造成的伤害
+
+	////填充伤害
+	//pb::Combat_Damage* damageOne = msg.add_damages();
+	//damageOne->set_period(2);
+	//damageOne->set_group(2);
+	//damageOne->set_range(0);
+	//damageOne->set_type(2);
+	//damageOne->set_damage(attackerHurt);
+
+	//pb::Combat_Damage* damageTwo = msg.add_damages();
+	//damageTwo->set_period(2);
+	//damageTwo->set_group(1);
+	//damageTwo->set_range(0);
+	//damageTwo->set_type(2);
+	//damageTwo->set_damage(defenderHurt);
+
+    _DoHurt(pGroup, *attacker, *defender, attackerHurt, defenderHurt,msg ,tpy,2);
+
+    float ratio1 = CommonRatio(attacker->tactic, defender->tactic);
+    float ratio2 = CommonRatio(defender->tactic, attacker->tactic);
+
+    //然后对砍
+    while (!CheckDead(pGroup,attacker,defender,msg,false) && !CheckDead(pGroup,defender,attacker,msg,true))
+    {
+        attackerHurt = _CalcCommonHurt(*attacker, *defender, ratio1);
+        defenderHurt = _CalcCommonHurt(*defender, *attacker, ratio2);
+
+		////填充伤害
+		//pb::Combat_Damage* damageOne = msg.add_damages();
+		//damageOne->set_period(3);
+		//damageOne->set_group(2);
+		//damageOne->set_range(0);
+		//damageOne->set_type(3);
+		//damageOne->set_damage(attackerHurt);
+
+		//pb::Combat_Damage* damageTwo = msg.add_damages();
+		//damageTwo->set_period(3);
+		//damageTwo->set_group(1);
+		//damageTwo->set_range(0);
+		//damageTwo->set_type(3);
+		//damageTwo->set_damage(defenderHurt);
+
+        _DoHurt(pGroup, *attacker, *defender, attackerHurt, defenderHurt, msg ,tpy,3);
+		//CheckDead(attacker);
+		//CheckDead(defender);
+    }
+	//RefreshSoldiers(attacker);
+	//RefreshSoldiers(defender);
+	//attacker.isSelectTactic = false;
+	//defender.isSelectTactic = false;
+}
+
+//使用了技能	攻防列表，守方列表，攻防是否使用技能，守方是否使用技能，待填消息，战斗类型
+void Calc::UseSkill(CombatGroup* pGroup, GroupLst& attacker, GroupLst& defender, bool isAttakcerUseSkill, bool isDefenderUserSkill, pb::GS2C_Combat_Select_Tactic& msg, CombatType tpy)
+{
+    CombatObj& rhs = *attacker.front();		//进攻方第一个武将
+    CombatObj& lhs = *defender.front();		//防守方第一个武将
+
+	if(isAttakcerUseSkill)
+	{
+		rhs.isUsedSkill = true;
+		rhs.leftSkillTimes -= 1;
+		float successRate1 = (float)((rhs.stPro.yong*STATIC_SKILL_RATE)+(rhs.stPro.yong*lhs.stPro.yong)) / ((rhs.stPro.yong*lhs.stPro.yong) + (lhs.stPro.yong*lhs.stPro.yong));		//成功使用技能的概率
+		//LLOG("successRate1 = %f",successRate1);
+		rhs.isSkillSuccess = (System::Randf(0, 1) < successRate1);		//使用技能是否成功
+		if(rhs.IsReinforce())
+			rhs.isSkillSuccess = true;
+		if (rhs.isSkillSuccess) 
+		{
+			AttachBuffs(attacker,defender,1);
+			_SkillHurt(pGroup,rhs, defender, 2, msg, tpy);		//成功则计算技能伤害  进攻方，防守序列，受伤方编号，待填充消息
+		}
+		msg.set_attskillid(rhs.SkillID());
+	}
+	else
+		msg.set_attskillid(0);
+
+    if (isDefenderUserSkill && lhs.soldiers.size() && lhs.soldiers.front() > 0 && rhs.soldiers.size() && rhs.soldiers.front() > 0)
+    {
+        lhs.isUsedSkill = true;
+		lhs.leftSkillTimes -= 1;
+        float successRate2 = (float)((lhs.stPro.yong*STATIC_SKILL_RATE)+(rhs.stPro.yong*lhs.stPro.yong)) / ((rhs.stPro.yong*lhs.stPro.yong) + (rhs.stPro.yong*rhs.stPro.yong));		//成功使用技能的概率
+        //LLOG("successRate2 = %f",successRate2);
+		lhs.isSkillSuccess = (System::Randf(0, 1) < successRate2);
+		if(lhs.IsReinforce())
+			lhs.isSkillSuccess = true;
+        if (lhs.isSkillSuccess) 
+		{
+			AttachBuffs(defender,attacker,2);
+			_SkillHurt(pGroup, lhs, attacker, 1, msg, tpy);
+		}
+		msg.set_defskillid(lhs.SkillID());
+	}
+	else
+		msg.set_defskillid(0);
+
+	_GetBuffs(attacker, defender, msg);
+
+	//if(isAttakcerUseSkill)
+	//{
+	//	if(rhs.isSkillSuccess)
+	//	{
+	//		_SkillHurt(rhs, defender, 2, msg, tpy);
+	//	}
+	//	msg.set_attskillid(rhs.SkillID());
+	//}
+	//else
+	//	msg.set_attskillid(0);
+
+	//if(isDefenderUserSkill && !lhs.IsDead())
+	//{
+	//	if(lhs.isSkillSuccess) 
+	//	{
+	//		_SkillHurt(lhs, attacker, 1, msg, tpy);
+	//	}
+	//	msg.set_defskillid(lhs.SkillID());
+	//}
+	//else
+	//	msg.set_defskillid(0);
+	
+    //头排没人死，排头两个继续对砍
+    while (!CheckDead(pGroup,attacker.front(),defender.front(),msg,false) && !CheckDead(pGroup,defender.front(),attacker.front(),msg,true))
+    {
+        int attackerHurt = _CalcCommonHurt(rhs, lhs, isAttakcerUseSkill ? 0.1f : 0);
+        int defenderHurt = _CalcCommonHurt(lhs, rhs, isDefenderUserSkill ? 0.1f : 0);
+		////填充伤害
+		//pb::Combat_Damage* damageOne = msg.add_damages();
+		//damageOne->set_period(3);
+		//damageOne->set_group(2);
+		//damageOne->set_range(0);
+		//damageOne->set_type(3);
+		//damageOne->set_damage(attackerHurt);
+
+		//pb::Combat_Damage* damageTwo = msg.add_damages();
+		//damageTwo->set_period(3);
+		//damageTwo->set_group(1);
+		//damageTwo->set_range(0);
+		//damageTwo->set_type(3);
+		//damageTwo->set_damage(defenderHurt);
+
+        _DoHurt(pGroup,rhs, lhs, attackerHurt, defenderHurt, msg ,tpy,3);
+    }
+	
+	//RefreshSoldiers(attacker);
+	//RefreshSoldiers(defender);
+	//rhs.isSelectTactic = false;
+	//lhs.isSelectTactic = false;
+}
+bool Calc::CheckDead(CombatGroup* pGroup, CombatObj* obj, CombatObj* killer, pb::GS2C_Combat_Select_Tactic& msg, bool isKillerAtt)
+{
+    bool ret = false;
+    if((obj->soldiers.size() && obj->soldiers.front() <= 0) || obj->soldiers.size() == 0)
+    {
+		//LLOG("one dead");
+		obj->m_fightBuff.RefreshByRange();
+		if(obj->soldiers.size() != 0)
+			obj->soldiers.erase(obj->soldiers.begin());
+        obj->isSelectTactic = false; //死一排士兵，重选操作
+        ret = true;
+
+		//如果士兵有奖励，则发放奖励
+		if(Npc* deadnpc = dynamic_cast<Npc*>(obj))
+		{
+			if(deadnpc->GetExtraAwardID() > 0 && deadnpc->GetExtraAwardNum() > 0)
+			{
+				if(Character* killerchar = dynamic_cast<Character*>(killer))
+				{
+					pb::extra_awards* awardsmsg;
+					if(isKillerAtt)	//击杀方为攻击方
+						awardsmsg = msg.add_att_extra_awards();
+					else
+						awardsmsg = msg.add_def_extra_awards();
+					awardsmsg->set_awardsid(deadnpc->GetExtraAwardID() );
+					awardsmsg->set_awardsnum(deadnpc->GetExtraAwardNum());
+
+					if (killerchar->m_player)
+					{
+						sReward.Change(*(killerchar->m_player), deadnpc->GetExtraAwardID() , deadnpc->GetExtraAwardNum());
+						
+						IntPairVec pairvec;
+						pairvec.push_back(std::make_pair(deadnpc->GetExtraAwardID() , deadnpc->GetExtraAwardNum()));
+						pGroup->RecordCombatGainsInfo(killerchar->m_player->GetGuid(),pb::CombatInfoNum,0,pairvec);
+
+						bool isgot = false;
+						for(IntPairVec::iterator it = killerchar->m_extraAwards.begin(); it != killerchar->m_extraAwards.end(); it++)
+						{
+							if(it->first == deadnpc->GetExtraAwardID())
+							{
+								isgot = true;
+								it->second += deadnpc->GetExtraAwardNum();
+								break;
+							}
+						}
+						if(!isgot)
+							killerchar->m_extraAwards.push_back(std::make_pair(deadnpc->GetExtraAwardID(),deadnpc->GetExtraAwardNum()));
+					}
+				}
+			}
+		}
+
+    }
+    return ret;
+}
+
+bool Calc::CheckDead(CombatGroup* pGroup, CombatObj* obj, CombatObj* killer, pb::Combat_Buff_AllInfo& msg, bool isKillerAtt)
+{
+	bool ret = false;
+	if(obj->soldiers.size() && obj->soldiers.front() <= 0)
+	{
+		//LLOG("one dead");
+		obj->m_fightBuff.RefreshByRange();
+		obj->soldiers.erase(obj->soldiers.begin());
+		obj->isSelectTactic = false; //死一排士兵，重选操作
+		ret = true;
+
+		//如果士兵有奖励，则发放奖励
+		if(Npc* deadnpc = dynamic_cast<Npc*>(obj))
+		{
+			if(deadnpc->GetExtraAwardID() > 0 && deadnpc->GetExtraAwardNum() > 0)
+			{
+				if(Character* killerchar = dynamic_cast<Character*>(killer))
+				{
+					pb::extra_awards* awardsmsg;
+					if(isKillerAtt)	//击杀方为攻击方
+						awardsmsg = msg.add_att_extra_awards();
+					else
+						awardsmsg = msg.add_def_extra_awards();
+					awardsmsg->set_awardsid(deadnpc->GetExtraAwardID() );
+					awardsmsg->set_awardsnum(deadnpc->GetExtraAwardNum() );
+
+					if (killerchar->m_player)
+					{
+						sReward.Change(*(killerchar->m_player), deadnpc->GetExtraAwardID(), deadnpc->GetExtraAwardNum() );
+
+						bool isgot = false;
+						for(IntPairVec::iterator it = killerchar->m_extraAwards.begin(); it != killerchar->m_extraAwards.end(); it++)
+						{
+							if(it->first == deadnpc->GetExtraAwardID())
+							{
+								isgot = true;
+								it->second += deadnpc->GetExtraAwardNum();
+								break;
+							}
+						}
+						if(!isgot)
+							killerchar->m_extraAwards.push_back(std::make_pair(deadnpc->GetExtraAwardID(),deadnpc->GetExtraAwardNum()));
+					}
+				}
+			}
+		}
+
+	}
+	return ret;
+}
+
+
+//bool Calc::CheckDead(GroupLst& lst)
+//{
+//    bool ret = false;
+//    GroupLst::iterator it = lst.begin();
+//	if(CheckDead(*(*it)))
+//		ret = true;
+//
+//    return ret;
+//}
+
+void Calc::RefreshSoldiers(GroupLst& lst, CombatObj* killer, pb::GS2C_Combat_Select_Tactic& msg, bool isKillerAtt)
+{
+	LLOG("Calc::RefreshSoldiers");
+	int endcount = 0;
+	GroupLst::iterator it = lst.begin();
+	for(; it != lst.end(); ++it)
+	{
+		if(endcount++ > 9)	break;		//只计算前十个武将
+		LLOG("one obj soldier size=%d",(*it)->soldiers.size());
+		//if((*it)->CurHp() <= 0)	continue;
+
+		CombatObj* comobj = *it;
+
+		while ((*it)->soldiers.size() && (*it)->soldiers.front() <= 0)
+		{
+			(*it)->m_fightBuff.RefreshByRange();
+			(*it)->soldiers.erase((*it)->soldiers.begin());
+			(*it)->isSelectTactic = false;
+
+			//如果士兵有奖励，则发放奖励
+			if(::Npc* deadnpc = dynamic_cast<::Npc*>((*it)))
+			{
+				if(deadnpc->GetExtraAwardID() > 0 && deadnpc->GetExtraAwardNum() > 0)
+				{
+					if(Character* killerchar = dynamic_cast<Character*>(killer))
+					{
+						pb::extra_awards* awardsmsg;
+						if(isKillerAtt)	//击杀方为攻击方
+							awardsmsg = msg.add_att_extra_awards();
+						else
+							awardsmsg = msg.add_def_extra_awards();
+						awardsmsg->set_awardsid(deadnpc->GetExtraAwardID());
+						awardsmsg->set_awardsnum(deadnpc->GetExtraAwardNum());
+
+						if (killerchar->m_player)
+						{
+							sReward.Change(*(killerchar->m_player), deadnpc->GetExtraAwardID(), deadnpc->GetExtraAwardNum());
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+void Calc::RefreshSoldiers(GroupLst& lst, CombatObj* killer, pb::Combat_Buff_AllInfo& msg, bool isKillerAtt)
+{
+	LLOG("Calc::RefreshSoldiers");
+	int endcount = 0;
+	GroupLst::iterator it = lst.begin();
+	for(; it != lst.end(); ++it)
+	{
+		if(endcount++ > 9)	break;		//只计算前十个武将
+		LLOG("one obj soldier size=%d",(*it)->soldiers.size());
+		//if((*it)->CurHp() <= 0)	continue;
+
+		CombatObj* comobj = *it;
+
+		while ((*it)->soldiers.size() && (*it)->soldiers.front() <= 0)
+		{
+			(*it)->m_fightBuff.RefreshByRange();
+			(*it)->soldiers.erase((*it)->soldiers.begin());
+			(*it)->isSelectTactic = false;
+
+			//如果士兵有奖励，则发放奖励
+			if(Npc* deadnpc = dynamic_cast<Npc*>((*it)))
+			{
+				if(deadnpc->GetExtraAwardID() > 0 && deadnpc->GetExtraAwardNum() > 0)
+				{
+					if(Character* killerchar = dynamic_cast<Character*>(killer))
+					{
+						pb::extra_awards* awardsmsg;
+						if(isKillerAtt)	//击杀方为攻击方
+							awardsmsg = msg.add_att_extra_awards();
+						else
+							awardsmsg = msg.add_def_extra_awards();
+						awardsmsg->set_awardsid(deadnpc->GetExtraAwardID());
+						awardsmsg->set_awardsnum(deadnpc->GetExtraAwardNum());
+
+						if (killerchar->m_player)
+						{
+							sReward.Change(*(killerchar->m_player), deadnpc->GetExtraAwardID(), deadnpc->GetExtraAwardNum());
+						}
+					}
+				}
+			}
+		}
+	}
+}

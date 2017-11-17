@@ -1,0 +1,326 @@
+package pb;
+import "CommomDef.proto";
+
+message GxDB_Quest
+{
+    optional bool               is_deleted      = 1;
+	required uint32             quest_id        = 2;  // 任务ID
+    optional int64              active_time     = 4;
+    optional uint32             value           = 3;    // only use for client
+}
+
+// string : "011'1000'0000'0000'0000'1111'1111'1111'1111'1110"
+// finish_masks[0] = 0x000ffffe"
+// finish_masks[1] = 0x00000038"
+// count = string.size
+
+message FinishMask
+{
+    optional Uint32List finish_masks = 1;
+    optional uint32 count = 2;
+}
+
+message GS2C_QuestList
+{
+    repeated GxDB_Quest quests = 1;     
+    optional FinishMask finish_mask = 2;
+}
+
+message GxDB_Behavior
+{
+    required uint64 behavior = 1;
+    required uint32 count = 2;
+    required int64  last_trigger_time = 3;    
+}
+
+message GxDB_BehaviorList
+{
+    repeated GxDB_Behavior behavior_list = 1;
+}
+
+
+//////////////////////////////////每日任务
+message Daily_Quest_Info
+{
+	required uint32 quest_id = 1;//任务ID
+	required uint32 finish_times = 2;//完成次数
+	required uint32 need_finish_times = 3;//需要完成的次数
+	required uint32 score = 4;//完成当前任务可获积分
+}
+
+message GS2C_Daily_Quest_All_Info
+{
+	repeated Daily_Quest_Info quest_info = 1;//任务
+}
+message C2GS_Daily_Quest_Reward
+{
+	required uint32 reward_id = 1;//daily_quest_reward 中的id
+}
+
+message GS2C_Daily_Quest_Update
+{
+	required Daily_Quest_Info quest_info = 1;//任务
+}
+
+
+message GS2C_Daily_Quest_Reward_Res
+{
+	repeated StReward rewards   = 1;//奖励类型和数量
+}
+
+
+message GxDB_Daily_Quest_Info
+{
+	required uint32 quest_id = 1;//任务ID
+	required uint32 finished_times = 2;
+	required uint32 is_finished = 3;
+}
+message GxDB_Daily_Quest
+{
+	repeated GxDB_Daily_Quest_Info quest_info = 1;//给数据库的
+}
+
+
+
+//////////////////////////成长任务
+enum GrowUpQuestType
+{
+	LEVLE_UP     	= 1;
+	GET_EXPLOIT 	= 2;
+	ATTACK_CITY  	= 3;
+	XILIAN_EQUIP	= 4;
+	BAOQI_LEVEL_UP	= 5;
+	CHARACTER_LEVEL = 6;
+	ALL_QUEST		= 7;
+	SOLIVER_QUAILTY	= 8;
+	QIKUANG_QUAILTY	= 9;
+	JINGKUANG_QUAILTY = 10;
+	BINYING_QUAILTY	=11;
+	RED_EQUIP		=12;
+	PURPLE_EQUIP	=13;
+	ORANGE_EQUIP	=14;
+}
+
+enum GrowUpRewardType
+{	
+	REWARD_NORMAL = 1;
+	REWARD_GROUP = 2;
+	REWARD_ALL_GROUP = 3;
+}
+message Grow_Up_Quest_Info
+{
+	required uint32 group_id = 1;//任务组Id
+	required uint32 quest_type = 2;//任务类型
+	required uint32 quest_id = 3;//任务ID
+	required uint32 cur_value = 4;//当前的值
+	required uint32 need_value = 5;//需要完成的值
+	required uint32 is_finished = 6;
+	optional uint32 is_take_reward = 7;
+}
+message Group_Up_Group_Info
+{
+	required uint32 group_id = 1;
+	required uint32 is_finished = 2;
+	optional uint32 is_take_group_reward = 3;
+}
+message GS2C_Grow_Up_Quest_All_Info
+{
+	repeated Grow_Up_Quest_Info grow_up_info = 1;//所有分任务
+	repeated Group_Up_Group_Info group_info = 2;//组任务
+}
+
+message C2GS_Grow_Up_Quest_Reward
+{
+	required GrowUpRewardType type		    = 1;   //奖励类型
+	required uint32 quest_id 			= 2;//任务ID
+}
+message GS2C_Grow_Up_Quest_Reward_Res
+{
+	repeated StReward rewards   = 1;//奖励类型和数量
+}
+
+message GS2C_Grow_Up_Quest_Update
+{
+	required Grow_Up_Quest_Info grow_up_info = 1;//任务
+}
+
+message GS2C_Grow_Up_Quest_Group_Update
+{
+	required Group_Up_Group_Info group_info = 1;//组
+}
+
+message GxDB_Grow_Up_Quest_Info
+{
+	required uint32 quest_id = 1;//任务ID
+	required uint32 quest_type = 2;
+	required uint32 group_id = 3;
+	required uint32 cur_value = 4;//当前的值
+	required uint32 is_finished = 5;//是否完成 1 完成 0 没有完成
+	optional uint32 is_take_reward = 6;
+	optional uint32 operate_type = 7;//操作类型 1 update 2 insert 3 delate 
+}
+
+message GxDB_Grow_Up_Quest_Group_Info
+{
+	required uint32 group_id = 1;
+	required uint32 group_is_finished = 2;
+	optional uint32 is_take_group_reward = 3;
+	optional uint32 operate_type = 4;//操作类型 1 update 2 insert 3 delate 
+}
+message GxDB_Grow_Up_Quest
+{
+	repeated GxDB_Grow_Up_Quest_Info quest_info = 1;//给数据库的
+}
+
+message GxDB_Grow_Up_Quest_Group
+{
+	repeated GxDB_Grow_Up_Quest_Group_Info group_info = 1;//组任务
+}
+
+message GxDB_Grow_Up_Quest_Delete
+{
+	required uint32 operate_type = 1;
+}
+////////////////Wanna be Stronger
+message WannaBeStrongerBaseInfo
+{
+	optional uint32 quest_id = 1;////目标id
+	optional uint32 cur_value = 2;//当前的值  M 
+	optional uint32 need_value1 = 3;
+	optional uint32 need_value2 = 4;
+	optional uint32 quest_type = 5;
+}
+
+message WannaBeStrongerInfo
+{
+	optional uint32 group_id = 1;//任务组Id
+	repeated WannaBeStrongerBaseInfo base_info = 2;
+	optional bool is_achieve = 3;
+	optional bool is_take_reward = 4; ////组是否领取奖励
+}
+message C2GS_WannaBeStrongerReward
+{
+	required uint32 group_id = 1;//任务ID
+}
+message GS2C_WannaBeStrongerRewardRes
+{
+	repeated StReward rewards   = 1;//奖励类型和数量
+}
+
+message GS2C_WannaBeStrongerUpdate
+{
+	optional WannaBeStrongerInfo info = 1;
+}
+message GS2C_WannaBeStrongerAllInfo
+{
+	repeated WannaBeStrongerInfo info = 1;
+}
+
+
+message GxDB_WannaBeStrongerInfoAllInfo
+{
+	repeated WannaBeStrongerInfo info = 1;
+}
+
+////////////////////////////////Wanne be Stronger
+/////////////////////////////签到
+
+enum PSignType
+{
+	MORMAL_SIGN=1;//正常签到
+	RETROACTIVE=2;//补签
+}
+
+enum SignResult
+{
+	SIGN_SUCCESS = 1;//签到成功
+	SIGN_DIAMONDS_NOT_ENOUGH = 2;//钻石不足
+	SIGN_HAD_SIGNED = 3;//已经签到
+	SIGN_CANT_RETROACTIVE=4;//不能补签
+	SIGN_OTHER_REASON =5;//其他原因
+}
+
+enum ExtraRewardResult
+{
+	EX_HAS_GET_REWARD = 1;
+	EX_GET_SUCCESS = 2;
+}
+
+message GS2C_Sign_Res
+{
+	required SignResult ret = 1;
+	repeated StReward rewards   = 2;
+}
+
+message C2GS_Take_Extra_Reward
+{
+	required uint32 day =1;
+}
+
+message GS2C_Take_Extra_Reward_res
+{
+	required ExtraRewardResult ret = 1;
+	repeated StReward rewards   = 2;
+}
+message GS2C_Update_date
+{
+	required uint32 day = 1;
+	required uint32 is_signed = 2;
+}
+message GxDB_Sign_info
+{
+	required uint32 dayth = 1;
+	required uint32 IsSigned = 2;//是否签到
+	required uint32 type = 3;//签到类型
+}
+
+message GxDB_Sign_Up
+{
+	repeated GxDB_Sign_info info = 1;
+}
+
+/////////////////////////////通关赏金
+
+enum PassStageEnum
+{
+	PS_TAKE_REWARD_SUCCESS = 0;//成功领取
+	PS_STAGE_NOT_PASSED = 1;//没有通关
+	PS_STAGE_HAS_TAKE_REWARD = 2;//已经领过奖
+	PS_OTHER_REASON 		= 3;
+}
+message pass_stage_reward_info
+{
+	required uint32 id = 1;
+	required uint32 is_take_reward = 2;
+	required uint32 stage_level = 3;
+	required uint32 stage_is_passed = 4;
+	optional uint32 operate_type = 5;
+}
+
+message GS2C_Pass_Stage_Reward_All_Info
+{
+	repeated pass_stage_reward_info pass_stage_info = 1;
+}
+
+message C2GS_Pass_Stage_Reward
+{
+	required uint32 id = 1;
+}
+
+message GS2C_Pass_Stage_Reward_Res
+{
+	optional StReward rewards   = 1;
+	required uint32 ret = 2;
+	optional uint32 id = 3;
+}
+
+message GxDB_Pass_Stage_Reward
+{
+	repeated pass_stage_reward_info pass_stage_info = 1;
+}
+
+
+message GxDB_Pass_Stage_Reward_Delete
+{
+	required uint32 operate_type = 1;
+}
